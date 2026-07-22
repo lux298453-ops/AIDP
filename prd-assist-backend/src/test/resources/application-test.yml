@@ -1,0 +1,29 @@
+spring:
+  datasource:
+    url: jdbc:h2:mem:prd_assist_test;MODE=MySQL;DB_CLOSE_DELAY=-1;NON_KEYWORDS=USER
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    show-sql: false
+    properties:
+      hibernate:
+        format_sql: true
+
+  sql:
+    init:
+      mode: never
+
+app:
+  jwt:
+    secret: dGVzdFNlY3JldEtleUZvckpXVDIwMjRUZXN0aW5nUHVycG9zZXMxMjM0NTY3ODkwYWJjZGVm
+    expiration-ms: 3600000
+  upload:
+    dir: test-uploads
+  ai:
+    api-url: https://api.example.com/v1/messages
+    api-key: test-key
+    model: test-model

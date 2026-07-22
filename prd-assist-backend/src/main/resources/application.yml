@@ -1,0 +1,49 @@
+spring:
+  application:
+    name: AiDocumentPlatform
+  profiles:
+    active: dev
+
+  # ==================== 数据库 ====================
+  datasource:
+    url: jdbc:mysql://${MYSQL_HOST:localhost}:${MYSQL_PORT:3306}/${MYSQL_DATABASE:ai_document_platform}?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai&createDatabaseIfNotExist=true
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    username: ${MYSQL_USERNAME:root}
+    password: ${MYSQL_PASSWORD:abc123}
+
+  # ==================== JPA ====================
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+    properties:
+      hibernate:
+        format_sql: true
+        dialect: org.hibernate.dialect.MySQLDialect
+
+  # ==================== 文件上传 ====================
+  servlet:
+    multipart:
+      max-file-size: 50MB
+      max-request-size: 100MB
+
+  # ==================== Jackson ====================
+  jackson:
+    date-format: yyyy-MM-dd HH:mm:ss
+    time-zone: Asia/Shanghai
+
+# ==================== 服务端口 ====================
+server:
+  port: ${SERVER_PORT:8080}
+
+# ==================== 应用自定义配置 ====================
+app:
+  jwt:
+    secret: ${JWT_SECRET:YWlEb2N1bWVudFBsYXRmb3JtU2VjcmV0S2V5Rm9ySldUU2lnbmluZzIwMjQ=}
+    expiration-ms: ${JWT_EXPIRATION:86400000}  # 默认24小时
+  upload:
+    dir: ${UPLOAD_DIR:uploads}
+  ai:
+    api-url: ${AI_API_URL:https://api.anthropic.com/v1/messages}
+    api-key: ${AI_API_KEY:请替换为你的AI_API_KEY}
+    model: ${AI_MODEL:claude-sonnet-4-20250514}

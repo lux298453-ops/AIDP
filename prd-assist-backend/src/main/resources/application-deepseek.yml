@@ -1,0 +1,12 @@
+# DeepSeek API 配置
+# 激活方式: spring.profiles.active=deepseek (或与其他 profile 组合，如 dev,deepseek)
+#
+# 获取 API Key: https://platform.deepseek.com/api_keys
+# API 文档: https://platform.deepseek.com/api-docs
+# 费用: 极低，适合开发测试（百万 token 约 ¥1）
+
+app:
+  ai:
+    api-url: ${AI_API_URL:https://api.deepseek.com/chat/completions}
+    api-key: ${AI_API_KEY:sk-96123fc26ccd40679a995b349046b61d}
+    model: ${AI_MODEL:deepseek-chat}

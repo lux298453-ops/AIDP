@@ -1,0 +1,27 @@
+# ==================== 开发环境配置 ====================
+# 使用方式: 设置环境变量或在下面替换占位符
+#   MYSQL_PASSWORD=你的密码
+#   JWT_SECRET=你的Base64密钥
+
+spring:
+  datasource:
+    url: jdbc:mysql://${MYSQL_HOST:localhost}:${MYSQL_PORT:3306}/${MYSQL_DATABASE:ai_document_platform}?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai&createDatabaseIfNotExist=true
+    username: ${MYSQL_USERNAME:root}
+    password: ${MYSQL_PASSWORD:abc123}
+
+  jpa:
+    show-sql: true
+
+# 开发环境日志
+logging:
+  level:
+    com.example.aidocumentplatform: DEBUG
+
+app:
+  jwt:
+    secret: ${JWT_SECRET:YWlEb2N1bWVudFBsYXRmb3JtU2VjcmV0S2V5Rm9ySldUU2lnbmluZzIwMjQ=}
+    expiration-ms: ${JWT_EXPIRATION:86400000}
+  ai:
+    api-url: ${AI_API_URL:https://api.anthropic.com/v1/messages}
+    api-key: ${AI_API_KEY:sk-mfRbp0mfTomHjoRMhJlsdGbeADFvg2sT9EmJBFwr2lm3fJsx}
+    model: ${AI_MODEL:claude-sonnet-4-20250514}
