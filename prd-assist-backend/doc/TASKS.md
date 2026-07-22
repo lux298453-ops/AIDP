@@ -21,9 +21,9 @@
 - **暂缓原因**: 上线前切换即可，不影响功能开发
 
 ### 3. 数据库连接确认
-- [x] MySQL 可用性验证（`ai_document_platform`）
+- [x] PostgreSQL 可用性验证（`ai_document_platform`）
 - [x] 注册登录全链路写入/读取验证
-- [x] H2 测试数据库可用
+- [x] PostgreSQL 测试数据库可用
 
 ---
 
@@ -32,7 +32,7 @@
 ### 4. Docker 容器化
 - [ ] 编写后端 `Dockerfile`（多阶段构建，打包 Spring Boot jar）
 - [ ] 编写前端 `Dockerfile`（Nginx 托管静态文件）
-- [ ] 编写 `docker-compose.yml`（MySQL + 后端 + 前端）
+- [ ] 编写 `docker-compose.yml`（PostgreSQL + 后端 + 前端）
 - [ ] 添加健康检查和启动依赖顺序
 - **参考**: 技术选型方案 第四节
 - **暂缓原因**: 10~15 人内部系统，开发阶段直接 `mvn spring-boot:run` + `npm run dev` 即可

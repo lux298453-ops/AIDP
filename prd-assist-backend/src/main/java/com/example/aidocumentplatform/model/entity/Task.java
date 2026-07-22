@@ -33,10 +33,10 @@ public class Task {
     @Column(nullable = false)
     private int progress;
 
-    @Column(columnDefinition = "JSON")
+    @Column(columnDefinition = "JSONB")
     private String inputData;
 
-    @Column(columnDefinition = "JSON")
+    @Column(columnDefinition = "JSONB")
     private String outputData;
 
     @Column(length = 1024)

@@ -4,12 +4,12 @@ spring:
   profiles:
     active: dev
 
-  # ==================== 数据库 ====================
+  # ==================== 数据库 (PostgreSQL) ====================
   datasource:
-    url: jdbc:mysql://${MYSQL_HOST:localhost}:${MYSQL_PORT:3306}/${MYSQL_DATABASE:ai_document_platform}?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai&createDatabaseIfNotExist=true
-    driver-class-name: com.mysql.cj.jdbc.Driver
-    username: ${MYSQL_USERNAME:root}
-    password: ${MYSQL_PASSWORD:abc123}
+    url: jdbc:postgresql://${PG_HOST:localhost}:${PG_PORT:5432}/${PG_DATABASE:ai_document_platform}?currentSchema=public
+    driver-class-name: org.postgresql.Driver
+    username: ${PG_USERNAME:postgres}
+    password: ${PG_PASSWORD:postgres123}
 
   # ==================== JPA ====================
   jpa:
@@ -19,7 +19,9 @@ spring:
     properties:
       hibernate:
         format_sql: true
-        dialect: org.hibernate.dialect.MySQLDialect
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        jdbc:
+          time_zone: Asia/Shanghai
 
   # ==================== 文件上传 ====================
   servlet:

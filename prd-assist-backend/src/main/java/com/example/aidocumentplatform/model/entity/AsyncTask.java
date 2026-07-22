@@ -32,7 +32,7 @@ public class AsyncTask {
     private TaskStatus status;
 
     @Convert(converter = JsonConverter.class)
-    @Column(name = "input_params", columnDefinition = "JSON")
+    @Column(name = "input_params", columnDefinition = "JSONB")
     private String inputParams;
 
     @Column(name = "result_ref_id")

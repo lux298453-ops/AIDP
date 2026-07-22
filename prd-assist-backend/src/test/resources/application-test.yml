@@ -1,9 +1,13 @@
+# PostgreSQL 测试环境配置
+# 注意: 运行测试前需确保本地 PostgreSQL 已启动，并创建 test 数据库:
+#   CREATE DATABASE ai_document_test;
+# 或使用 TestContainers 自动管理（需额外依赖）
 spring:
   datasource:
-    url: jdbc:h2:mem:prd_assist_test;MODE=MySQL;DB_CLOSE_DELAY=-1;NON_KEYWORDS=USER
-    driver-class-name: org.h2.Driver
-    username: sa
-    password:
+    url: jdbc:postgresql://${PG_HOST:localhost}:${PG_PORT:5432}/ai_document_test?currentSchema=public
+    driver-class-name: org.postgresql.Driver
+    username: ${PG_USERNAME:postgres}
+    password: ${PG_PASSWORD:postgres123}
 
   jpa:
     hibernate:
@@ -12,6 +16,7 @@ spring:
     properties:
       hibernate:
         format_sql: true
+        dialect: org.hibernate.dialect.PostgreSQLDialect
 
   sql:
     init:

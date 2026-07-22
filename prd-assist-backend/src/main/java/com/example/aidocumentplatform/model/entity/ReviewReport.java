@@ -28,11 +28,11 @@ public class ReviewReport {
     private Long taskId;
 
     @Convert(converter = JsonConverter.class)
-    @Column(nullable = false, columnDefinition = "JSON")
+    @Column(nullable = false, columnDefinition = "JSONB")
     private String dimensions;
 
     @Convert(converter = JsonConverter.class)
-    @Column(nullable = false, columnDefinition = "JSON")
+    @Column(nullable = false, columnDefinition = "JSONB")
     private String issues;
 
     @Column(name = "created_at", nullable = false, updatable = false)

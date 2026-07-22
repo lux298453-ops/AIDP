@@ -34,7 +34,7 @@ public class PrdDocument {
     private String description;
 
     @Convert(converter = JsonConverter.class)
-    @Column(nullable = false, columnDefinition = "JSON")
+    @Column(nullable = false, columnDefinition = "JSONB")
     private String content;
 
     @Enumerated(EnumType.STRING)

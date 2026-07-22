@@ -32,7 +32,7 @@ public class Document {
     @Column(nullable = false)
     private Long fileSize;
 
-    @Column(columnDefinition = "JSON")
+    @Column(columnDefinition = "JSONB")
     private String parsedContent;
 
     @Column(nullable = false, updatable = false)

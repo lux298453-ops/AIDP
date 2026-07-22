@@ -38,7 +38,7 @@ public class PrototypeResult {
     private Platform platform;
 
     @Convert(converter = JsonConverter.class)
-    @Column(nullable = false, columnDefinition = "JSON")
+    @Column(nullable = false, columnDefinition = "JSONB")
     private String content;
 
     @Column(name = "reference_image_url", length = 255)
