@@ -47,7 +47,7 @@ public class ClaudeClient implements AiClient {
     public String generate(String systemPrompt, String userPrompt) {
         Map<String, Object> body = Map.of(
                 "model", model,
-                "max_tokens", 4096,
+                "max_tokens", 16384,
                 "system", systemPrompt,
                 "messages", List.of(Map.of("role", "user", "content", userPrompt))
         );

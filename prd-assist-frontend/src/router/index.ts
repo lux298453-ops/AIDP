@@ -42,6 +42,12 @@ const router = createRouter({
           meta: { title: 'PRD生成' },
         },
         {
+          path: 'prd/:id',
+          name: 'PrdDetail',
+          component: () => import('@/views/prd/PrdDetailView.vue'),
+          meta: { title: 'PRD详情' },
+        },
+        {
           path: 'prd/enhance',
           name: 'PrdEnhance',
           component: () => import('@/views/PrdEnhanceView.vue'),

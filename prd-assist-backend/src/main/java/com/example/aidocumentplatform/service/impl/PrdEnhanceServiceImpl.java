@@ -12,6 +12,11 @@ import com.example.aidocumentplatform.repository.AsyncTaskRepository;
 import com.example.aidocumentplatform.repository.PrdDocumentRepository;
 import com.example.aidocumentplatform.service.PrdEnhanceService;
 import com.example.aidocumentplatform.util.WordReader;
+import com.example.aidocumentplatform.util.PrdContentParser;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Async;
@@ -30,30 +35,34 @@ public class PrdEnhanceServiceImpl implements PrdEnhanceService {
     private final PrdEnhancePromptTemplate promptTemplate;
     private final TaskServiceImpl taskService;
     private final WordReader wordReader;
+    private final PrdContentParser prdContentParser;
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Override
     public Long submit(PrdEnhanceRequest request, Long userId) {
-        String prdContent = resolvePrdContent(request);
+        String prdContent = resolvePrdContent(request, userId);
         AsyncTask task = createTask(userId, prdContent, request.getContentTypes(), null);
-        execute(task.getId(), prdContent, null, request.getContentTypes(), request.getInstruction(), userId);
+        execute(task.getId(), prdContent, null, request.getContentTypes(), request.getInstruction(),
+                request.getPrdDocumentId(), userId);
         return task.getId();
     }
 
     @Override
     public Long submitWithWord(PrdEnhanceRequest request, byte[] wordBytes, String fileName, Long userId) {
         String wordContent = wordReader.extractText(wordBytes);
-        String prdContent = resolvePrdContent(request);
+        String prdContent = resolvePrdContent(request, userId);
         AsyncTask task = createTask(userId, prdContent, request.getContentTypes(), fileName);
-        execute(task.getId(), prdContent, wordContent, request.getContentTypes(), request.getInstruction(), userId);
+        execute(task.getId(), prdContent, wordContent, request.getContentTypes(), request.getInstruction(),
+                request.getPrdDocumentId(), userId);
         return task.getId();
     }
 
     /** 解析 PRD 内容：优先从 prdDocumentId 查，否则用 prdContent */
-    private String resolvePrdContent(PrdEnhanceRequest req) {
+    private String resolvePrdContent(PrdEnhanceRequest req, Long userId) {
         if (req.getPrdDocumentId() != null) {
-            return prdDocumentRepository.findById(req.getPrdDocumentId())
-                    .map(p -> (p.getDescription() != null ? p.getDescription() + "\n" : "") + p.getTitle())
-                    .orElse(req.getPrdContent());
+            PrdDocument source = findOwnedPrd(req.getPrdDocumentId(), userId);
+            return source.getTitle() + "\n" + (source.getDescription() != null ? source.getDescription() + "\n" : "")
+                    + "\n【结构化 PRD 内容】\n" + source.getContent();
         }
         return req.getPrdContent();
     }
@@ -71,7 +80,7 @@ public class PrdEnhanceServiceImpl implements PrdEnhanceService {
 
     @Async("asyncTaskExecutor")
     public void execute(Long taskId, String prdContent, String wordContent,
-                         List<String> contentTypes, String instruction, Long userId) {
+                         List<String> contentTypes, String instruction, Long sourceDocumentId, Long userId) {
         AsyncTask task = asyncTaskRepository.findById(taskId).orElse(null);
         if (task == null) return;
         try {
@@ -83,15 +92,18 @@ public class PrdEnhanceServiceImpl implements PrdEnhanceService {
             String aiResponse = aiClient.generate(systemPrompt, userPrompt);
 
             taskService.pushProgress(taskId, 70, "AI 生成完成，正在保存...");
-            String jsonContent = extractJson(aiResponse);
+            PrdDocument source = sourceDocumentId != null ? findOwnedPrd(sourceDocumentId, userId) : null;
+            String jsonContent = buildEnhancedPrd(aiResponse, source);
 
             // 存入 prd_document（增强结果也作为 PRD 文档的一条记录）
             PrdDocument doc = PrdDocument.builder()
                     .userId(userId).taskId(taskId)
-                    .title("增强结果")
+                    .title(source != null ? source.getTitle() + "（增强版）" : "增强结果")
                     .description("原始内容长度: " + (prdContent != null ? prdContent.length() : 0))
                     .content(jsonContent)
                     .sourceType(DocumentSourceType.MANUAL)
+                    .template(source != null ? source.getTemplate() : null)
+                    .detailLevel(source != null ? source.getDetailLevel() : null)
                     .build();
             doc = prdDocumentRepository.save(doc);
 
@@ -109,11 +121,34 @@ public class PrdEnhanceServiceImpl implements PrdEnhanceService {
         }
     }
 
-    private String extractJson(String s) {
-        if (s == null) return "{}";
-        s = s.trim();
-        int a = s.indexOf('{'), b = s.lastIndexOf('}');
-        return (a >= 0 && b > a) ? s.substring(a, b + 1) : s;
+    private PrdDocument findOwnedPrd(Long id, Long userId) {
+        PrdDocument document = prdDocumentRepository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("PRD 不存在"));
+        if (!document.getUserId().equals(userId)) throw new IllegalArgumentException("无权访问该 PRD");
+        return document;
+    }
+
+    private String buildEnhancedPrd(String aiResponse, PrdDocument source) {
+        JsonNode generated = prdContentParser.parseObject(aiResponse);
+        if (generated.path("chapters").isArray()) return generated.toString();
+
+        ObjectNode root = source != null
+                ? prdContentParser.normalize(source.getContent()).deepCopy()
+                : objectMapper.createObjectNode();
+        if (!root.hasNonNull("title")) root.put("title", source != null ? source.getTitle() : "增强结果");
+        if (!root.hasNonNull("summary")) root.put("summary", "基于原 PRD 生成的增强版本");
+
+        ArrayNode chapters = root.withArray("chapters");
+        JsonNode sections = generated.path("sections");
+        if (!sections.isArray()) throw new IllegalArgumentException("增强结果缺少 sections 或 chapters 数组");
+        for (JsonNode section : sections) {
+            ObjectNode chapter = objectMapper.createObjectNode();
+            chapter.put("title", section.path("title").asText("增强内容"));
+            chapter.put("content", section.path("content").asText(""));
+            chapter.put("type", section.path("type").asText("enhancement"));
+            chapters.add(chapter);
+        }
+        return root.toString();
     }
     private String truncate(String s, int max) { return s != null && s.length() > max ? s.substring(0, max) : s; }
 }

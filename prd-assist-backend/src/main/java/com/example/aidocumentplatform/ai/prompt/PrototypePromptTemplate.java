@@ -97,6 +97,9 @@ public class PrototypePromptTemplate {
             case WEB -> """
                     【视觉风格】桌面端设计(宽1200px居中)，顶部导航栏 + 左侧菜单 + 右侧内容区，
                     Element Plus 风格配色""";
+            case PAD -> """
+                    【视觉风格】平板端设计(宽834px居中)，支持横竖屏布局，采用侧边导航与双栏内容区，
+                    保证触控热区不小于44px并适配较大字号""";
             case MINI_PROGRAM -> """
                     【视觉风格】小程序风格(宽375px居中)，顶部标题栏 + 微信WeUI风格 + 底部操作栏""";
         };

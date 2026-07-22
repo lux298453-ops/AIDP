@@ -50,7 +50,7 @@ watch(page, loadDocs)
 
 // ==================== 导航 ====================
 function goDetail(doc: DocumentVO) {
-  if (doc.docType === 'PRD') router.push(`/prd/generate`)  // TODO: 详情页
+  if (doc.docType === 'PRD') router.push(`/prd/${doc.id}`)
   else if (doc.docType === 'PROTOTYPE') router.push('/prototype')
   else router.push('/prd/review')
 }
@@ -74,6 +74,38 @@ async function exportWord(doc: DocumentVO) {
     ElMessage.success('下载成功')
   } catch {
     ElMessage.error('下载失败')
+  }
+}
+
+/** 导出原型 HTML */
+async function exportPrototype(doc: DocumentVO) {
+  try {
+    const res = await client.get(`/prototype/${doc.id}/export`, { responseType: 'blob' })
+    const url = window.URL.createObjectURL(new Blob([res.data], { type: 'text/html' }))
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${doc.title}.html`
+    a.click()
+    window.URL.revokeObjectURL(url)
+    ElMessage.success('导出成功')
+  } catch {
+    ElMessage.error('导出失败')
+  }
+}
+
+/** 导出审查报告 Word */
+async function exportReview(doc: DocumentVO) {
+  try {
+    const res = await client.get(`/review/${doc.id}/export`, { responseType: 'blob' })
+    const url = window.URL.createObjectURL(new Blob([res.data]))
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${doc.title}.docx`
+    a.click()
+    window.URL.revokeObjectURL(url)
+    ElMessage.success('导出成功')
+  } catch {
+    ElMessage.error('导出失败')
   }
 }
 
@@ -131,6 +163,12 @@ async function handleRegenerate(doc: DocumentVO) {
         <el-table-column label="操作" width="180" fixed="right">
           <template #default="{ row }">
             <el-button v-if="row.docType === 'PRD'" type="primary" size="small" link @click.stop="exportWord(row)">
+              <el-icon><Download /></el-icon> 导出
+            </el-button>
+            <el-button v-if="row.docType === 'PROTOTYPE'" type="primary" size="small" link @click.stop="exportPrototype(row)">
+              <el-icon><Download /></el-icon> 导出
+            </el-button>
+            <el-button v-if="row.docType === 'REVIEW'" type="primary" size="small" link @click.stop="exportReview(row)">
               <el-icon><Download /></el-icon> 导出
             </el-button>
             <el-button v-if="row.taskId" type="warning" size="small" link @click.stop="handleRegenerate(row)">

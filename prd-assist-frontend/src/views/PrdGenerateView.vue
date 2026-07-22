@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { getTaskById } from '@/api/task'
+import { getTaskById, getTaskSseUrl } from '@/api/task'
 import client from '@/api/client'
 
 const activeTab = ref<'direct' | 'xmind'>('direct')
+const router = useRouter()
 const funcName = ref('')
 const description = ref('')
 const template = ref('STANDARD')
@@ -51,41 +53,66 @@ async function handleGenerate() {
       const res = await client.post('/prd/generate/xmind', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
       taskId = res.data.data.taskId
     }
-    pollTask()
+    startSse()
   } catch { loading.value = false }
 }
 
-async function pollTask() {
+function startSse() {
   if (!taskId) return
-  const timer = setInterval(async () => {
+  const eventSource = new EventSource(getTaskSseUrl(taskId))
+  eventSource.addEventListener('progress', async (event) => {
     try {
-      const r = await getTaskById(taskId!)
-      const st = r.data.data.status
-      if (st === 'RUNNING') progress.value = Math.min(progress.value + 8, 85)
-      else if (st === 'SUCCESS') {
-        progress.value = 100; loading.value = false; clearInterval(timer)
+      const data = JSON.parse((event as MessageEvent).data)
+      progress.value = data.progress
+      if (data.progress <= 0 && data.message && data.message.includes('失败')) {
+        eventSource.close(); loading.value = false
+        ElMessage.error(data.message)
+        return
+      }
+      if (data.progress >= 100) {
+        eventSource.close(); loading.value = false
         ElMessage.success('PRD 生成完成')
+        const r = await getTaskById(taskId!)
         const refId = r.data.data.resultRefId
-        if (refId) {
-          try {
-            const doc = await client.get(`/prd/${refId}`)
-            const c = doc.data.data?.content
-            if (c) { try { result.value = fmt(JSON.parse(c)) } catch { result.value = c } }
-          } catch { result.value = '请在「我的文档」中查看生成结果' }
-        }
-      } else if (st === 'FAILED') {
-        loading.value = false; clearInterval(timer)
-        ElMessage.error(r.data.data.errorMessage || '生成失败')
+        if (refId) await router.push(`/prd/${refId}`)
       }
     } catch { /* ignore */ }
-  }, 1500)
+  })
+  eventSource.onerror = async () => {
+    eventSource.close()
+    try {
+      const r = await getTaskById(taskId!)
+      if (r.data.data.status === 'SUCCESS' && r.data.data.resultRefId) {
+        loading.value = false; await router.push(`/prd/${r.data.data.resultRefId}`)
+      } else if (r.data.data.status === 'FAILED') {
+        loading.value = false; ElMessage.error(r.data.data.errorMessage || '生成失败')
+      } else {
+        loading.value = false; ElMessage.warning('进度连接已断开，请在我的文档中查看任务结果')
+      }
+    } catch { loading.value = false }
+  }
+}
+
+function parseAndFormat(raw: any): string {
+  // 已经是对象（@JsonRawValue 返回原生 JSON）
+  if (raw && typeof raw === 'object') return fmt(raw)
+  // 是字符串，尝试解析
+  if (typeof raw === 'string') {
+    let obj: any = null
+    try { obj = JSON.parse(raw) } catch {}
+    if (!obj) { try { obj = JSON.parse(raw.replace(/```json\n?/g,'').replace(/```/g,'').trim()) } catch {} }
+    if (!obj) { const a=raw.indexOf('{'), b=raw.lastIndexOf('}'); if(a>=0&&b>a) try { obj=JSON.parse(raw.substring(a,b+1)) } catch {} }
+    if (obj) return fmt(obj)
+    return raw.replace(/\\n/g,'<br>').replace(/\\"/g,'"')
+  }
+  return String(raw)
 }
 
 function fmt(j: any): string {
   let t = ''
   if (j.title) t += `<h3>${j.title}</h3>`
   if (j.summary) t += `<p><em>${j.summary}</em></p>`
-  if (j.chapters) for (const c of j.chapters) t += `<h4>${c.title||''}</h4><p>${(c.content||'').replace(/\n/g,'<br>')}</p>`
+  if (j.chapters) for (const c of j.chapters) t += `<h4>${c.title||''}</h4><p>${String(c.content||'').replace(/\n/g,'<br>')}</p>`
   return t || JSON.stringify(j)
 }
 </script>

@@ -101,6 +101,13 @@ public class TaskServiceImpl implements TaskService {
                 sseRegistry.remove(taskId);
                 log.warn("SSE推送失败, taskId={}", taskId, e);
             }
+            // 终态（成功/失败）推送后关闭 emitter，让前端 onerror 能触发
+            if (progress >= 100 || progress < 0) {
+                try { emitter.complete(); } catch (Exception ignored) {}
+                sseRegistry.remove(taskId);
+            }
+        } else {
+            log.debug("SSE emitter 不存在, taskId={}, progress={}（前端可能已断开或任务已结束）", taskId, progress);
         }
     }
 }

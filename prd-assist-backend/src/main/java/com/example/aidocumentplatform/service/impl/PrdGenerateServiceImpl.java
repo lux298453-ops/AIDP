@@ -11,8 +11,10 @@ import com.example.aidocumentplatform.model.enums.TaskType;
 import com.example.aidocumentplatform.repository.AsyncTaskRepository;
 import com.example.aidocumentplatform.repository.PrdDocumentRepository;
 import com.example.aidocumentplatform.service.PrdGenerateService;
+import com.example.aidocumentplatform.util.PrdContentParser;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.ApplicationContext;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
@@ -37,6 +39,8 @@ public class PrdGenerateServiceImpl implements PrdGenerateService {
     private final AiClient aiClient;
     private final PrdGeneratePromptTemplate promptTemplate;
     private final TaskServiceImpl taskService;
+    private final PrdContentParser prdContentParser;
+    private final ApplicationContext applicationContext;
 
     @Override
     public Long submit(PrdGenerateRequest request, Long userId) {
@@ -51,8 +55,8 @@ public class PrdGenerateServiceImpl implements PrdGenerateService {
 
         log.info("PRD生成任务已创建: taskId={}, userId={}, featureName={}", task.getId(), userId, request.getFeatureName());
 
-        // 2. 异步执行生成
-        execute(task.getId(), request, userId);
+        // 2. 异步执行生成（通过 Spring 代理确保 @Async 生效）
+        applicationContext.getBean(PrdGenerateServiceImpl.class).execute(task.getId(), request, userId);
 
         return task.getId();
     }
@@ -75,19 +79,26 @@ public class PrdGenerateServiceImpl implements PrdGenerateService {
             String systemPrompt = promptTemplate.getSystemPrompt();
             String userPrompt = promptTemplate.buildUserPrompt(
                     request.getFeatureName(), request.getDescription(), request.getDetailLevel());
+            log.info("AI 调用开始: taskId={}, promptLen={}", taskId, userPrompt.length());
             String aiResponse = aiClient.generate(systemPrompt, userPrompt);
+            log.info("AI 调用完成: taskId={}, responseLen={}, firstChars={}",
+                    taskId, aiResponse.length(),
+                    aiResponse.length() > 200 ? aiResponse.substring(0, 200) : aiResponse);
 
             taskService.pushProgress(taskId, 70, "AI 生成完成，正在保存...");
 
             // 提取 JSON 内容（AI 可能包裹在 markdown 代码块中）
-            String jsonContent = extractJson(aiResponse);
+            String jsonContent = prdContentParser.normalizeToJson(aiResponse);
 
-            // 保存到 prd_document
+            // 保存到 prd_document（description 限制 500 字符，XMind 大纲文本可能很长）
+            String safeDescription = request.getDescription() != null && request.getDescription().length() > 500
+                    ? request.getDescription().substring(0, 497) + "..."
+                    : request.getDescription();
             PrdDocument doc = PrdDocument.builder()
                     .userId(userId)
                     .taskId(taskId)
                     .title(request.getFeatureName())
-                    .description(request.getDescription())
+                    .description(safeDescription)
                     .content(jsonContent)
                     .sourceType(DocumentSourceType.MANUAL)
                     .template(request.getTemplate())
@@ -110,18 +121,6 @@ public class PrdGenerateServiceImpl implements PrdGenerateService {
             asyncTaskRepository.save(task);
             taskService.pushProgress(taskId, 0, "生成失败: " + e.getMessage());
         }
-    }
-
-    /** 从 AI 返回中提取 JSON（去掉可能的 ```json ... ``` 包裹） */
-    private String extractJson(String aiResponse) {
-        if (aiResponse == null) return "{}";
-        String trimmed = aiResponse.trim();
-        int jsonStart = trimmed.indexOf('{');
-        int jsonEnd = trimmed.lastIndexOf('}');
-        if (jsonStart >= 0 && jsonEnd > jsonStart) {
-            return trimmed.substring(jsonStart, jsonEnd + 1);
-        }
-        return trimmed;
     }
 
     private String truncate(String s, int maxLen) {
@@ -161,7 +160,8 @@ public class PrdGenerateServiceImpl implements PrdGenerateService {
         try { request.setTemplate(com.example.aidocumentplatform.model.enums.TemplateType.valueOf(template)); } catch (Exception ignored) {}
         try { request.setDetailLevel(com.example.aidocumentplatform.model.enums.DetailLevel.valueOf(detailLevel)); } catch (Exception ignored) {}
 
-        execute(task.getId(), request, userId);
+        // 通过 Spring 代理调用，确保 @Async 生效
+        applicationContext.getBean(PrdGenerateServiceImpl.class).execute(task.getId(), request, userId);
         return task.getId();
     }
 

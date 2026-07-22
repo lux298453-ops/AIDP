@@ -19,7 +19,7 @@ const generateMode = ref<'single' | 'multi'>('single')
 const platforms = [
   { key: 'APP', label: 'APP', icon: 'Iphone' },
   { key: 'WEB', label: 'Web', icon: 'Monitor' },
-  { key: 'MINI_PROGRAM', label: '小程序', icon: 'Platform' },
+  { key: 'PAD', label: 'Pad', icon: 'Platform' },
 ]
 
 // ==================== 状态 ====================
@@ -27,6 +27,9 @@ const loading = ref(false)
 const progress = ref(0)
 const progressMsg = ref('')
 const showPreview = ref(false)
+const viewMode = ref<'preview' | 'edit'>('preview')
+const editSource = ref('')
+const saving = ref(false)
 
 // 单页面
 const singleHtml = ref('')
@@ -41,15 +44,49 @@ const currentHtml = computed(() => {
 const isMultiPage = computed(() => pages.value.length > 0)
 
 let taskId: number | null = null
+let resultId: number | null = null
 const sandboxAttrs = 'allow-scripts allow-same-origin'
 
 const canGenerate = computed(() => description.value.trim().length > 0)
 
+// ==================== 交互编辑 ====================
+function enterEditMode() {
+  editSource.value = currentHtml.value
+  viewMode.value = 'edit'
+}
+function enterPreviewMode() {
+  // 将编辑后的内容应用到当前页面
+  if (pages.value.length > 0) {
+    pages.value[currentPageIndex.value].html = editSource.value
+  } else {
+    singleHtml.value = editSource.value
+  }
+  viewMode.value = 'preview'
+}
+async function saveEdits() {
+  if (!resultId) return
+  // 先应用编辑
+  if (viewMode.value === 'edit') enterPreviewMode()
+  saving.value = true
+  try {
+    // 保存时，单页面直接传 HTML，多页面序列化为 JSON 数组
+    let content: string
+    if (pages.value.length > 0) {
+      content = JSON.stringify(pages.value.map(p => ({ title: p.title, order: p.order, html: p.html })))
+    } else {
+      content = singleHtml.value
+    }
+    await client.put(`/prototype/${resultId}`, { content })
+    ElMessage.success('修改已保存')
+  } catch { ElMessage.error('保存失败') }
+  finally { saving.value = false }
+}
+
 // ==================== 提交 ====================
 async function handleGenerate() {
   if (!description.value.trim()) { ElMessage.warning('请输入功能描述'); return }
-  loading.value = true; singleHtml.value = ''; pages.value = []; showPreview.value = false
-  progress.value = 0; progressMsg.value = ''; currentPageIndex.value = 0
+  loading.value = true; singleHtml.value = ''; pages.value = []; showPreview.value = false; viewMode.value = 'preview'
+  progress.value = 0; progressMsg.value = ''; currentPageIndex.value = 0; resultId = null
 
   try {
     const res = await client.post('/prototype/generate', {
@@ -66,6 +103,10 @@ function startSse() {
   const es = new EventSource(getTaskSseUrl(taskId))
   es.addEventListener('progress', (e) => {
     const d = JSON.parse(e.data); progress.value = d.progress; progressMsg.value = d.message
+    if (d.progress <= 0 && d.message && d.message.includes('失败')) {
+      es.close(); loading.value = false; ElMessage.error(d.message)
+      return
+    }
     if (d.progress >= 100) { es.close(); loading.value = false; ElMessage.success('原型生成完成'); fetchResult() }
   })
   es.onerror = () => { es.close(); loading.value = false }
@@ -77,7 +118,8 @@ async function fetchResult() {
     const r = await getTaskById(taskId!)
     if (r.data.data.status === 'SUCCESS' && r.data.data.resultRefId) {
       clearInterval(t)
-      const protoRes = await client.get(`/prototype/${r.data.data.resultRefId}`)
+      resultId = r.data.data.resultRefId
+      const protoRes = await client.get(`/prototype/${resultId}`)
       parseContent(protoRes.data.data.content || '', protoRes.data.data.prototypeType)
       showPreview.value = true
     }
@@ -85,27 +127,76 @@ async function fetchResult() {
   }, 2000)
 }
 
+/** 导出原型为 HTML 文件 */
+async function exportPrototype() {
+  if (!resultId) return
+  // 如果在编辑模式，先应用编辑
+  if (viewMode.value === 'edit') enterPreviewMode()
+  try {
+    const res = await client.get(`/prototype/${resultId}/export`, { responseType: 'blob' })
+    const url = window.URL.createObjectURL(new Blob([res.data], { type: 'text/html' }))
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `原型_${resultId}.html`
+    a.click()
+    window.URL.revokeObjectURL(url)
+    ElMessage.success('导出成功')
+  } catch {
+    ElMessage.error('导出失败')
+  }
+}
+
 /** 解析内容：JSON 数组 → 多页面，纯 HTML → 单页面 */
 function parseContent(content: string, protoType: string) {
-  if (protoType === 'MULTI_PAGE') {
+  if (!content) { singleHtml.value = '<p>暂无内容</p>'; return }
+
+  let decoded: any = content
+  for (let i = 0; i < 3; i++) {
+    if (typeof decoded !== 'string') break
+    try {
+      const parsed = JSON.parse(decoded)
+      if (typeof parsed === 'string') { decoded = parsed; continue }
+      decoded = parsed
+      break
+    } catch { break }
+  }
+
+  if (typeof decoded === 'string') {
+    let html = decoded
+    html = html.replace(/\\n/g, '\n').replace(/\\t/g, '\t').replace(/\\"/g, '"')
+    if (!html.trim().startsWith('<') && html.trim().startsWith('[')) {
+      try { const arr = JSON.parse(html); if (Array.isArray(arr)) decoded = arr } catch { /* keep */ }
+    }
+  }
+
+  if (typeof decoded === 'object' && decoded !== null) {
+    if (Array.isArray(decoded) && decoded.length > 0) {
+      pages.value = decoded.map((p: any) => ({ title: p.title || `页面 ${p.order || 1}`, order: p.order || 1, html: p.html || '' }))
+      pages.value.sort((a, b) => a.order - b.order); return
+    }
+    if (decoded.pages && Array.isArray(decoded.pages)) {
+      pages.value = decoded.pages.map((p: any) => ({ title: p.title || `页面 ${p.order || 1}`, order: p.order || 1, html: p.html || '' }))
+      pages.value.sort((a, b) => a.order - b.order); return
+    }
+    if (decoded.html) { singleHtml.value = decoded.html; return }
+    singleHtml.value = '<pre>' + JSON.stringify(decoded, null, 2).replace(/</g, '&lt;') + '</pre>'; return
+  }
+
+  if (protoType === 'MULTI_PAGE' && typeof content === 'string') {
     try {
       const arr = JSON.parse(content)
       if (Array.isArray(arr) && arr.length > 0) {
-        pages.value = arr.map((p: any) => ({
-          title: p.title || `页面 ${p.order || 1}`,
-          order: p.order || 1,
-          html: p.html || '',
-        }))
-        pages.value.sort((a, b) => a.order - b.order)
-        return
+        pages.value = arr.map((p: any) => ({ title: p.title || `页面 ${p.order || 1}`, order: p.order || 1, html: p.html || '' }))
+        pages.value.sort((a, b) => a.order - b.order); return
       }
-    } catch { /* fall through to single page */ }
+    } catch { /* fall through */ }
   }
-  singleHtml.value = content
+
+  singleHtml.value = typeof decoded === 'string' ? decoded : String(content)
 }
 
 function selectPage(index: number) { currentPageIndex.value = index }
-function closePreview() { showPreview.value = false; pages.value = []; singleHtml.value = '' }
+function closePreview() { showPreview.value = false; pages.value = []; singleHtml.value = ''; viewMode.value = 'preview' }
 </script>
 
 <template>
@@ -152,7 +243,25 @@ function closePreview() { showPreview.value = false; pages.value = []; singleHtm
           <!-- 工具栏 -->
           <div class="preview-toolbar">
             <span>{{ isMultiPage ? `多页面原型 · ${pages.length} 页` : `原型预览 (${platform})` }}</span>
-            <el-button type="text" size="small" @click="closePreview">关闭</el-button>
+            <div style="display:flex;gap:8px">
+              <template v-if="viewMode === 'preview'">
+                <el-button type="warning" size="small" @click="enterEditMode">
+                  <el-icon><Edit /></el-icon> 编辑源码
+                </el-button>
+                <el-button type="primary" size="small" @click="exportPrototype">
+                  <el-icon><Download /></el-icon> 导出 HTML
+                </el-button>
+              </template>
+              <template v-else>
+                <el-button type="success" size="small" @click="enterPreviewMode">
+                  <el-icon><View /></el-icon> 预览
+                </el-button>
+                <el-button type="primary" size="small" :loading="saving" @click="saveEdits">
+                  <el-icon><Check /></el-icon> 保存修改
+                </el-button>
+              </template>
+              <el-button type="text" size="small" @click="closePreview">关闭</el-button>
+            </div>
           </div>
           <div class="preview-body" :class="{ 'has-pages': isMultiPage }">
             <!-- 多页面：左侧缩略图导航 -->
@@ -167,8 +276,22 @@ function closePreview() { showPreview.value = false; pages.value = []; singleHtm
                 <span class="thumb-label">{{ page.title }}</span>
               </div>
             </div>
-            <!-- iframe 渲染当前页 -->
-            <iframe v-if="currentHtml" :srcdoc="currentHtml" :sandbox="sandboxAttrs" class="preview-frame" :key="currentPageIndex" title="原型预览" />
+            <!-- 预览模式：iframe 渲染 -->
+            <iframe v-if="viewMode === 'preview' && currentHtml" :srcdoc="currentHtml" :sandbox="sandboxAttrs" class="preview-frame" :key="'pv-' + currentPageIndex" title="原型预览" />
+            <!-- 编辑模式：HTML 源码编辑器 -->
+            <div v-if="viewMode === 'edit'" class="edit-area">
+              <div class="edit-header">
+                <span>HTML 源码编辑 — {{ isMultiPage ? pages[currentPageIndex]?.title : '单页面' }}</span>
+                <span class="edit-hint">直接修改 HTML 后点击「预览」查看效果，满意后「保存修改」</span>
+              </div>
+              <el-input
+                v-model="editSource"
+                type="textarea"
+                class="edit-textarea"
+                :autosize="false"
+                placeholder="编辑 HTML 源码..."
+              />
+            </div>
           </div>
         </template>
         <template v-else>
@@ -239,4 +362,23 @@ function closePreview() { showPreview.value = false; pages.value = []; singleHtm
 .thumb-label { font-size: 11px; color: #606266; text-align: center; padding: 4px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 .preview-frame { flex: 1; width: 100%; border: none; }
+
+/* ====== 编辑模式 ====== */
+.edit-area { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+.edit-header { display: flex; justify-content: space-between; align-items: center; padding: 10px 16px; background: #fdf6ec; border-bottom: 1px solid #faecd8; font-size: 13px; color: #e6a23c; flex-shrink: 0; }
+.edit-hint { font-size: 12px; color: #c0c4cc; }
+.edit-textarea { flex: 1; }
+.edit-textarea :deep(.el-textarea__inner) {
+  height: 100% !important;
+  min-height: 400px;
+  font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  border-radius: 0;
+  border: none;
+  resize: none;
+  background: #1e1e1e;
+  color: #d4d4d4;
+  padding: 16px;
+}
 </style>

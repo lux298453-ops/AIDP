@@ -13,6 +13,7 @@ import com.example.aidocumentplatform.repository.PrototypeResultRepository;
 import com.example.aidocumentplatform.service.PrototypeGenerateService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.ApplicationContext;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
@@ -26,6 +27,7 @@ public class PrototypeGenerateServiceImpl implements PrototypeGenerateService {
     private final AiClient aiClient;
     private final PrototypePromptTemplate promptTemplate;
     private final TaskServiceImpl taskService;
+    private final ApplicationContext applicationContext;
 
     @Override
     public Long submit(PrototypeGenerateRequest request, Long userId) {
@@ -37,7 +39,8 @@ public class PrototypeGenerateServiceImpl implements PrototypeGenerateService {
                 .build();
         task = asyncTaskRepository.save(task);
         log.info("原型生成任务: taskId={}, type={}, platform={}", task.getId(), request.getPrototypeType(), request.getPlatform());
-        execute(task.getId(), request, userId);
+        // 通过 Spring 代理调用，确保 @Async 生效
+        applicationContext.getBean(PrototypeGenerateServiceImpl.class).execute(task.getId(), request, userId);
         return task.getId();
     }
 

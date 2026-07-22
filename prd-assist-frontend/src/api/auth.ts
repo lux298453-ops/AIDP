@@ -1,5 +1,5 @@
 import client from './client'
-import type { LoginRequest, RegisterRequest, LoginResponse } from '@/types/api'
+import type { LoginRequest, RegisterRequest, LoginResponse, Result } from '@/types/api'
 
 /**
  * 用户注册。
@@ -14,5 +14,5 @@ export function register(data: RegisterRequest) {
  * POST /api/auth/login
  */
 export function login(data: LoginRequest) {
-  return client.post<LoginResponse>('/auth/login', data)
+  return client.post<Result<LoginResponse>>('/auth/login', data)
 }

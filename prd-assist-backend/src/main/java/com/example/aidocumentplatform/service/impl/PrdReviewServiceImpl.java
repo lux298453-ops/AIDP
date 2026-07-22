@@ -11,8 +11,11 @@ import com.example.aidocumentplatform.repository.AsyncTaskRepository;
 import com.example.aidocumentplatform.repository.PrdDocumentRepository;
 import com.example.aidocumentplatform.repository.ReviewReportRepository;
 import com.example.aidocumentplatform.service.PrdReviewService;
+import com.example.aidocumentplatform.util.PrdContentParser;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.ApplicationContext;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
@@ -29,16 +32,19 @@ public class PrdReviewServiceImpl implements PrdReviewService {
     private final AiClient aiClient;
     private final PrdReviewPromptTemplate promptTemplate;
     private final TaskServiceImpl taskService;
+    private final PrdContentParser prdContentParser;
+    private final ApplicationContext applicationContext;
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Override
     public Long submit(PrdReviewRequest request, Long userId) {
-        String prdContent = resolvePrdContent(request);
+        String prdContent = resolvePrdContent(request, userId);
         Long prdDocId = request.getPrdDocumentId();
         if (prdDocId == null) prdDocId = 0L; // 无关联 PRD 时用 0 占位
 
         // 维度 JSON
         List<String> dims = request.getDimensions();
-        String dimsJson = dims != null && !dims.isEmpty() ? dims.toString() : "[]";
+        String dimsJson = toJson(dims != null ? dims : List.of());
 
         AsyncTask task = AsyncTask.builder()
                 .userId(userId).taskType(TaskType.PRD_REVIEW).status(TaskStatus.PENDING)
@@ -47,7 +53,9 @@ public class PrdReviewServiceImpl implements PrdReviewService {
                 .build();
         task = asyncTaskRepository.save(task);
         log.info("PRD审查任务已创建: taskId={}, userId={}, dimensions={}", task.getId(), userId, dims);
-        execute(task.getId(), prdContent, dims, request.getRequirement(), userId, prdDocId);
+        // 通过 Spring 代理调用，确保 @Async 生效
+        applicationContext.getBean(PrdReviewServiceImpl.class)
+                .execute(task.getId(), prdContent, dims, request.getRequirement(), userId, prdDocId);
         return task.getId();
     }
 
@@ -65,8 +73,8 @@ public class PrdReviewServiceImpl implements PrdReviewService {
 
             taskService.pushProgress(taskId, 70, "审查完成，正在保存报告...");
 
-            String json = extractJson(aiResponse);
-            String dimsJson = dimensions != null ? dimensions.toString() : "[]";
+            String json = prdContentParser.parseObject(aiResponse).toString();
+            String dimsJson = toJson(dimensions != null ? dimensions : List.of());
 
             ReviewReport report = ReviewReport.builder()
                     .userId(userId).prdDocumentId(prdDocId).taskId(taskId)
@@ -87,17 +95,19 @@ public class PrdReviewServiceImpl implements PrdReviewService {
         }
     }
 
-    private String resolvePrdContent(PrdReviewRequest req) {
-        if (req.getPrdDocumentId() != null)
-            return prdDocumentRepository.findById(req.getPrdDocumentId())
-                    .map(p -> p.getTitle() + "\n" + (p.getDescription() != null ? p.getDescription() : ""))
-                    .orElse(req.getPrdContent());
+    private String resolvePrdContent(PrdReviewRequest req, Long userId) {
+        if (req.getPrdDocumentId() != null) {
+            var document = prdDocumentRepository.findById(req.getPrdDocumentId())
+                    .orElseThrow(() -> new IllegalArgumentException("PRD 不存在"));
+            if (!document.getUserId().equals(userId)) throw new IllegalArgumentException("无权访问该 PRD");
+            return document.getTitle() + "\n" + (document.getDescription() != null ? document.getDescription() + "\n" : "")
+                    + "\n【结构化 PRD 内容】\n" + document.getContent();
+        }
         return req.getPrdContent();
     }
-    private String extractJson(String s) {
-        if (s == null) return "{}"; s = s.trim();
-        int a = s.indexOf('{'), b = s.lastIndexOf('}');
-        return (a >= 0 && b > a) ? s.substring(a, b + 1) : s;
+    private String toJson(Object value) {
+        try { return objectMapper.writeValueAsString(value); }
+        catch (Exception e) { throw new IllegalArgumentException("无法序列化任务参数", e); }
     }
     private String esc(String s) { return s == null ? "" : s.replace("\\", "\\\\").replace("\"", "\\\""); }
     private String truncate(String s, int max) { return s != null && s.length() > max ? s.substring(0, max) : s; }

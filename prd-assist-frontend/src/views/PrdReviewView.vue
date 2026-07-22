@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { getTaskSseUrl, getTaskById } from '@/api/task'
 import client from '@/api/client'
@@ -8,6 +8,7 @@ import client from '@/api/client'
 const inputMode = ref<'paste' | 'existing'>('paste')
 const prdContent = ref('')
 const prdDocumentId = ref<number | null>(null)
+const existingPrds = ref<any[]>([])
 
 // ==================== 审查维度（默认全选） ====================
 const dimensions = ref([
@@ -30,6 +31,7 @@ const summary = ref('')
 const score = ref(0)
 const issues = ref<Issue[]>([])
 const showReport = ref(false)
+let reportId: number | null = null
 
 const severities = [
   { key: 'CRITICAL', label: '严重', color: '#f56c6c', bg: '#fef0f0' },
@@ -46,7 +48,7 @@ const issueCounts = computed(() => {
 
 const canReview = computed(() => {
   const hasDims = dimensions.value.some(d => d.active)
-  return (inputMode.value === 'paste' ? prdContent.value.trim().length > 0 : true) && hasDims
+  return (inputMode.value === 'paste' ? prdContent.value.trim().length > 0 : !!prdDocumentId.value) && hasDims
 })
 
 // ==================== 提交 ====================
@@ -56,7 +58,7 @@ async function handleReview() {
   if (dims.length === 0) { ElMessage.warning('请至少选择一个审查维度'); return }
 
   loading.value = true; issues.value = []; showReport.value = false; summary.value = ''; score.value = 0
-  progress.value = 0; progressMsg.value = ''
+  progress.value = 0; progressMsg.value = ''; reportId = null
 
   try {
     const body: Record<string, any> = { dimensions: dims }
@@ -74,6 +76,10 @@ function startSse() {
   const es = new EventSource(getTaskSseUrl(taskId))
   es.addEventListener('progress', (e) => {
     const d = JSON.parse(e.data); progress.value = d.progress; progressMsg.value = d.message
+    if (d.progress <= 0 && d.message && d.message.includes('失败')) {
+      es.close(); loading.value = false; ElMessage.error(d.message)
+      return
+    }
     if (d.progress >= 100) { es.close(); loading.value = false; ElMessage.success('审查完成'); fetchReport() }
   })
   es.onerror = () => { es.close(); loading.value = false }
@@ -85,10 +91,12 @@ async function fetchReport() {
     const r = await getTaskById(taskId!)
     if (r.data.data.status === 'SUCCESS' && r.data.data.resultRefId) {
       clearInterval(t)
-      const report = await client.get(`/review/${r.data.data.resultRefId}`)
+      reportId = r.data.data.resultRefId
+      const report = await client.get(`/review/${reportId}`)
       const data = report.data.data
       try {
-        const parsed = JSON.parse(data.issues || '{}')
+        let parsed: any = data.issues || '{}'
+        for (let i = 0; i < 3 && typeof parsed === 'string'; i++) parsed = JSON.parse(parsed)
         summary.value = parsed.summary || ''
         score.value = parsed.score || 0
         issues.value = parsed.issues || []
@@ -98,6 +106,32 @@ async function fetchReport() {
     if (r.data.data.status === 'FAILED') { ElMessage.error(r.data.data.errorMessage || '审查失败'); clearInterval(t) }
   }, 2000)
 }
+
+/** 导出审查报告为 Word */
+async function exportReport() {
+  if (!reportId) return
+  try {
+    const res = await client.get(`/review/${reportId}/export`, { responseType: 'blob' })
+    const url = window.URL.createObjectURL(new Blob([res.data]))
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `审查报告_${reportId}.docx`
+    a.click()
+    window.URL.revokeObjectURL(url)
+    ElMessage.success('导出成功')
+  } catch {
+    ElMessage.error('导出失败')
+  }
+}
+
+async function loadExistingPrds() {
+  try {
+    const response = await client.get('/documents', { params: { taskType: 'PRD_GENERATE', page: 0, size: 100 } })
+    existingPrds.value = response.data.data?.content || []
+  } catch { existingPrds.value = [] }
+}
+
+onMounted(loadExistingPrds)
 
 function scoreColor(s: number) { if (s >= 80) return '#67c23a'; if (s >= 60) return '#e6a23c'; return '#f56c6c' }
 </script>
@@ -122,6 +156,11 @@ function scoreColor(s: number) { if (s >= 80) return '#67c23a'; if (s >= 60) ret
         </div>
         <div v-if="inputMode === 'paste'" class="form-group">
           <el-input v-model="prdContent" type="textarea" :rows="10" placeholder="请粘贴需要审查的 PRD 文档内容..." maxlength="8000" show-word-limit />
+        </div>
+        <div v-else class="form-group">
+          <el-select v-model="prdDocumentId" clearable filterable placeholder="选择要审查的文档" style="width:100%">
+            <el-option v-for="doc in existingPrds" :key="doc.id" :label="doc.title" :value="doc.id" />
+          </el-select>
         </div>
 
         <!-- 审查维度 -->
@@ -157,7 +196,12 @@ function scoreColor(s: number) { if (s >= 80) return '#67c23a'; if (s >= 60) ret
               <span class="score-label">分</span>
             </div>
             <div class="report-summary">
-              <h3>审查报告</h3>
+              <div style="display:flex;justify-content:space-between;align-items:flex-start">
+                <h3>审查报告</h3>
+                <el-button type="primary" size="small" @click="exportReport">
+                  <el-icon><Download /></el-icon> 导出 Word
+                </el-button>
+              </div>
               <p>{{ summary }}</p>
               <div class="severity-tags">
                 <span v-for="s in severities" :key="s.key" v-show="issueCounts[s.key]" class="sev-tag" :style="{background:s.bg,color:s.color}">{{ s.label }} {{ issueCounts[s.key] }}</span>

@@ -30,7 +30,7 @@ public class PrdDocument {
     @Column(nullable = false, length = 50)
     private String title;
 
-    @Column(length = 500)
+    @Column(length = 2000)
     private String description;
 
     @Convert(converter = JsonConverter.class)

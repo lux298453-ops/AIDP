@@ -1,16 +1,17 @@
 import client from './client'
 import type { TaskCreateRequest, TaskItem } from '@/types/task'
+import type { Result } from '@/types/api'
 
 export function createTask(data: TaskCreateRequest) {
-  return client.post<TaskItem>('/tasks', data)
+  return client.post<Result<TaskItem>>('/tasks', data)
 }
 
 export function getTasks() {
-  return client.get<TaskItem[]>('/tasks')
+  return client.get<Result<TaskItem[]>>('/tasks')
 }
 
 export function getTaskById(id: number) {
-  return client.get<TaskItem>(`/tasks/${id}`)
+  return client.get<Result<TaskItem>>(`/tasks/${id}`)
 }
 
 export function getTaskSseUrl(id: number): string {

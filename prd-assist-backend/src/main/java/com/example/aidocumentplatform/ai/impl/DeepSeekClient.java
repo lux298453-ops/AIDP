@@ -53,7 +53,7 @@ public class DeepSeekClient implements AiClient {
         Map<String, Object> body = Map.of(
                 "model", model,
                 "messages", messages,
-                "max_tokens", 4096,
+                "max_tokens", 16384,
                 "temperature", 0.7
         );
 

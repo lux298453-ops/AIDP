@@ -1,13 +1,16 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { createTask, getTaskSseUrl, getTaskById } from '@/api/task'
 import client from '@/api/client'
 
 // ==================== 输入来源 ====================
 const inputMode = ref<'paste' | 'existing'>('paste')
+const router = useRouter()
 const prdContent = ref('')
 const prdDocumentId = ref<number | null>(null)
+const existingPrds = ref<any[]>([])
 
 // ==================== Word 上传 ====================
 const wordInput = ref<HTMLInputElement | null>(null)
@@ -47,7 +50,8 @@ let taskId: number | null = null
 
 const canSubmit = computed(() => {
   const hasTypes = contentTypes.value.some(t => t.active)
-  return inputMode.value === 'existing' || (prdContent.value.trim().length > 0 && hasTypes) || (wordFile.value && hasTypes)
+  const hasSource = inputMode.value === 'existing' ? !!prdDocumentId.value : prdContent.value.trim().length > 0
+  return (hasSource || !!wordFile.value) && hasTypes
 })
 
 // ==================== 提交 ====================
@@ -95,10 +99,23 @@ async function pollResult() {
   if (!taskId) return
   const t = setInterval(async () => {
     const r = await getTaskById(taskId!)
-    if (r.data.data.status === 'SUCCESS') { result.value = r.data.data.outputData || ''; clearInterval(t) }
+    if (r.data.data.status === 'SUCCESS' && r.data.data.resultRefId) {
+      clearInterval(t)
+      const source = prdDocumentId.value
+      await router.push({ path: `/prd/${r.data.data.resultRefId}`, query: source ? { compare: String(source) } : undefined })
+    }
     if (r.data.data.status === 'FAILED') { ElMessage.error(r.data.data.errorMessage || '失败'); clearInterval(t) }
   }, 2000)
 }
+
+async function loadExistingPrds() {
+  try {
+    const response = await client.get('/documents', { params: { taskType: 'PRD_GENERATE', page: 0, size: 100 } })
+    existingPrds.value = response.data.data?.content || []
+  } catch { existingPrds.value = [] }
+}
+
+onMounted(loadExistingPrds)
 </script>
 
 <template>
@@ -124,6 +141,12 @@ async function pollResult() {
         <div v-if="inputMode === 'paste'" class="form-group">
           <label class="form-label">PRD 内容</label>
           <el-input v-model="prdContent" type="textarea" :rows="8" placeholder="请粘贴已有的 PRD 文档内容..." maxlength="5000" show-word-limit />
+        </div>
+        <div v-else class="form-group">
+          <label class="form-label">选择已有 PRD</label>
+          <el-select v-model="prdDocumentId" clearable filterable placeholder="选择要增强的文档" style="width:100%">
+            <el-option v-for="doc in existingPrds" :key="doc.id" :label="doc.title" :value="doc.id" />
+          </el-select>
         </div>
 
         <!-- 内容类型 -->
