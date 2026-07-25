@@ -74,7 +74,7 @@ async function handleRegister() {
       <h2>AI 辅助设计平台</h2>
       <p class="subtitle">注册</p>
 
-      <el-form ref="formRef" :model="form" :rules="rules" label-position="top" @submit.prevent="handleRegister">
+      <el-form ref="formRef" class="auth-form" :model="form" :rules="rules" label-position="top" @submit.prevent="handleRegister">
         <el-form-item prop="nickname" label="昵称">
           <el-input v-model="form.nickname" placeholder="请输入显示昵称" size="large" />
         </el-form-item>
@@ -91,8 +91,8 @@ async function handleRegister() {
           <el-input v-model="form.confirmPassword" type="password" placeholder="请再次输入密码" size="large" show-password />
         </el-form-item>
 
-        <el-form-item>
-          <el-button type="primary" native-type="submit" size="large" :loading="loading" block>
+        <el-form-item class="auth-actions">
+          <el-button class="auth-submit" type="primary" native-type="submit" size="large" :loading="loading">
             注册
           </el-button>
         </el-form-item>
@@ -111,35 +111,57 @@ async function handleRegister() {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: #f2f1ed;
 }
 .auth-card {
   width: 420px;
-  padding: 40px 36px;
+  max-width: calc(100vw - 48px);
+  padding: 44px 42px 36px;
   background: #fff;
-  border-radius: 12px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.18);
+  border-radius: 10px;
+  box-shadow: rgba(0, 0, 0, 0.14) 0px 28px 70px, rgba(0, 0, 0, 0.1) 0px 14px 32px, rgba(38, 37, 30, 0.1) 0px 0px 0px 1px;
+}
+.auth-form {
+  margin-top: 26px;
+}
+.auth-actions {
+  margin-top: 22px;
+  margin-bottom: 10px;
+}
+:deep(.auth-actions .el-form-item__content) {
+  justify-content: center;
+}
+.auth-submit {
+  width: 180px;
+  min-width: 180px;
 }
 .auth-card h2 {
   text-align: center;
   margin-bottom: 4px;
-  color: #303133;
-  font-size: 22px;
+  color: #26251e;
+  font-size: 26px;
+  font-weight: 400;
+  letter-spacing: -0.325px;
 }
 .subtitle {
   text-align: center;
-  color: #909399;
+  color: rgba(38, 37, 30, 0.55);
   margin-bottom: 28px;
   font-size: 14px;
+  font-family: 'Source Serif 4', 'Iowan Old Style', Georgia, serif;
 }
 .auth-footer {
   text-align: center;
-  color: #909399;
+  color: rgba(38, 37, 30, 0.55);
   font-size: 13px;
   margin-top: 8px;
 }
 .auth-footer a {
-  color: #409eff;
+  color: #f54e00;
   text-decoration: none;
+  transition: color 0.15s;
+}
+.auth-footer a:hover {
+  color: #cf2d56;
 }
 </style>

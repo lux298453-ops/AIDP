@@ -1,9 +1,10 @@
 import { useTaskStore } from '@/stores/task'
+import { getTaskSseUrl } from '@/api/task'
 
 export function useTaskPolling(taskId: number) {
   const taskStore = useTaskStore()
 
-  const eventSource = new EventSource(`/api/tasks/${taskId}/progress`)
+  const eventSource = new EventSource(getTaskSseUrl(taskId))
 
   eventSource.addEventListener('progress', (event) => {
     const data = JSON.parse(event.data)

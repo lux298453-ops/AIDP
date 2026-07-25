@@ -23,6 +23,8 @@ export function getTaskTypeLabel(type: string): string {
     PRD_GENERATE: 'PRD生成',
     PRD_ENHANCE: 'PRD增强',
     PRD_REVIEW: 'PRD审查',
+    PRD_REVIEW_FIX: '审查修订',
+    PROTOTYPE: '原型生成',
     PROTOTYPE_GENERATE: '原型生成',
   }
   return labels[type] || type

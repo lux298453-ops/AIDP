@@ -56,9 +56,13 @@ loadDocuments()
 
 <style scoped>
 .document-page {
-  padding: 20px;
+  padding: 32px 48px;
 }
 .document-page h3 {
   margin-bottom: 20px;
+  font-size: 22px;
+  font-weight: 400;
+  color: #26251e;
+  letter-spacing: -0.11px;
 }
 </style>

@@ -1,0 +1,26 @@
+# OpenAI API 配置
+# 激活方式：
+#   spring.profiles.active=dev,openai
+#
+# 必填环境变量：
+#   AI_API_KEY=你的 OpenAI API Key
+#
+# 可选环境变量：
+#   AI_MODEL=gpt-5.5
+#   AI_MAX_OUTPUT_TOKENS=16384
+#   AI_IMAGE_DETAIL=high
+
+app:
+  ai:
+    api-url: ${AI_API_URL:${OPENAI_BASE_URL:https://api.flintic.uk}}
+    api-key: ${AI_API_KEY:${OPENAI_API_KEY:}}
+    model: ${AI_MODEL:gpt-5.5}
+    api-type: ${AI_API_TYPE:responses}
+    fallback-api-type: ${AI_FALLBACK_API_TYPE:chat-completions}
+    append-api-path: ${AI_APPEND_API_PATH:true}
+    openai-auth-enabled: ${AI_OPENAI_AUTH_ENABLED:true}
+    actor-authorization: ${AI_ACTOR_AUTHORIZATION:local-image-extension}
+    reasoning-effort: ${AI_REASONING_EFFORT:xhigh}
+    disable-response-storage: ${AI_DISABLE_RESPONSE_STORAGE:true}
+    max-output-tokens: ${AI_MAX_OUTPUT_TOKENS:16384}
+    image-detail: ${AI_IMAGE_DETAIL:high}

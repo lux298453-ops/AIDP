@@ -1,11 +1,12 @@
 package com.example.aidocumentplatform.model.entity;
 
-import com.example.aidocumentplatform.common.JsonConverter;
 import com.example.aidocumentplatform.model.enums.DetailLevel;
 import com.example.aidocumentplatform.model.enums.DocumentSourceType;
 import com.example.aidocumentplatform.model.enums.TemplateType;
 import jakarta.persistence.*;
 import lombok.*;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 import java.time.LocalDateTime;
 
@@ -30,10 +31,10 @@ public class PrdDocument {
     @Column(nullable = false, length = 50)
     private String title;
 
-    @Column(length = 2000)
+    @Column(length = 50000)
     private String description;
 
-    @Convert(converter = JsonConverter.class)
+    @JdbcTypeCode(SqlTypes.JSON)
     @Column(nullable = false, columnDefinition = "JSONB")
     private String content;
 

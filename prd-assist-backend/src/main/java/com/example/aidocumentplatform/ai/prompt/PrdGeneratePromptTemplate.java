@@ -22,7 +22,28 @@ public class PrdGeneratePromptTemplate {
             4. 即使你认为信息不足，也要基于你的专业经验做出合理推断并写出具体内容
             """;
 
+    /**
+     * 标准模板 prompt。
+     */
     public String buildUserPrompt(String featureName, String description, DetailLevel detailLevel) {
+        return buildUserPrompt(featureName, description, detailLevel, null);
+    }
+
+    /**
+     * 构建用户 prompt。
+     *
+     * @param customTemplateContent 用户上传的自定义模板纯文本；非空时按该模板的章节结构生成
+     */
+    public String buildUserPrompt(String featureName, String description,
+                                  DetailLevel detailLevel, String customTemplateContent) {
+        boolean useCustom = customTemplateContent != null && !customTemplateContent.isBlank();
+        if (useCustom) {
+            return buildCustomTemplatePrompt(featureName, description, detailLevel, customTemplateContent);
+        }
+        return buildStandardPrompt(featureName, description);
+    }
+
+    private String buildStandardPrompt(String featureName, String description) {
         return """
                 用户给了你一个简短的需求，你需要基于它独立完成深度分析和拓展。
 
@@ -39,40 +60,147 @@ public class PrdGeneratePromptTemplate {
                   "summary": "用你自己的话概述：这个功能的核心价值是什么，解决谁的什么问题",
                   "chapters": [
                     {
-                      "title": "需求概述",
-                      "content": "1.背景分析：作为产品专家，你分析为什么要做这个功能?当前痛点是?\\n2.目标用户画像：谁会使用?什么角色?什么场景?\\n3.典型场景举例(至少2个)：用户在什么情况下触发这个功能\\n4.业务价值预估：完成后预期带来什么提升"
+                      "title": "1. 需求概述",
+                      "content": "概述本需求的业务背景、目标用户、核心目标和交付价值，不要只复述用户原始描述。"
                     },
                     {
-                      "title": "功能设计",
-                      "content": "用表格列出所有功能点：\\n| 功能点 | 优先级 | 详细描述 | 验收标准 |\\n至少列出5个功能点，P0/P1/P2都要有\\n然后写：操作流程（用户从进入到完成的每一步）、权限控制（不同角色能做什么）"
+                      "title": "1.1 需求背景（必填）",
+                      "content": "分析当前业务现状、用户痛点、已有流程的问题，以及为什么现在需要建设该功能。"
                     },
                     {
-                      "title": "交互流程",
-                      "content": "1.画页面流程图(用文字描述)：\\n  入口页→中间页→结果页，标注每个节点的判断条件\\n2.状态流转：列出数据或任务的所有可能状态及变化规则\\n3.分支场景：不同条件下走什么不同的交互路径"
+                      "title": "1.2 需求目标/价值（必填）",
+                      "content": "明确业务目标、用户价值、效率或质量提升点，并给出可验证的成功标准。"
                     },
                     {
-                      "title": "UI设计要点",
-                      "content": "1.关键页面布局描述：顶部放什么?中间主区域放什么?底部放什么?\\n2.核心交互组件：按钮、输入框、列表、弹窗的具体样式和位置\\n3.不同状态的UI：加载中的loading、空数据的占位图、错误时的提示样式\\n4.视觉风格建议：主色调、字体层次、间距风格"
+                      "title": "1.3 需求覆盖范围",
+                      "content": "说明本期覆盖的用户角色、业务场景、功能边界、不包含范围和后续可扩展方向。"
                     },
                     {
-                      "title": "数据设计",
-                      "content": "用表格定义数据字段：\\n| 字段名 | 类型 | 必填 | 说明 | 示例 |\\n至少定义8个字段\\n然后写：字段校验规则、数据存储方案、接口请求/响应JSON示例"
+                      "title": "1.4 需求列表",
+                      "content": "用 Markdown 表格列出所有功能点：\\n| 功能点 | 优先级 | 详细描述 | 验收标准 |\\n至少列出5个功能点，P0/P1/P2都要有。"
                     },
                     {
-                      "title": "异常处理",
-                      "content": "1.网络异常：断网时怎么提示?超时怎么重试?\\n2.数据异常：空数据、格式错误、超长输入分别怎么处理?\\n3.并发冲突：多人同时操作同一数据怎么处理?\\n4.降级方案：依赖服务不可用时的兜底逻辑"
+                      "title": "1.5 关联方",
+                      "content": "用 Markdown 表格说明涉及的业务方、技术方、运营方、审核方及其职责：\\n| 关联方 | 关联事项 | 对接人/角色 |"
                     },
                     {
-                      "title": "安全与性能",
-                      "content": "1.安全：数据传输加密方式、敏感信息脱敏规则、防刷策略\\n2.性能：页面首屏加载目标、接口响应时间目标、并发支持量\\n3.数据埋点：列出至少5个需要统计的核心指标\\n4.配置项：哪些参数支持后台动态配置"
+                      "title": "2. 流程图（专家评审必备）",
+                      "content": "用 mermaid flowchart 描述主流程、分支判断和异常回退路径，并在图后补充关键节点说明。"
+                    },
+                    {
+                      "title": "3. 原型图 和 交互+视觉图",
+                      "content": "描述关键页面布局、入口、主操作区、列表/表单/弹窗/状态反馈、空态/错误态和视觉层级。"
+                    },
+                    {
+                      "title": "4. 功能需求描述（同行/专家评审必备）",
+                      "content": "按功能模块展开详细需求。必须包含操作流程、权限控制、状态流转、字段校验、接口请求/响应 JSON 示例和验收标准。"
+                    },
+                    {
+                      "title": "4.X 耦合场景",
+                      "content": "列出与其他模块、数据表、外部系统、权限、发布流程或历史工具的耦合关系，以及联动规则。"
+                    },
+                    {
+                      "title": "4.X 边界场景",
+                      "content": "覆盖空数据、重复提交、导入失败、部分成功、并发编辑、超大数据量、权限不足、网络超时等边界处理。"
+                    },
+                    {
+                      "title": "4.X 非功能需求",
+                      "content": "说明性能目标、可用性、兼容性、可维护性、数据一致性和审计追踪要求。"
+                    },
+                    {
+                      "title": "5. 埋点与报表",
+                      "content": "列出至少5个核心埋点指标，说明触发时机、统计口径、维度和报表查看方式。"
+                    },
+                    {
+                      "title": "6. 配置项（专家评审必备）",
+                      "content": "列出需要后台动态配置的参数、默认值、生效范围、校验规则和发布影响。"
+                    },
+                    {
+                      "title": "7. 动效（专家评审必备）",
+                      "content": "说明加载、提交、成功、失败、切换、展开收起等交互动效和持续时间。"
+                    },
+                    {
+                      "title": "8. 运营计划（专家评审必备）",
+                      "content": "说明灰度策略、上线节奏、运营配置、用户通知、风险预案和回滚策略。"
+                    },
+                    {
+                      "title": "9. 安全与合规",
+                      "content": "说明数据传输、权限隔离、敏感信息保护、操作审计、防误操作、防刷和合规风险。"
+                    },
+                    {
+                      "title": "10. 需求评审意见",
+                      "content": "从产品、研发、测试、运营角度列出评审关注点、待确认事项和建议验收检查清单。"
                     }
                   ]
                 }
 
-                要求：每个content不少于200字，用\\"\\n\\"换行，用\\"|\\"画表格。
+                要求：
+                1. chapters 数量、顺序、title 必须严格等于上方标准模板大纲，不得合并、删减或重命名
+                2. 每个 content 不少于 120 字，用 \\"\\n\\" 换行，用 \\"|\\" 画表格
+                3. JSON 示例必须使用多行格式，禁止压缩成一行
                 你的输出质量决定了开发团队能否直接开始编码，请认真对待。
                 只返回JSON。
                 """.formatted(featureName, description);
+    }
+
+    /**
+     * 自定义模板模式：严格按用户模板的章节标题与顺序组织 PRD。
+     */
+    private String buildCustomTemplatePrompt(String featureName, String description,
+                                             DetailLevel detailLevel, String customTemplateContent) {
+        // 防止超长模板撑爆上下文：截断到约 12000 字
+        String templateBody = customTemplateContent.length() > 12000
+                ? customTemplateContent.substring(0, 12000) + "\n…(模板后续内容已截断)"
+                : customTemplateContent;
+        String detailHint = detailLevel != null && "CONCISE".equals(detailLevel.name())
+                ? "每个一级章节 content 约 100-150 字，精炼概括即可；二级小节可略短。"
+                : "每个一级章节 content 不少于 150 字，写得充分、可交付开发；二级小节也要有实质内容。";
+
+        return """
+                用户给了你一个简短的需求，以及一份【自定义 PRD 模板】。
+                你的任务是：先从模板中识别完整的章节目录（含编号与层级），
+                再按该目录逐章填充内容。
+
+                ⚠ 严禁事项：
+                - 禁止使用系统内置的「需求概述/功能设计/交互流程/UI设计/数据设计/异常处理/安全与性能」7 章结构
+                - 禁止擅自合并、删减、重命名模板中的章节
+                - 禁止把用户原始描述原样复制进任何章节
+
+                【功能名称】%s
+                【用户原始描述】%s
+
+                【自定义模板原文】（含 # 标记的行是标题层级；| 分隔的是表格骨架）
+                %s
+
+                工作步骤：
+                1. 从模板中提取所有章节标题（含 1. / 1.1 / 1.1.1 或 # / ## 标记的行），按出现顺序排列
+                2. 每个标题对应 chapters 中的一项，title 字段写模板中的原标题（保留编号）
+                3. content 字段写该章节在本次需求下的完整正文；模板中的示例/说明只作写作指引，不要照抄
+                4. 若模板含「修订记录 / 关联方」等表格，在 content 中用 Markdown 表格填写合理内容
+
+                ＝＝＝＝ 请输出以下 JSON（只返回 JSON，不要解释） ＝＝＝＝
+
+                {
+                  "title": "功能名称（用你自己的话重写）",
+                  "summary": "用一句话概述本功能的核心价值（对应模板中的「一句话需求」如有）",
+                  "chapters": [
+                    {
+                      "title": "模板中第 1 个章节的完整标题（含编号）",
+                      "content": "该章节正文，可用 \\"\\n\\" 换行，可用 \\"|\\" 画表格"
+                    },
+                    {
+                      "title": "模板中第 2 个章节的完整标题（含编号）",
+                      "content": "……"
+                    }
+                  ]
+                }
+
+                要求：
+                1. chapters 数量、顺序、标题必须覆盖模板中全部主要章节（一级 + 重要二级），不得只写前几章就结束
+                2. %s
+                3. 禁止写「待补充」「根据实际情况」「视情况而定」「（没有则填无）」作为唯一内容——至少写一句合理推断
+                4. 只返回 JSON
+                """.formatted(featureName, description, templateBody, detailHint);
     }
 
     public String getSystemPrompt() { return SYSTEM_PROMPT; }

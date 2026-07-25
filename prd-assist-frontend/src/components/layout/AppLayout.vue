@@ -6,7 +6,9 @@ import HeaderBar from './HeaderBar.vue'
   <div class="app-layout">
     <HeaderBar />
     <div class="content">
-      <router-view />
+      <router-view v-slot="{ Component }" :key="$route.fullPath">
+        <component :is="Component" class="route-view" />
+      </router-view>
     </div>
   </div>
 </template>
@@ -19,7 +21,17 @@ import HeaderBar from './HeaderBar.vue'
 }
 .content {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
-  background: #f5f7fa;
+  background: #f2f1ed;
+  display: flex;
+  flex-direction: column;
+}
+.route-view {
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
 }
 </style>

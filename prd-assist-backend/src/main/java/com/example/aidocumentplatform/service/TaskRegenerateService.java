@@ -53,9 +53,14 @@ public class TaskRegenerateService {
             case PRD_GENERATE -> {
                 PrdGenerateRequest req = new PrdGenerateRequest();
                 req.setFeatureName(str(params, "featureName", "重新生成"));
-                req.setDescription(str(params, "description", ""));
+                // XMind 源任务 description 可能落在 outline 字段
+                String desc = str(params, "description", null);
+                if (desc == null || desc.isBlank()) desc = str(params, "outline", "");
+                req.setDescription(desc);
                 req.setTemplate(safeEnum(TemplateType.class, str(params, "template")));
                 req.setDetailLevel(safeEnum(DetailLevel.class, str(params, "detailLevel")));
+                req.setCustomTemplateContent(str(params, "customTemplateContent", null));
+                req.setCustomTemplateFileName(str(params, "customTemplateFileName", null));
                 yield prdGenerateService.submit(req, userId);
             }
             case PRD_ENHANCE -> {
@@ -75,9 +80,22 @@ public class TaskRegenerateService {
             case PRD_REVIEW -> {
                 PrdReviewRequest req = new PrdReviewRequest();
                 req.setPrdContent(str(params, "prdContent", ""));
+                String prdDocId = str(params, "prdDocumentId", null);
+                if (prdDocId != null && !prdDocId.isBlank()) {
+                    try { req.setPrdDocumentId(Long.parseLong(prdDocId)); } catch (Exception ignored) {}
+                }
                 req.setDimensions(list(params, "dimensions"));
                 req.setRequirement(str(params, "requirement"));
                 yield prdReviewService.submit(req, userId);
+            }
+            case PRD_REVIEW_FIX -> {
+                // 修复任务：基于原报告再跑一遍修复
+                String reportIdStr = str(params, "reportId", null);
+                if (reportIdStr == null || reportIdStr.isBlank()) {
+                    throw new RuntimeException("无法重新执行修复：缺少 reportId");
+                }
+                Long reportId = Long.parseLong(reportIdStr);
+                yield prdReviewService.submitFix(reportId, new PrdReviewFixRequest(), userId);
             }
         };
     }

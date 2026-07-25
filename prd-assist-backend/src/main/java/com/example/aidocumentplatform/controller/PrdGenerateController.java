@@ -1,15 +1,24 @@
 package com.example.aidocumentplatform.controller;
 
+import com.example.aidocumentplatform.ai.AiClient;
+import com.example.aidocumentplatform.ai.AiRequestContext;
+import com.example.aidocumentplatform.ai.prompt.ChartRevisePromptTemplate;
 import com.example.aidocumentplatform.common.FileStorage;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.example.aidocumentplatform.model.dto.request.ChartReviseRequest;
+import com.example.aidocumentplatform.model.dto.request.PrdExportRequest;
 import com.example.aidocumentplatform.model.dto.request.PrdGenerateRequest;
 import com.example.aidocumentplatform.model.dto.response.ApiResponse;
 import com.example.aidocumentplatform.model.entity.PrdDocument;
+import com.example.aidocumentplatform.model.enums.DetailLevel;
+import com.example.aidocumentplatform.model.enums.TemplateType;
 import com.example.aidocumentplatform.repository.PrdDocumentRepository;
 import com.example.aidocumentplatform.security.SecurityUser;
 import com.example.aidocumentplatform.service.PrdGenerateService;
 import com.example.aidocumentplatform.util.WordExporter;
+import com.example.aidocumentplatform.util.WordReader;
 import com.example.aidocumentplatform.util.PrdContentParser;
 import com.example.aidocumentplatform.util.XmindParser;
 import jakarta.validation.Valid;
@@ -22,12 +31,17 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.util.Base64;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * PRD 生成接口。
  *
- * POST /api/prd/generate        →  文本输入生成，返回 { taskId }
+ * POST /api/prd/generate        →  文本输入生成（JSON 或 multipart，multipart 支持 customTemplateFile）
  * POST /api/prd/generate/xmind  →  上传 .xmind 文件自动解析生成
  */
 @Slf4j
@@ -41,11 +55,61 @@ public class PrdGenerateController {
     private final FileStorage fileStorage;
     private final PrdDocumentRepository prdDocumentRepository;
     private final WordExporter wordExporter;
+    private final WordReader wordReader;
     private final PrdContentParser prdContentParser;
+    private final AiClient aiClient;
+    private final ChartRevisePromptTemplate chartRevisePromptTemplate;
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
-    /** 文本输入生成 */
-    @PostMapping("/generate")
+    /**
+     * 文本输入生成（application/json）。
+     * 标准模板场景使用；CUSTOM 模板请走 multipart 接口，以便上传文件。
+     */
+    @PostMapping(value = "/generate", consumes = MediaType.APPLICATION_JSON_VALUE)
     public ApiResponse<Map<String, Long>> generate(@Valid @RequestBody PrdGenerateRequest request) {
+        if (request.getTemplate() == TemplateType.CUSTOM
+                && (request.getCustomTemplateContent() == null || request.getCustomTemplateContent().isBlank())) {
+            throw new IllegalArgumentException("选择自定义模板时，必须上传模板文件");
+        }
+        Long userId = getCurrentUserId();
+        Long taskId = prdGenerateService.submit(request, userId);
+        return ApiResponse.success(Map.of("taskId", taskId));
+    }
+
+    /**
+     * 文本输入 + 自定义模板文件生成（multipart/form-data）。
+     *
+     * 表单字段：
+     *   featureName            必填
+     *   description            可选
+     *   template               STANDARD / CUSTOM，默认 STANDARD
+     *   detailLevel            CONCISE / DETAILED，默认 DETAILED
+     *   customTemplateFile     template=CUSTOM 时必填，.docx
+     */
+    @PostMapping(value = "/generate", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ApiResponse<Map<String, Long>> generateWithTemplate(
+            @RequestParam("featureName") String featureName,
+            @RequestParam(value = "description", required = false) String description,
+            @RequestParam(value = "template", defaultValue = "STANDARD") String template,
+            @RequestParam(value = "detailLevel", defaultValue = "DETAILED") String detailLevel,
+            @RequestParam(value = "customTemplateFile", required = false) MultipartFile customTemplateFile
+    ) {
+        if (featureName == null || featureName.isBlank()) {
+            throw new IllegalArgumentException("功能名不能为空");
+        }
+        if (featureName.length() > 50) {
+            throw new IllegalArgumentException("功能名最多50字");
+        }
+        PrdGenerateRequest request = new PrdGenerateRequest();
+        request.setFeatureName(featureName.trim());
+        request.setDescription(description);
+        request.setTemplate(parseTemplate(template));
+        request.setDetailLevel(parseDetailLevel(detailLevel));
+
+        if (request.getTemplate() == TemplateType.CUSTOM) {
+            applyCustomTemplate(request, customTemplateFile);
+        }
+
         Long userId = getCurrentUserId();
         Long taskId = prdGenerateService.submit(request, userId);
         return ApiResponse.success(Map.of("taskId", taskId));
@@ -56,7 +120,8 @@ public class PrdGenerateController {
     public ApiResponse<Map<String, Object>> generateFromXmind(
             @RequestParam("file") MultipartFile file,
             @RequestParam(value = "template", defaultValue = "STANDARD") String template,
-            @RequestParam(value = "detailLevel", defaultValue = "DETAILED") String detailLevel
+            @RequestParam(value = "detailLevel", defaultValue = "DETAILED") String detailLevel,
+            @RequestParam(value = "customTemplateFile", required = false) MultipartFile customTemplateFile
     ) {
         Long userId = getCurrentUserId();
 
@@ -75,8 +140,21 @@ public class PrdGenerateController {
             String outlineText = xmindParser.parse(fileBytes);
             log.info("XMind 解析完成: fileName={}, outlineLength={}", originalName, outlineText.length());
 
-            // 4. 提交异步生成
-            Long taskId = prdGenerateService.submitXmind(originalName, outlineText, template, detailLevel, userId);
+            // 4. 自定义模板（可选）
+            String customTemplateContent = null;
+            String customTemplateFileName = null;
+            if ("CUSTOM".equalsIgnoreCase(template)) {
+                if (customTemplateFile == null || customTemplateFile.isEmpty()) {
+                    throw new IllegalArgumentException("选择自定义模板时，必须上传模板文件");
+                }
+                customTemplateContent = extractTemplateText(customTemplateFile);
+                customTemplateFileName = customTemplateFile.getOriginalFilename();
+            }
+
+            // 5. 提交异步生成
+            Long taskId = prdGenerateService.submitXmind(
+                    originalName, outlineText, template, detailLevel, userId,
+                    customTemplateContent, customTemplateFileName);
 
             return ApiResponse.success(Map.of(
                     "taskId", taskId,
@@ -85,9 +163,59 @@ public class PrdGenerateController {
                     "outline", outlineText
             ));
 
+        } catch (IllegalArgumentException e) {
+            throw e;
         } catch (Exception e) {
             log.error("XMind 上传处理失败", e);
             throw new RuntimeException("XMind 处理失败: " + e.getMessage(), e);
+        }
+    }
+
+    /** 解析并校验自定义模板文件，写入 request。 */
+    private void applyCustomTemplate(PrdGenerateRequest request, MultipartFile customTemplateFile) {
+        if (customTemplateFile == null || customTemplateFile.isEmpty()) {
+            throw new IllegalArgumentException("选择自定义模板时，必须上传模板文件");
+        }
+        request.setCustomTemplateContent(extractTemplateText(customTemplateFile));
+        request.setCustomTemplateFileName(customTemplateFile.getOriginalFilename());
+    }
+
+    /** 从 .docx 提取模板纯文本，并落盘存档。 */
+    private String extractTemplateText(MultipartFile file) {
+        String name = file.getOriginalFilename();
+        if (name == null || !name.toLowerCase().endsWith(".docx")) {
+            throw new IllegalArgumentException("自定义模板仅支持 .docx 文件");
+        }
+        try {
+            byte[] bytes = file.getBytes();
+            fileStorage.store(bytes, name);
+            String text = wordReader.extractText(bytes);
+            if (text == null || text.isBlank()) {
+                throw new IllegalArgumentException("自定义模板内容为空，请检查文件");
+            }
+            log.info("自定义模板解析完成: fileName={}, length={}", name, text.length());
+            return text;
+        } catch (IllegalArgumentException e) {
+            throw e;
+        } catch (Exception e) {
+            log.error("自定义模板解析失败: {}", name, e);
+            throw new RuntimeException("自定义模板解析失败: " + e.getMessage(), e);
+        }
+    }
+
+    private TemplateType parseTemplate(String value) {
+        try {
+            return TemplateType.valueOf(value);
+        } catch (Exception e) {
+            return TemplateType.STANDARD;
+        }
+    }
+
+    private DetailLevel parseDetailLevel(String value) {
+        try {
+            return DetailLevel.valueOf(value);
+        } catch (Exception e) {
+            return DetailLevel.DETAILED;
         }
     }
 
@@ -142,12 +270,109 @@ public class PrdGenerateController {
         return getPrd(id);
     }
 
-    /** 导出 PRD 为 Word 文档 */
+    /** 导出 PRD 为 Word 文档（CUSTOM 按 chapters 原样导出，STANDARD 走公司固定骨架） */
     @GetMapping("/{id}/export")
     public ResponseEntity<byte[]> exportWord(@PathVariable Long id) {
         PrdDocument prd = getOwnedPrd(id);
-        byte[] docBytes = wordExporter.export(prd.getTitle(), prd.getDescription(), prd.getContent());
-        String fileName = URLEncoder.encode(prd.getTitle() + ".docx", StandardCharsets.UTF_8)
+        byte[] docBytes = wordExporter.export(
+                prd.getTitle(), prd.getDescription(), prd.getContent(), prd.getTemplate());
+        return buildDocxResponse(prd.getTitle(), docBytes);
+    }
+
+    /**
+     * 带图表图片导出：前端将 Mermaid 渲染为 PNG base64 后 POST。
+     * body.chartImages[].key = 章节下标（"0"）或 "summary"
+     */
+    @PostMapping("/{id}/export")
+    public ResponseEntity<byte[]> exportWordWithCharts(
+            @PathVariable Long id,
+            @RequestBody(required = false) PrdExportRequest request) {
+        PrdDocument prd = getOwnedPrd(id);
+        Map<String, byte[]> images = new HashMap<>();
+        if (request != null && request.getChartImages() != null) {
+            for (PrdExportRequest.ChartImage img : request.getChartImages()) {
+                if (img == null || img.getKey() == null || img.getPngBase64() == null) continue;
+                try {
+                    String b64 = img.getPngBase64().trim();
+                    int comma = b64.indexOf(',');
+                    if (b64.startsWith("data:") && comma > 0) b64 = b64.substring(comma + 1);
+                    images.put(img.getKey(), Base64.getDecoder().decode(b64));
+                } catch (Exception e) {
+                    log.warn("解析图表 PNG 失败: key={}", img.getKey(), e);
+                }
+            }
+        }
+        byte[] docBytes = wordExporter.export(
+                prd.getTitle(), prd.getDescription(), prd.getContent(), prd.getTemplate(), images);
+        return buildDocxResponse(prd.getTitle(), docBytes);
+    }
+
+    /**
+     * AI 修订某章节中的 Mermaid 图表。
+     * 同步返回新 mermaid 源码，并写回 prd_document.content（保留原说明文字）。
+     */
+    @PostMapping("/{id}/chart-revise")
+    public ApiResponse<Map<String, Object>> reviseChart(
+            @PathVariable Long id,
+            @Valid @RequestBody ChartReviseRequest request) {
+        PrdDocument prd = getOwnedPrd(id);
+        int idx = request.getChapterIndex();
+        try {
+            JsonNode root = objectMapper.readTree(prd.getContent());
+            JsonNode chaptersNode = root.path("chapters");
+            if (!chaptersNode.isArray() || idx < 0 || idx >= chaptersNode.size()) {
+                throw new IllegalArgumentException("章节下标无效");
+            }
+            ObjectNode chapter = (ObjectNode) chaptersNode.get(idx);
+            String title = chapter.path("title").asText("");
+            String type = chapter.path("type").asText("chart");
+            String oldContent = chapter.path("content").asText("");
+            String currentMermaid = request.getCurrentMermaid();
+            if (currentMermaid == null || currentMermaid.isBlank()) {
+                currentMermaid = extractMermaid(oldContent);
+            }
+            if (currentMermaid == null || currentMermaid.isBlank()) {
+                throw new IllegalArgumentException("该章节未找到 Mermaid 图表源码");
+            }
+
+            String system = chartRevisePromptTemplate.getSystemPrompt();
+            String user = chartRevisePromptTemplate.buildUserPrompt(
+                    type, title, currentMermaid, request.getInstruction());
+            String aiRaw;
+            AiRequestContext.setUserId(getCurrentUserId());
+            try {
+                aiRaw = aiClient.generate(system, user);
+            } finally {
+                AiRequestContext.clear();
+            }
+            String newMermaid = stripMermaidFence(aiRaw);
+            if (newMermaid.isBlank()) {
+                throw new IllegalArgumentException("AI 未返回有效 Mermaid 源码");
+            }
+
+            String newContent = replaceMermaid(oldContent, newMermaid);
+            chapter.put("content", newContent);
+
+            // 写回完整 JSON
+            ((ObjectNode) root).set("chapters", chaptersNode);
+            prd.setContent(objectMapper.writeValueAsString(root));
+            prdDocumentRepository.save(prd);
+
+            Map<String, Object> result = new LinkedHashMap<>();
+            result.put("mermaid", newMermaid);
+            result.put("content", newContent);
+            result.put("chapterIndex", idx);
+            return ApiResponse.success(result);
+        } catch (IllegalArgumentException e) {
+            throw e;
+        } catch (Exception e) {
+            log.error("AI 修订图表失败: prdId={}, chapter={}", id, idx, e);
+            throw new RuntimeException("AI 修订图表失败: " + e.getMessage(), e);
+        }
+    }
+
+    private ResponseEntity<byte[]> buildDocxResponse(String title, byte[] docBytes) {
+        String fileName = URLEncoder.encode((title != null ? title : "PRD") + ".docx", StandardCharsets.UTF_8)
                 .replace("+", "%20");
         return ResponseEntity.ok()
                 .contentType(MediaType.parseMediaType(
@@ -155,6 +380,51 @@ public class PrdGenerateController {
                 .header(HttpHeaders.CONTENT_DISPOSITION,
                         "attachment; filename*=UTF-8''" + fileName)
                 .body(docBytes);
+    }
+
+    private static final Pattern MERMAID_FENCE = Pattern.compile(
+            "```mermaid[ \\t]*\\n([\\s\\S]*?)```", Pattern.CASE_INSENSITIVE);
+
+    private String extractMermaid(String content) {
+        if (content == null) return null;
+        Matcher m = MERMAID_FENCE.matcher(content.replace("\\n", "\n"));
+        if (m.find()) return m.group(1).trim();
+        // 裸 flowchart
+        String text = content.replace("\\n", "\n");
+        for (String line : text.split("\n")) {
+            if (line.trim().matches("(?i)^(flowchart|graph|sequenceDiagram)\\b.*")) {
+                return text.substring(text.indexOf(line)).trim();
+            }
+        }
+        return null;
+    }
+
+    private String stripMermaidFence(String raw) {
+        if (raw == null) return "";
+        String s = raw.trim();
+        // 去掉可能的 markdown 围栏
+        s = s.replaceAll("(?is)^```(?:mermaid)?\\s*", "").replaceAll("(?is)```\\s*$", "").trim();
+        // 若 AI 仍返回了 JSON，尝试取 mermaid 字段
+        if (s.startsWith("{")) {
+            try {
+                JsonNode n = objectMapper.readTree(s);
+                if (n.has("mermaid")) return n.get("mermaid").asText("").trim();
+                if (n.has("code")) return n.get("code").asText("").trim();
+            } catch (Exception ignored) { /* use raw */ }
+        }
+        return s;
+    }
+
+    private String replaceMermaid(String content, String newMermaid) {
+        String text = content == null ? "" : content.replace("\\n", "\n");
+        String block = "```mermaid\n" + newMermaid.trim() + "\n```";
+        Matcher m = MERMAID_FENCE.matcher(text);
+        if (m.find()) {
+            return m.replaceFirst(Matcher.quoteReplacement(block));
+        }
+        // 无围栏：前置新图，保留原文作为说明
+        if (text.isBlank()) return block;
+        return block + "\n\n" + text;
     }
 
     private Long getCurrentUserId() {

@@ -1,18 +1,24 @@
 package com.example.aidocumentplatform.controller;
 
+import com.example.aidocumentplatform.common.FileStorage;
 import com.example.aidocumentplatform.model.dto.request.PrototypeGenerateRequest;
 import com.example.aidocumentplatform.model.dto.response.ApiResponse;
 import com.example.aidocumentplatform.model.entity.PrototypeResult;
+import com.example.aidocumentplatform.model.enums.Platform;
+import com.example.aidocumentplatform.model.enums.PrototypeType;
 import com.example.aidocumentplatform.repository.PrototypeResultRepository;
 import com.example.aidocumentplatform.security.SecurityUser;
 import com.example.aidocumentplatform.service.PrototypeGenerateService;
+import com.example.aidocumentplatform.util.ImageUtils;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.*;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
@@ -21,10 +27,12 @@ import java.util.Map;
 /**
  * 原型生成接口。
  *
- * POST /api/prototype/generate    →  提交生成请求，返回 { taskId }
+ * POST /api/prototype/generate    →  JSON 或 multipart（可带 referenceImage）
  * GET  /api/prototype/{id}        →  获取原型 HTML 内容
- * GET  /api/prototype/{id}/export →  导出原型为 HTML 文件
+ * PUT  /api/prototype/{id}        →  保存编辑
+ * GET  /api/prototype/{id}/export →  导出 HTML
  */
+@Slf4j
 @RestController
 @RequestMapping("/api/prototype")
 @RequiredArgsConstructor
@@ -32,13 +40,93 @@ public class PrototypeGenerateController {
 
     private final PrototypeGenerateService prototypeGenerateService;
     private final PrototypeResultRepository prototypeResultRepository;
+    private final FileStorage fileStorage;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    @PostMapping("/generate")
+    /** JSON 提交（无参考图） */
+    @PostMapping(value = "/generate", consumes = MediaType.APPLICATION_JSON_VALUE)
     public ApiResponse<Map<String, Long>> generate(@Valid @RequestBody PrototypeGenerateRequest request) {
         Long userId = getCurrentUserId();
         Long taskId = prototypeGenerateService.submit(request, userId);
         return ApiResponse.success(Map.of("taskId", taskId));
+    }
+
+    /**
+     * multipart 提交（可带风格参考图）。
+     * 字段：description, prototypeType, platform, prdDocumentId?, referenceImage?
+     */
+    @PostMapping(value = "/generate", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ApiResponse<Map<String, Long>> generateWithImage(
+            @RequestParam("description") String description,
+            @RequestParam(value = "prototypeType", defaultValue = "SINGLE_PAGE") String prototypeType,
+            @RequestParam(value = "platform", defaultValue = "APP") String platform,
+            @RequestParam(value = "prdDocumentId", required = false) Long prdDocumentId,
+            @RequestParam(value = "referenceImage", required = false) MultipartFile referenceImage
+    ) {
+        if (description == null || description.isBlank()) {
+            throw new IllegalArgumentException("功能描述不能为空");
+        }
+        if (description.length() > 50000) {
+            throw new IllegalArgumentException("功能描述最多50000字");
+        }
+
+        PrototypeGenerateRequest request = new PrototypeGenerateRequest();
+        request.setDescription(description.trim());
+        request.setPrototypeType(parsePrototypeType(prototypeType));
+        request.setPlatform(parsePlatform(platform));
+        request.setPrdDocumentId(prdDocumentId);
+
+        if (referenceImage != null && !referenceImage.isEmpty()) {
+            applyReferenceImage(request, referenceImage);
+        }
+
+        Long userId = getCurrentUserId();
+        Long taskId = prototypeGenerateService.submit(request, userId);
+        return ApiResponse.success(Map.of("taskId", taskId));
+    }
+
+    private void applyReferenceImage(PrototypeGenerateRequest request, MultipartFile file) {
+        String name = file.getOriginalFilename();
+        String contentType = file.getContentType();
+        if (!ImageUtils.isSupportedImage(name, contentType)) {
+            throw new IllegalArgumentException("参考图仅支持 jpg / png / webp / gif");
+        }
+        try {
+            byte[] raw = file.getBytes();
+            ImageUtils.PreparedImage prepared = ImageUtils.prepare(raw, name, contentType);
+            String path = fileStorage.store(prepared.bytes(), name != null ? name : "reference.png");
+
+            request.setReferenceImageFileName(name);
+            request.setReferenceImagePath(path);
+            request.setReferenceImageMimeType(prepared.mimeType());
+            request.setReferenceImageBase64(prepared.base64());
+            request.setReferenceImageWidth(prepared.width() > 0 ? prepared.width() : null);
+            request.setReferenceImageHeight(prepared.height() > 0 ? prepared.height() : null);
+            log.info("原型参考图已接收: name={}, mime={}, path={}, b64Len={}",
+                    name, prepared.mimeType(), path,
+                    prepared.base64() != null ? prepared.base64().length() : 0);
+        } catch (IllegalArgumentException e) {
+            throw e;
+        } catch (Exception e) {
+            log.error("参考图处理失败: {}", name, e);
+            throw new RuntimeException("参考图处理失败: " + e.getMessage(), e);
+        }
+    }
+
+    private PrototypeType parsePrototypeType(String value) {
+        try {
+            return PrototypeType.valueOf(value);
+        } catch (Exception e) {
+            return PrototypeType.SINGLE_PAGE;
+        }
+    }
+
+    private Platform parsePlatform(String value) {
+        try {
+            return Platform.valueOf(value);
+        } catch (Exception e) {
+            return Platform.APP;
+        }
     }
 
     /** 获取原型 HTML 内容（用于 iframe 渲染） */
@@ -83,16 +171,13 @@ public class PrototypeGenerateController {
                 .body(htmlContent.getBytes(StandardCharsets.UTF_8));
     }
 
-    /** 从 PrototypeResult.content 构建可独立打开的完整 HTML */
     private String buildExportHtml(PrototypeResult proto) {
         String content = proto.getContent();
         if (content == null || content.isBlank()) return "<html><body>无内容</body></html>";
 
-        // 多页面原型：将 JSON 数组渲染为一个包含所有页面的 HTML
         if (proto.getPrototypeType().name().equals("MULTI_PAGE")) {
             try {
                 JsonNode pagesNode = objectMapper.readTree(content);
-                // 如果读到的是字符串，再解一层
                 if (pagesNode.isTextual()) pagesNode = objectMapper.readTree(pagesNode.asText());
                 if (pagesNode.isArray() && pagesNode.size() > 0) {
                     StringBuilder sb = new StringBuilder();
@@ -125,7 +210,6 @@ public class PrototypeGenerateController {
                         JsonNode page = pagesNode.get(i);
                         String title = page.has("title") ? page.get("title").asText() : ("页面" + (i + 1));
                         String pageHtml = page.has("html") ? page.get("html").asText() : "";
-                        // 每页的 html 也可能被 JSON 字符串包裹，再解一层
                         if (pageHtml.startsWith("\"") && pageHtml.endsWith("\"")) {
                             try { pageHtml = objectMapper.readValue(pageHtml, String.class); } catch (Exception ignored) {}
                         }
@@ -140,9 +224,7 @@ public class PrototypeGenerateController {
             } catch (Exception ignored) { /* fall through */ }
         }
 
-        // 单页面：递归解包 JSON 字符串 → 得到纯净 HTML
         String html = unwrapJsonString(content);
-        // 确保是完整的 HTML 文档
         if (!html.trim().startsWith("<!DOCTYPE") && !html.trim().startsWith("<html")) {
             html = "<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n<meta charset=\"UTF-8\">\n" +
                    "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n" +
@@ -151,52 +233,34 @@ public class PrototypeGenerateController {
         return html;
     }
 
-    /** 递归解开可能多层 JSON 编码的字符串，直到得到纯 HTML/文本 */
     private String unwrapJsonString(String value) {
         if (value == null) return "";
         String s = value.trim();
         for (int i = 0; i < 5; i++) {
-            // 如果被引号包裹，用 Jackson 解一层
             if (s.startsWith("\"") && s.endsWith("\"")) {
                 try {
                     s = objectMapper.readValue(s, String.class);
                     if (s == null) break;
                 } catch (Exception e) { break; }
             } else {
-                // 尝试直接 parse 看是不是 JSON 字符串
                 try {
                     JsonNode node = objectMapper.readTree(s);
                     if (node.isTextual()) {
                         s = node.asText();
                         continue;
                     }
-                } catch (Exception e) { /* not JSON, probably pure HTML */ }
+                } catch (Exception e) { /* not JSON */ }
                 break;
             }
         }
-        // 处理转义字符
         s = s.replace("\\n", "\n").replace("\\t", "\t").replace("\\\"", "\"");
         return s;
-    }
-
-    private int estimateIframeHeight(String html) {
-        if (html == null) return 600;
-        int lines = 0;
-        for (int i = 0; i < html.length(); i++) {
-            if (html.charAt(i) == '\n') lines++;
-        }
-        return Math.max(600, Math.min(lines * 20, 3000));
     }
 
     private String escapeHtml(String s) {
         if (s == null) return "";
         return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
                 .replace("\"", "&quot;").replace("'", "&#39;");
-    }
-
-    private String escapeAttr(String s) {
-        if (s == null) return "";
-        return s.replace("&", "&amp;").replace("\"", "&quot;").replace("<", "&lt;").replace(">", "&gt;");
     }
 
     private Long getCurrentUserId() {

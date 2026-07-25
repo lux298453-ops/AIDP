@@ -27,3 +27,39 @@ export interface LoginResponse {
   username: string
   nickname: string
 }
+
+export interface AiModelConfig {
+  id?: number
+  provider: string
+  baseUrl: string
+  maskedApiKey?: string
+  hasApiKey?: boolean
+  model: string
+  apiType: string
+  appendApiPath: boolean
+  openAiAuthEnabled: boolean
+  authHeaderType?: string
+  actorAuthorization?: string
+  reasoningEffort?: string
+  disableResponseStorage: boolean
+  maxOutputTokens: number
+  imageDetail: string
+  enabled: boolean
+}
+
+export interface AiModelConfigRequest {
+  provider: string
+  baseUrl: string
+  apiKey?: string
+  model: string
+  apiType: string
+  appendApiPath: boolean
+  openAiAuthEnabled: boolean
+  authHeaderType: string
+  actorAuthorization?: string
+  reasoningEffort?: string
+  disableResponseStorage: boolean
+  maxOutputTokens: number
+  imageDetail: string
+  enabled: boolean
+}

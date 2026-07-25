@@ -1,6 +1,5 @@
 package com.example.aidocumentplatform.model.entity;
 
-import com.example.aidocumentplatform.common.JsonConverter;
 import com.example.aidocumentplatform.model.enums.Platform;
 import com.example.aidocumentplatform.model.enums.PrototypeType;
 import jakarta.persistence.*;
@@ -37,8 +36,7 @@ public class PrototypeResult {
     @Column(nullable = false, length = 20)
     private Platform platform;
 
-    @Convert(converter = JsonConverter.class)
-    @Column(nullable = false, columnDefinition = "JSONB")
+    @Column(nullable = false, columnDefinition = "TEXT")
     private String content;
 
     @Column(name = "reference_image_url", length = 255)

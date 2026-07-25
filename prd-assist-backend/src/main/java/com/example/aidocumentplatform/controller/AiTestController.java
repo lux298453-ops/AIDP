@@ -1,8 +1,11 @@
 package com.example.aidocumentplatform.controller;
 
 import com.example.aidocumentplatform.ai.AiClient;
+import com.example.aidocumentplatform.ai.AiRequestContext;
 import com.example.aidocumentplatform.model.dto.response.ApiResponse;
+import com.example.aidocumentplatform.security.SecurityUser;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
@@ -34,8 +37,20 @@ public class AiTestController {
         String systemPrompt = body.getOrDefault("systemPrompt", "你是一个乐于助人的助手。");
         String userPrompt = body.getOrDefault("userPrompt", "请用一句话介绍你自己。");
 
-        String rawJson = aiClient.generate(systemPrompt, userPrompt);
+        String rawJson;
+        AiRequestContext.setUserId(getCurrentUserId());
+        try {
+            rawJson = aiClient.generate(systemPrompt, userPrompt);
+        } finally {
+            AiRequestContext.clear();
+        }
 
         return ApiResponse.success(rawJson);
+    }
+
+    private Long getCurrentUserId() {
+        SecurityUser user = (SecurityUser) SecurityContextHolder.getContext()
+                .getAuthentication().getPrincipal();
+        return user.getUserId();
     }
 }

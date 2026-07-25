@@ -8,7 +8,7 @@ import java.util.List;
  * PRD 审查的 Prompt 模板。
  *
  * 按三个维度审查：完整性 (completeness)、一致性 (consistency)、合规性 (compliance)，
- * 输出结构化问题列表 [{severity, location, description, suggestion}]。
+ * 输出结构化问题列表 [{severity, location, chapterIndex, chapterTitle, description, suggestion}]。
  */
 @Component
 public class PrdReviewPromptTemplate {
@@ -22,17 +22,23 @@ public class PrdReviewPromptTemplate {
     /**
      * 构建 user prompt。
      */
-    public String buildUserPrompt(String prdContent, List<String> dimensions, String requirement) {
+    public String buildUserPrompt(String prdContent, List<String> dimensions, String requirement, String chapterOutline) {
         StringBuilder dimDesc = new StringBuilder();
         if (dimensions != null) {
             for (String d : dimensions) dimDesc.append("  - ").append(getDimensionDesc(d)).append("\n");
         }
         String reqText = (requirement != null && !requirement.isBlank()) ? "【额外要求】" + requirement + "\n" : "";
+        String outlineText = (chapterOutline != null && !chapterOutline.isBlank())
+                ? chapterOutline
+                : "（未识别到结构化章节，请将 chapterIndex 置为 -1，chapterTitle 置为空字符串）";
 
         return """
                 请对以下 PRD 文档进行专业审查，以严格的 JSON 格式输出问题列表。
 
                 【PRD 文档】
+                %s
+
+                【可定位章节大纲】
                 %s
 
                 【审查维度】
@@ -47,6 +53,8 @@ public class PrdReviewPromptTemplate {
                     {
                       "severity": "CRITICAL|MAJOR|MINOR|SUGGESTION",
                       "dimension": "completeness|consistency|compliance",
+                      "chapterIndex": 0,
+                      "chapterTitle": "与 chapterIndex 对应的章节标题",
                       "location": "问题所在的具体章节或段落",
                       "description": "问题的具体描述",
                       "suggestion": "修改建议"
@@ -60,8 +68,13 @@ public class PrdReviewPromptTemplate {
                 - MINOR: 小问题，可后续迭代修复
                 - SUGGESTION: 优化建议
 
+                【定位要求】
+                - chapterIndex 必须使用上方章节大纲中的 0-based 索引；如果问题属于整体文档或无法归属到具体章节，填 -1
+                - chapterTitle 必须与 chapterIndex 对应的章节标题完全一致；chapterIndex 为 -1 时填空字符串
+                - location 可以写更细的段落/模块名，但不要替代 chapterIndex
+
                 请严格按 JSON 格式返回，不要添加任何解释文字。
-                """.formatted(prdContent, dimDesc.toString(), reqText);
+                """.formatted(prdContent, outlineText, dimDesc.toString(), reqText);
     }
 
     public String getSystemPrompt() { return SYSTEM_PROMPT; }

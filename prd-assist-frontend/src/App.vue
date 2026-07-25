@@ -10,5 +10,6 @@ html, body, #app {
   margin: 0;
   padding: 0;
   height: 100%;
+  background: #f2f1ed;
 }
 </style>

@@ -1,8 +1,9 @@
 package com.example.aidocumentplatform.model.entity;
 
-import com.example.aidocumentplatform.common.JsonConverter;
 import jakarta.persistence.*;
 import lombok.*;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 import java.time.LocalDateTime;
 
@@ -27,11 +28,11 @@ public class ReviewReport {
     @Column(name = "task_id", nullable = false)
     private Long taskId;
 
-    @Convert(converter = JsonConverter.class)
+    @JdbcTypeCode(SqlTypes.JSON)
     @Column(nullable = false, columnDefinition = "JSONB")
     private String dimensions;
 
-    @Convert(converter = JsonConverter.class)
+    @JdbcTypeCode(SqlTypes.JSON)
     @Column(nullable = false, columnDefinition = "JSONB")
     private String issues;
 

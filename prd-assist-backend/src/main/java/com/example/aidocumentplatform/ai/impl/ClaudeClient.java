@@ -11,6 +11,8 @@ import org.springframework.web.reactive.function.client.WebClient;
 import reactor.util.retry.Retry;
 
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -18,13 +20,12 @@ import java.util.Map;
  * Claude API 客户端 —— 通过 WebClient 调用 Anthropic Messages API。
  *
  * API 文档: https://docs.anthropic.com/en/api/messages
- * 使用的 endpoint: POST https://api.anthropic.com/v1/messages
- *
  * 当 profile 不含 "deepseek" 时激活（默认）。
+ * 支持 generateWithImage 多模态（风格参考图）。
  */
 @Slf4j
 @Component
-@Profile("!deepseek")
+@Profile("!deepseek & !openai")
 public class ClaudeClient implements AiClient {
 
     private final WebClient webClient;
@@ -51,9 +52,41 @@ public class ClaudeClient implements AiClient {
                 "system", systemPrompt,
                 "messages", List.of(Map.of("role", "user", "content", userPrompt))
         );
+        return call(body, userPrompt.length(), false);
+    }
 
-        log.info("Claude API 调用: model={}, promptLen={}", model, userPrompt.length());
+    @Override
+    public String generateWithImage(String systemPrompt, String userPrompt,
+                                    String imageMime, String imageBase64) {
+        if (imageBase64 == null || imageBase64.isBlank()) {
+            return generate(systemPrompt, userPrompt);
+        }
+        String mediaType = normalizeMime(imageMime);
 
+        // Anthropic Messages：content 为多模态数组
+        List<Map<String, Object>> content = new ArrayList<>();
+        Map<String, Object> imageBlock = new LinkedHashMap<>();
+        imageBlock.put("type", "image");
+        imageBlock.put("source", Map.of(
+                "type", "base64",
+                "media_type", mediaType,
+                "data", imageBase64
+        ));
+        content.add(imageBlock);
+        content.add(Map.of("type", "text", "text", userPrompt));
+
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("model", model);
+        body.put("max_tokens", 16384);
+        body.put("system", systemPrompt);
+        body.put("messages", List.of(Map.of("role", "user", "content", content)));
+
+        log.info("Claude 多模态调用: model={}, imageMime={}, b64Len={}", model, mediaType, imageBase64.length());
+        return call(body, userPrompt.length(), true);
+    }
+
+    private String call(Map<String, Object> body, int promptLen, boolean withImage) {
+        log.info("Claude API 调用: model={}, promptLen={}, withImage={}", model, promptLen, withImage);
         try {
             String response = webClient.post()
                     .uri(apiUrl)
@@ -66,7 +99,6 @@ public class ClaudeClient implements AiClient {
                             .maxBackoff(Duration.ofSeconds(10)))
                     .block();
 
-            // 提取 content[0].text（Anthropic 格式）
             String text = extractContent(response);
             log.info("Claude API 成功: model={}, textLen={}", model, text.length());
             return text;
@@ -76,7 +108,18 @@ public class ClaudeClient implements AiClient {
         }
     }
 
-    /** 从 Anthropic 响应中提取 text 内容 */
+    private static String normalizeMime(String mime) {
+        if (mime == null || mime.isBlank()) return "image/png";
+        String m = mime.toLowerCase().trim();
+        return switch (m) {
+            case "image/jpg", "image/jpeg" -> "image/jpeg";
+            case "image/png" -> "image/png";
+            case "image/gif" -> "image/gif";
+            case "image/webp" -> "image/webp";
+            default -> m.startsWith("image/") ? m : "image/png";
+        };
+    }
+
     private String extractContent(String responseJson) {
         try {
             JsonNode root = objectMapper.readTree(responseJson);

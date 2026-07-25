@@ -191,19 +191,70 @@ public class PrdContentParser {
             ArrayNode chapters = obj.putArray("chapters");
             ObjectNode ch = chapters.addObject();
             ch.put("title", "正文");
-            // Use existing content fields if available
+            // Use existing content fields if available — never dump raw JSON via toString()
             StringBuilder content = new StringBuilder();
-            if (obj.has("summary")) content.append(obj.get("summary").asText()).append("\n\n");
-            if (obj.has("content")) content.append(obj.get("content").asText());
-            if (obj.has("text")) content.append(obj.get("text").asText());
-            if (content.isEmpty()) content.append(obj.toString());
-            ch.put("content", content.toString());
+            if (obj.has("summary") && obj.get("summary").isValueNode()) {
+                content.append(obj.get("summary").asText()).append("\n\n");
+            }
+            if (obj.has("content")) {
+                JsonNode c = obj.get("content");
+                content.append(c.isValueNode() ? c.asText() : extractReadableText(c));
+            }
+            if (obj.has("text") && obj.get("text").isValueNode()) {
+                content.append(obj.get("text").asText());
+            }
+            if (content.isEmpty()) {
+                content.append(extractReadableText(obj));
+            }
+            ch.put("content", content.toString().trim());
             return obj;
         }
         return node;
     }
 
     // ==================== Utility methods ====================
+
+    /**
+     * 从任意 JsonNode 提取可读纯文本，避免把 JSON 结构写进文档。
+     */
+    private String extractReadableText(JsonNode node) {
+        if (node == null || node.isNull() || node.isMissingNode()) return "";
+        if (node.isValueNode()) return node.asText("");
+        if (node.isArray()) {
+            StringBuilder sb = new StringBuilder();
+            for (JsonNode item : node) {
+                String t = extractReadableText(item);
+                if (t.isBlank()) continue;
+                if (sb.length() > 0) sb.append('\n');
+                sb.append(t.startsWith("-") || t.startsWith("•") ? t : "• " + t);
+            }
+            return sb.toString();
+        }
+        // object: 优先 content/text/title/summary
+        StringBuilder sb = new StringBuilder();
+        for (String key : new String[]{"title", "summary", "content", "text", "markdown", "description"}) {
+            if (node.has(key)) {
+                String t = extractReadableText(node.get(key));
+                if (t.isBlank()) continue;
+                if (sb.length() > 0) sb.append('\n');
+                if ("title".equals(key) || "summary".equals(key)) {
+                    sb.append(t);
+                } else {
+                    sb.append(t);
+                }
+            }
+        }
+        if (sb.length() > 0) return sb.toString().trim();
+        // 其余字段
+        node.fields().forEachRemaining(e -> {
+            if ("type".equals(e.getKey()) || "id".equals(e.getKey()) || "chapters".equals(e.getKey())) return;
+            String t = extractReadableText(e.getValue());
+            if (t.isBlank()) return;
+            if (sb.length() > 0) sb.append('\n');
+            sb.append(e.getKey()).append("：").append(t);
+        });
+        return sb.toString().trim();
+    }
 
     private String stripMarkdownFence(String value) {
         String result = value.trim();

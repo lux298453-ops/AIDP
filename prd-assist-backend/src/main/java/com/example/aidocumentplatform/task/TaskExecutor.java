@@ -41,9 +41,12 @@ public class TaskExecutor {
                 }
                 case PRD_REVIEW -> aiService.reviewPrd(task.getInputParams());
                 case PROTOTYPE -> aiService.generatePrototype(task.getInputParams());
+                // 审查修订走 PrdReviewServiceImpl.submitFix / executeFix，不经过此通用执行器
+                case PRD_REVIEW_FIX -> throw new UnsupportedOperationException(
+                        "PRD_REVIEW_FIX 应由 PrdReviewService 异步执行，不支持通用 TaskExecutor");
             };
 
-            taskService.pushProgress(taskId, 90, "AI处理完成，正在保存结果");
+            // 先落库再推 SSE，避免进度推送异常影响任务状态
             task.setStatus(TaskStatus.SUCCESS);
             asyncTaskRepository.save(task);
 

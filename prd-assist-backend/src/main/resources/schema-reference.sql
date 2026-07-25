@@ -56,7 +56,7 @@ CREATE TABLE IF NOT EXISTS async_task (
 CREATE INDEX IF NOT EXISTS idx_task_user_status ON async_task (user_id, status);
 
 COMMENT ON TABLE async_task IS '异步任务状态表';
-COMMENT ON COLUMN async_task.task_type IS 'PRD_GENERATE/PRD_ENHANCE/PROTOTYPE/PRD_REVIEW';
+COMMENT ON COLUMN async_task.task_type IS 'PRD_GENERATE/PRD_ENHANCE/PROTOTYPE/PRD_REVIEW/PRD_REVIEW_FIX';
 COMMENT ON COLUMN async_task.status IS 'PENDING/RUNNING/SUCCESS/FAILED';
 COMMENT ON COLUMN async_task.input_params IS '提交任务时的输入参数快照';
 COMMENT ON COLUMN async_task.result_ref_id IS '成功后指向对应结果表的ID';
@@ -74,7 +74,7 @@ CREATE TABLE IF NOT EXISTS prd_document (
     user_id        BIGINT       NOT NULL,
     task_id        BIGINT       NULL,
     title          VARCHAR(50)  NOT NULL,
-    description    VARCHAR(2000) NULL,
+    description    VARCHAR(50000) NULL,
     content        JSONB        NOT NULL,
     source_type    VARCHAR(20)  NOT NULL DEFAULT 'MANUAL',
     xmind_file_url VARCHAR(255) NULL,
@@ -83,7 +83,8 @@ CREATE TABLE IF NOT EXISTS prd_document (
     created_at     TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at     TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT fk_prd_user FOREIGN KEY (user_id) REFERENCES users(id),
-    CONSTRAINT fk_prd_task FOREIGN KEY (task_id) REFERENCES async_task(id)
+    CONSTRAINT fk_prd_task FOREIGN KEY (task_id) REFERENCES async_task(id),
+    CONSTRAINT prd_document_template_check CHECK (template IN ('STANDARD', 'CUSTOM'))
 );
 
 CREATE INDEX IF NOT EXISTS idx_prd_user_created ON prd_document (user_id, created_at);
@@ -111,7 +112,7 @@ CREATE TABLE IF NOT EXISTS prototype_result (
     task_id             BIGINT       NOT NULL,
     prototype_type      VARCHAR(20)  NOT NULL,
     platform            VARCHAR(20)  NOT NULL DEFAULT 'APP',
-    content             JSONB        NOT NULL,
+    content             TEXT         NOT NULL,
     reference_image_url VARCHAR(255) NULL,
     created_at          TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT fk_proto_user FOREIGN KEY (user_id) REFERENCES users(id),
@@ -124,7 +125,7 @@ CREATE INDEX IF NOT EXISTS idx_proto_user_created ON prototype_result (user_id, 
 COMMENT ON TABLE prototype_result IS '原型生成结果表';
 COMMENT ON COLUMN prototype_result.prototype_type IS 'SINGLE_PAGE/MULTI_PAGE';
 COMMENT ON COLUMN prototype_result.platform IS '生成的原型终端类型';
-COMMENT ON COLUMN prototype_result.content IS '生成的页面代码/结构';
+COMMENT ON COLUMN prototype_result.content IS '生成的HTML页面代码（非JSON，纯文本）';
 COMMENT ON COLUMN prototype_result.reference_image_url IS '用户上传的风格参考图';
 
 -- ========================================

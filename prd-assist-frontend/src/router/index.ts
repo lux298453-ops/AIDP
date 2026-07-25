@@ -65,6 +65,19 @@ const router = createRouter({
           component: () => import('@/views/PrototypeView.vue'),
           meta: { title: '原型生成' },
         },
+        {
+          // 从「我的文档」打开指定原型预览
+          path: 'prototype/:id(\\d+)',
+          name: 'PrototypeDetail',
+          component: () => import('@/views/PrototypeView.vue'),
+          meta: { title: '原型预览' },
+        },
+        {
+          path: 'settings/ai',
+          name: 'AiSettings',
+          component: () => import('@/views/settings/AiSettingsView.vue'),
+          meta: { title: '模型设置' },
+        },
       ],
     },
   ],

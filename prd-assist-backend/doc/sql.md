@@ -81,7 +81,7 @@ CREATE TABLE IF NOT EXISTS prd_document (
     user_id        BIGINT       NOT NULL,
     task_id        BIGINT       NULL,
     title          VARCHAR(50)  NOT NULL,
-    description    VARCHAR(2000) NULL,
+    description    VARCHAR(15000) NULL,
     content        JSONB        NOT NULL,
     source_type    VARCHAR(20)  NOT NULL DEFAULT 'MANUAL',
     xmind_file_url VARCHAR(255) NULL,
@@ -90,7 +90,8 @@ CREATE TABLE IF NOT EXISTS prd_document (
     created_at     TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at     TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT fk_prd_user FOREIGN KEY (user_id) REFERENCES users(id),
-    CONSTRAINT fk_prd_task FOREIGN KEY (task_id) REFERENCES async_task(id)
+    CONSTRAINT fk_prd_task FOREIGN KEY (task_id) REFERENCES async_task(id),
+    CONSTRAINT prd_document_template_check CHECK (template IN ('STANDARD', 'CUSTOM'))
 );
 
 COMMENT ON TABLE prd_document IS 'PRD文档表';
@@ -118,7 +119,7 @@ CREATE TABLE IF NOT EXISTS prototype_result (
     task_id             BIGINT       NOT NULL,
     prototype_type      VARCHAR(20)  NOT NULL,
     platform            VARCHAR(20)  NOT NULL DEFAULT 'APP',
-    content             JSONB        NOT NULL,
+    content             TEXT         NOT NULL,
     reference_image_url VARCHAR(255) NULL,
     created_at          TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT fk_proto_user FOREIGN KEY (user_id) REFERENCES users(id),
@@ -199,3 +200,27 @@ COMMENT ON TABLE tasks IS '任务表（旧版兼容）';
 CREATE TRIGGER trg_tasks_updated_at
     BEFORE UPDATE ON tasks
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- ============================================================
+-- 迁移脚本（按时间倒序，最新在前）
+-- ============================================================
+
+-- 2026-07-22: prototype_result.content 从 JSONB 改为 TEXT
+-- 原因：原型生成的内容是 HTML 页面代码，不是 JSON，JSONB 会拒绝存储
+ALTER TABLE prototype_result ALTER COLUMN content TYPE TEXT;
+
+-- 2026-07-22: prd_document.description 从 VARCHAR(2000) 扩展到 VARCHAR(15000)
+-- 原因：PRD 生成输入描述从 500 字放宽到 15000 字
+ALTER TABLE prd_document ALTER COLUMN description TYPE VARCHAR(15000);
+
+-- 2026-07-22: prd_document.template 允许 CUSTOM（自定义模板）
+-- 原因：Hibernate/历史建表生成的 check 仅允许 STANDARD，导致自定义模板保存失败
+ALTER TABLE prd_document DROP CONSTRAINT IF EXISTS prd_document_template_check;
+ALTER TABLE prd_document ADD CONSTRAINT prd_document_template_check
+  CHECK (template IN ('STANDARD', 'CUSTOM'));
+
+-- 2026-07-23: async_task.task_type 允许 PRD_REVIEW_FIX
+-- 原因：审查问题 AI 修订产出新版 PRD
+ALTER TABLE async_task DROP CONSTRAINT IF EXISTS async_task_task_type_check;
+ALTER TABLE async_task ADD CONSTRAINT async_task_task_type_check
+  CHECK (task_type IN ('PRD_GENERATE','PRD_ENHANCE','PROTOTYPE','PRD_REVIEW','PRD_REVIEW_FIX'));

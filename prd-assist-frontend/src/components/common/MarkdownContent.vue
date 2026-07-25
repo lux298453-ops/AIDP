@@ -1,0 +1,303 @@
+<script setup lang="ts">
+/**
+ * 轻量 Markdown/纯文本展示：
+ * - 拆出 ```mermaid 代码块 → MermaidBlock
+ * - 其余按段落 / 列表 / 表格展示
+ * 用于 PRD 章节只读对比与增强结果中的图表渲染
+ */
+import { computed } from 'vue'
+import MermaidBlock from './MermaidBlock.vue'
+
+const props = defineProps<{
+  content: string
+  /** 是否作为可编辑纯文本旁的只读预览（默认 true 渲染图表） */
+  renderCharts?: boolean
+}>()
+
+type Block =
+  | { kind: 'mermaid'; code: string }
+  | { kind: 'code'; lang: string; code: string }
+  | { kind: 'html'; html: string }
+
+const blocks = computed<Block[]>(() => parseContent(props.content || ''))
+
+function escapeHtml(s: string) {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+}
+
+function parseContent(raw: string): Block[] {
+  if (!raw) return []
+  const text = raw.replace(/\r\n/g, '\n').replace(/\\n/g, '\n')
+  const result: Block[] = []
+  // 匹配 ```lang\n...\n```
+  const fenceRe = /```([a-zA-Z0-9_-]*)[ \t]*\n([\s\S]*?)```/g
+  let last = 0
+  let m: RegExpExecArray | null
+  while ((m = fenceRe.exec(text)) !== null) {
+    if (m.index > last) {
+      result.push({ kind: 'html', html: plainToHtml(text.slice(last, m.index)) })
+    }
+    const lang = (m[1] || '').toLowerCase()
+    const code = m[2].trim()
+    if (lang === 'mermaid' || (!lang && /^(flowchart|graph|sequencediagram)\b/i.test(code))) {
+      result.push({ kind: 'mermaid', code })
+    } else {
+      result.push({ kind: 'code', lang, code })
+    }
+    last = m.index + m[0].length
+  }
+  if (last < text.length) {
+    // 无围栏但含裸 flowchart 的兜底
+    const rest = text.slice(last)
+    const naked = splitNakedMermaid(rest)
+    result.push(...naked)
+  }
+
+  // 若整段没有 fence，再尝试裸 mermaid
+  if (result.length === 0) {
+    return splitNakedMermaid(text)
+  }
+  return result
+}
+
+function splitNakedMermaid(text: string): Block[] {
+  const lines = text.split('\n')
+  const out: Block[] = []
+  let buf: string[] = []
+  let chart: string[] | null = null
+
+  const flushBuf = () => {
+    if (buf.length) {
+      out.push({ kind: 'html', html: plainToHtml(buf.join('\n')) })
+      buf = []
+    }
+  }
+  const flushChart = () => {
+    if (chart && chart.length) {
+      out.push({ kind: 'mermaid', code: chart.join('\n').trim() })
+      chart = null
+    }
+  }
+
+  for (const line of lines) {
+    const t = line.trim()
+    if (!chart && /^(flowchart|graph|sequenceDiagram)\b/i.test(t)) {
+      flushBuf()
+      chart = [line]
+      continue
+    }
+    if (chart) {
+      if (
+        t === '' ||
+        /(--|==>|-->|\[|\]|\(|\)|subgraph|\bend\b|participant|Note|style |classDef)/i.test(t) ||
+        /^[A-Za-z][\w]*([\[{(].*)?$/.test(t)
+      ) {
+        chart.push(line)
+        continue
+      }
+      flushChart()
+      buf.push(line)
+      continue
+    }
+    buf.push(line)
+  }
+  flushChart()
+  flushBuf()
+  return out
+}
+
+function plainToHtml(text: string): string {
+  if (!text.trim()) return ''
+  const lines = text.split('\n')
+  const parts: string[] = []
+  let listType: 'ul' | 'ol' | null = null
+  let items: string[] = []
+
+  const flushList = () => {
+    if (!listType) return
+    parts.push(`<${listType}>${items.map(i => `<li>${i}</li>`).join('')}</${listType}>`)
+    listType = null
+    items = []
+  }
+
+  for (let i = 0; i < lines.length; i++) {
+    const raw = lines[i]
+    const line = raw
+    if (isTableLine(line)) {
+      flushList()
+      const rows: string[] = []
+      while (i < lines.length) {
+        if (isTableLine(lines[i])) {
+          rows.push(lines[i])
+          i++
+          continue
+        }
+        if (lines[i].trim() === '' && i + 1 < lines.length && isTableLine(lines[i + 1])) {
+          i++
+          continue
+        }
+        break
+      }
+      i--
+      parts.push(tableToHtml(rows))
+      continue
+    }
+
+    const ul = line.match(/^\s*[-*•]\s+(.*)$/)
+    if (ul) {
+      if (listType && listType !== 'ul') flushList()
+      listType = 'ul'
+      items.push(inlineFormat(ul[1]))
+      continue
+    }
+    const ol = line.match(/^\s*\d+[.)、]\s+(.*)$/)
+    if (ol) {
+      if (listType && listType !== 'ol') flushList()
+      listType = 'ol'
+      items.push(inlineFormat(ol[1]))
+      continue
+    }
+    flushList()
+    if (line.trim() === '') {
+      parts.push('<p class="blank"><br></p>')
+    } else if (/^#{1,3}\s+/.test(line)) {
+      const level = line.match(/^(#{1,3})/)?.[1].length || 2
+      const t = line.replace(/^#{1,3}\s+/, '')
+      parts.push(`<h${level + 2}>${inlineFormat(t)}</h${level + 2}>`)
+    } else if (line.trim().startsWith('>')) {
+      parts.push(`<blockquote>${inlineFormat(line.replace(/^\s*>\s?/, ''))}</blockquote>`)
+    } else {
+      parts.push(`<p>${inlineFormat(line)}</p>`)
+    }
+  }
+  flushList()
+  return parts.join('')
+}
+
+function isTableLine(line: string): boolean {
+  const t = line.trim()
+  return t.startsWith('|') && t.endsWith('|') && (t.match(/\|/g) || []).length >= 2
+}
+
+function isSeparatorRow(cells: string[]): boolean {
+  return cells.length > 0 && cells.every(cell => /^:?-{3,}:?$/.test(cell.trim()))
+}
+
+function parseTableRow(line: string): string[] {
+  return line.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map(cell => cell.trim())
+}
+
+function tableToHtml(lines: string[]): string {
+  const rows = lines.map(parseTableRow).filter(row => row.some(cell => cell.length > 0))
+  if (!rows.length) return ''
+  const header = rows[0]
+  const body = rows.slice(1).filter(row => !isSeparatorRow(row))
+  const colCount = Math.max(header.length, ...body.map(row => row.length), 1)
+  const pad = (row: string[]) => Array.from({ length: colCount }, (_, i) => row[i] || '')
+  return `<div class="md-table-wrap"><table class="md-table"><thead><tr>${
+    pad(header).map(cell => `<th>${inlineFormat(cell)}</th>`).join('')
+  }</tr></thead><tbody>${
+    body.map(row => `<tr>${pad(row).map(cell => `<td>${inlineFormat(cell)}</td>`).join('')}</tr>`).join('')
+  }</tbody></table></div>`
+}
+
+function inlineFormat(s: string): string {
+  let t = escapeHtml(s)
+  t = t.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+  t = t.replace(/\*(.+?)\*/g, '<em>$1</em>')
+  t = t.replace(/`([^`]+)`/g, '<code>$1</code>')
+  return t
+}
+</script>
+
+<template>
+  <div class="md-content">
+    <template v-for="(block, i) in blocks" :key="i">
+      <MermaidBlock
+        v-if="block.kind === 'mermaid' && renderCharts !== false"
+        :code="block.code"
+      />
+      <pre v-else-if="block.kind === 'mermaid'" class="code-fallback">{{ block.code }}</pre>
+      <pre v-else-if="block.kind === 'code'" class="code-block"><code>{{ block.code }}</code></pre>
+      <div v-else class="md-html" v-html="block.html" />
+    </template>
+  </div>
+</template>
+
+<style scoped>
+.md-content {
+  font-size: 14px;
+  line-height: 1.75;
+  color: #26251e;
+  word-break: break-word;
+}
+.md-html :deep(p) { margin: 0 0 8px; }
+.md-html :deep(p.blank) { margin: 0 0 4px; }
+.md-html :deep(h3),
+.md-html :deep(h4),
+.md-html :deep(h5) {
+  margin: 12px 0 8px;
+  font-weight: 600;
+  color: #26251e;
+}
+.md-html :deep(ul),
+.md-html :deep(ol) {
+  margin: 6px 0 10px;
+  padding-left: 22px;
+}
+.md-html :deep(li) { margin: 3px 0; }
+.md-html :deep(blockquote) {
+  margin: 8px 0;
+  padding: 8px 12px;
+  border-left: 3px solid rgba(192, 133, 50, 0.5);
+  background: rgba(192, 133, 50, 0.06);
+  color: rgba(38, 37, 30, 0.75);
+  border-radius: 0 6px 6px 0;
+}
+.md-html :deep(code) {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12.5px;
+  background: #f2f1ed;
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+.md-html :deep(.md-table-wrap) {
+  overflow-x: auto;
+  margin: 8px 0 12px;
+}
+.md-html :deep(.md-table) {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  background: #fff;
+  border: 1px solid rgba(38, 37, 30, 0.12);
+  font-size: 13px;
+}
+.md-html :deep(.md-table th),
+.md-html :deep(.md-table td) {
+  border: 1px solid rgba(38, 37, 30, 0.12);
+  padding: 8px 10px;
+  text-align: left;
+  vertical-align: top;
+  word-break: break-word;
+}
+.md-html :deep(.md-table th) {
+  background: #f7f7f4;
+  font-weight: 600;
+}
+.code-block,
+.code-fallback {
+  margin: 8px 0;
+  padding: 12px;
+  background: #f2f1ed;
+  border-radius: 8px;
+  font-size: 12.5px;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+</style>

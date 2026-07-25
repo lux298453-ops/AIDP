@@ -1,24 +1,130 @@
 <script setup lang="ts">
-import { onMounted, ref, computed } from 'vue'
+/**
+ * PRD 结果页 —— 专业编辑器布局
+ * 左：大纲导航（层级 / 高亮 / 跳转 / 新增）
+ * 右：章节结构化编辑 + 轻量富文本
+ */
+import { onMounted, onBeforeUnmount, ref, computed, nextTick, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import {
+  ArrowLeft, Check, Download, Refresh, Plus, Delete, MagicStick,
+} from '@element-plus/icons-vue'
 import client from '@/api/client'
+import { getTaskById, getTaskSseUrl } from '@/api/task'
+import RichTextEditor from '@/components/common/RichTextEditor.vue'
+import MarkdownContent from '@/components/common/MarkdownContent.vue'
+import ChartSection from '@/components/common/ChartSection.vue'
+import { hasMermaid as detectMermaid, extractMermaidCode, mermaidCodeToPngBase64 } from '@/utils/mermaid'
 
-interface Chapter { title: string; content: string; type?: string }
-interface PrdState { title: string; summary: string; chapters: Chapter[] }
+interface Chapter {
+  title: string
+  content: string
+  type?: string
+}
+interface PrdState {
+  title: string
+  summary: string
+  chapters: Chapter[]
+}
 
 const route = useRoute()
 const router = useRouter()
 const id = computed(() => Number(route.params.id))
+
 const title = ref('')
 const description = ref('')
 const summary = ref('')
 const chapters = ref<Chapter[]>([])
-const compare = ref<PrdState | null>(null)
-const compareLoading = ref(false)
+const taskId = ref<number | null>(null)
+const templateType = ref('STANDARD')
+
 const loading = ref(true)
 const saving = ref(false)
+const dirty = ref(false)
 
+const activeKey = ref<string>('summary') // 'summary' | 'chapter-N'
+const contentScrollRef = ref<HTMLElement | null>(null)
+const outlineScrollRef = ref<HTMLElement | null>(null)
+
+// 比较模式
+const compare = ref<PrdState | null>(null)
+const compareLoading = ref(false)
+
+// 审查问题侧栏（fromReview）
+interface ReviewIssue {
+  severity: string
+  dimension: string
+  chapterIndex?: number
+  chapterTitle?: string
+  location: string
+  description: string
+  suggestion: string
+}
+const reviewIssues = ref<ReviewIssue[]>([])
+const reviewScore = ref<number | null>(null)
+const reviewSummary = ref('')
+const reviewPanelOpen = ref(true)
+const reviewFixing = ref(false)
+const fromReviewId = computed(() => {
+  const v = route.query.fromReview
+  return v ? Number(v) : null
+})
+const fixedFromReviewId = computed(() => {
+  const v = route.query.fixedFromReview
+  return v ? Number(v) : null
+})
+const highlightIssueIndex = computed(() => {
+  const v = route.query.issue
+  return v != null && v !== '' ? Number(v) : null
+})
+const reviewCriticalMajorCount = computed(() =>
+  reviewIssues.value.filter(i => i.severity === 'CRITICAL' || i.severity === 'MAJOR').length,
+)
+let reviewFixEventSource: EventSource | null = null
+
+// 新增章节弹窗
+const addDialogVisible = ref(false)
+const newChapterTitle = ref('')
+
+// ── 大纲节点 ─────────────────────────────────────────────
+interface OutlineNode {
+  key: string
+  title: string
+  level: number
+  index?: number // chapter index
+  kind: 'summary' | 'chapter'
+}
+
+function headingLevel(titleText: string): number {
+  if (!titleText) return 1
+  const m = titleText.trim().match(/^(\d+(?:\.\d+)*)/)
+  if (m) {
+    const dots = (m[1].match(/\./g) || []).length
+    return Math.min(dots + 1, 3)
+  }
+  // 中文编号
+  if (/^[一二三四五六七八九十]+[、.．]/.test(titleText.trim())) return 1
+  return 1
+}
+
+const outlineNodes = computed<OutlineNode[]>(() => {
+  const nodes: OutlineNode[] = [
+    { key: 'summary', title: '一句话需求', level: 1, kind: 'summary' },
+  ]
+  chapters.value.forEach((ch, i) => {
+    nodes.push({
+      key: `chapter-${i}`,
+      title: ch.title || `未命名章节 ${i + 1}`,
+      level: headingLevel(ch.title || ''),
+      index: i,
+      kind: 'chapter',
+    })
+  })
+  return nodes
+})
+
+// ── 数据加载 ─────────────────────────────────────────────
 function parseContent(raw: any): PrdState {
   let value = raw
   for (let i = 0; i < 3 && typeof value === 'string'; i++) {
@@ -27,139 +133,1264 @@ function parseContent(raw: any): PrdState {
   return {
     title: value?.title || '',
     summary: value?.summary || '',
-    chapters: Array.isArray(value?.chapters) ? value.chapters.map((c: any) => ({
-      title: c?.title || '未命名章节', content: c?.content || '', type: c?.type,
-    })) : [],
+    chapters: Array.isArray(value?.chapters)
+      ? value.chapters.map((c: any) => ({
+          title: c?.title || '未命名章节',
+          content: c?.content || '',
+          type: c?.type,
+        }))
+      : [],
   }
 }
 
-async function loadPrd(targetId: number): Promise<PrdState> {
+async function loadPrd(targetId: number) {
   const response = await client.get(`/prd/${targetId}`)
-  const data = response.data.data
-  const parsed = parseContent(data.content)
-  return { ...parsed, title: data.title || parsed.title }
+  return response.data.data
 }
 
 async function load() {
   loading.value = true
+  dirty.value = false
   try {
-    const current = await loadPrd(id.value)
-    title.value = current.title; description.value = (await client.get(`/prd/${id.value}`)).data.data.description || ''
-    summary.value = current.summary; chapters.value = current.chapters
+    const data = await loadPrd(id.value)
+    const parsed = parseContent(data.content)
+    title.value = data.title || parsed.title
+    description.value = data.description || ''
+    summary.value = parsed.summary
+    chapters.value = parsed.chapters
+    taskId.value = data.taskId ?? null
+    templateType.value = data.template || 'STANDARD'
+
     const compareId = Number(route.query.compare)
     if (compareId && compareId !== id.value) {
       compareLoading.value = true
-      try { compare.value = await loadPrd(compareId) } finally { compareLoading.value = false }
+      try {
+        const cData = await loadPrd(compareId)
+        compare.value = parseContent(cData.content)
+        if (cData.title) compare.value.title = cData.title
+      } finally {
+        compareLoading.value = false
+      }
+    } else {
+      compare.value = null
     }
-  } catch { ElMessage.error('PRD 加载失败') }
-  finally { loading.value = false }
+
+    // 从审查页进入原 PRD 时加载旧报告问题；AI 修复后的新 PRD 不再显示旧报告问题。
+    if (fromReviewId.value) {
+      await loadReviewIssues(fromReviewId.value)
+    } else {
+      clearReviewIssues()
+    }
+
+    // 默认选中 summary 或第一章
+    activeKey.value = chapters.value.length ? 'chapter-0' : 'summary'
+    await nextTick()
+
+    // 若带了 issue 参数，定位到对应章节
+    if (highlightIssueIndex.value != null && reviewIssues.value[highlightIssueIndex.value]) {
+      jumpToIssue(highlightIssueIndex.value)
+    }
+  } catch {
+    ElMessage.error('PRD 加载失败')
+  } finally {
+    loading.value = false
+  }
 }
 
+async function loadReviewIssues(reportId: number) {
+  try {
+    const res = await client.get(`/review/${reportId}`)
+    const data = res.data.data
+    let parsed: any = data.issues || '{}'
+    for (let i = 0; i < 3 && typeof parsed === 'string'; i++) {
+      try { parsed = JSON.parse(parsed) } catch { break }
+    }
+    reviewSummary.value = parsed.summary || ''
+    reviewScore.value = typeof parsed.score === 'number' ? parsed.score : null
+    reviewIssues.value = Array.isArray(parsed.issues) ? parsed.issues : []
+    reviewPanelOpen.value = true
+  } catch {
+    clearReviewIssues()
+  }
+}
+
+function clearReviewIssues() {
+  reviewIssues.value = []
+  reviewScore.value = null
+  reviewSummary.value = ''
+}
+
+function normalizeAnchorText(value: string | undefined | null): string {
+  return (value || '')
+    .toLowerCase()
+    .replace(/[\s#*_`~\-—–.,，。、:：;；!！?？()[\]（）【】{}<>《》"“”'‘’|/\\]+/g, '')
+}
+
+/** 按标题/位置文本模糊匹配章节 */
+function matchChapterIndex(location: string | undefined | null): number {
+  const loc = normalizeAnchorText(location)
+  if (!loc) return -1
+  let best = -1
+  let bestScore = 0
+  chapters.value.forEach((ch, i) => {
+    const t = normalizeAnchorText(ch.title)
+    if (!t) return
+    if (loc.includes(t) || t.includes(loc)) {
+      const score = Math.min(t.length, loc.length)
+      if (score > bestScore) { bestScore = score; best = i }
+      return
+    }
+    // 取标题中数字编号部分
+    const num = (ch.title || '').match(/\d+(\.\d+)*/)?.[0]
+    if (num && loc.includes(num.replace(/\./g, ''))) {
+      if (num.length + 1 > bestScore) { bestScore = num.length + 1; best = i }
+    }
+  })
+  return best
+}
+
+function resolveIssueChapterIndex(issue: ReviewIssue): number {
+  const byTitle = matchChapterIndex(issue.chapterTitle)
+  if (byTitle >= 0) return byTitle
+
+  if (Number.isInteger(issue.chapterIndex)
+    && issue.chapterIndex! >= 0
+    && issue.chapterIndex! < chapters.value.length) {
+    return issue.chapterIndex!
+  }
+
+  return matchChapterIndex(issue.location)
+}
+
+async function jumpToIssue(issueIndex: number) {
+  const issue = reviewIssues.value[issueIndex]
+  if (!issue) return
+  const chIdx = resolveIssueChapterIndex(issue)
+  if (chIdx >= 0) {
+    await selectNode({
+      key: `chapter-${chIdx}`,
+      title: chapters.value[chIdx].title,
+      level: headingLevel(chapters.value[chIdx].title),
+      index: chIdx,
+      kind: 'chapter',
+    })
+  } else {
+    ElMessage.info('未能自动定位章节，请在大纲中手动选择')
+  }
+}
+
+function severityMeta(sev: string) {
+  const map: Record<string, { label: string; color: string; bg: string }> = {
+    CRITICAL: { label: '严重', color: '#cf2d56', bg: 'rgba(207,45,86,0.08)' },
+    MAJOR: { label: '重要', color: '#c08532', bg: 'rgba(192,133,50,0.08)' },
+    MINOR: { label: '轻微', color: 'rgba(38,37,30,0.55)', bg: 'rgba(38,37,30,0.05)' },
+    SUGGESTION: { label: '建议', color: '#f54e00', bg: 'rgba(245,78,0,0.06)' },
+  }
+  return map[sev] || { label: sev, color: 'rgba(38,37,30,0.55)', bg: 'rgba(38,37,30,0.04)' }
+}
+
+/** 章节是否含有可渲染的 Mermaid 图 */
+function hasMermaid(content: string | undefined): boolean {
+  return detectMermaid(content)
+}
+
+/** 结构图/流程图：优先用专用图表编辑器（默认渲染图） */
+function isChartChapter(chapter: Chapter): boolean {
+  if (chapter.type === 'structure' || chapter.type === 'flow') return true
+  // 标题兜底识别
+  const t = (chapter.title || '')
+  if (/结构图|流程图|页面结构|业务流/.test(t)) return true
+  return hasMermaid(chapter.content)
+}
+
+// ── 保存 ─────────────────────────────────────────────────
 async function save() {
   saving.value = true
   try {
     await client.put(`/prd/${id.value}`, {
       title: title.value,
       description: description.value,
-      content: { title: title.value, summary: summary.value, chapters: chapters.value },
+      content: {
+        title: title.value,
+        summary: summary.value,
+        chapters: chapters.value,
+      },
     })
+    dirty.value = false
     ElMessage.success('已保存')
-  } catch { ElMessage.error('保存失败') }
-  finally { saving.value = false }
+  } catch {
+    ElMessage.error('保存失败')
+  } finally {
+    saving.value = false
+  }
 }
 
-function addChapter() { chapters.value.push({ title: '新章节', content: '' }) }
-function removeChapter(index: number) { chapters.value.splice(index, 1) }
+function markDirty() {
+  dirty.value = true
+}
 
-async function exportWord() {
+// ── 大纲点击 → 滚动定位 ──────────────────────────────────
+async function selectNode(node: OutlineNode) {
+  activeKey.value = node.key
+  await nextTick()
+  const el = document.getElementById(`prd-section-${node.key}`)
+  const container = contentScrollRef.value
+  if (el && container) {
+    const top = el.offsetTop - container.offsetTop - 12
+    container.scrollTo({ top: Math.max(0, top), behavior: 'smooth' })
+    // 高亮闪烁
+    el.classList.add('section-flash')
+    window.setTimeout(() => el.classList.remove('section-flash'), 900)
+  }
+}
+
+// 滚动时同步大纲高亮（IntersectionObserver）
+let observer: IntersectionObserver | null = null
+
+function setupScrollSpy() {
+  observer?.disconnect()
+  const root = contentScrollRef.value
+  if (!root) return
+  observer = new IntersectionObserver(
+    (entries) => {
+      // 取视口内最靠上的可见 section
+      const visible = entries
+        .filter(e => e.isIntersecting)
+        .sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top)
+      if (visible[0]?.target?.id) {
+        const key = visible[0].target.id.replace('prd-section-', '')
+        if (key) activeKey.value = key
+      }
+    },
+    { root, rootMargin: '-10% 0px -60% 0px', threshold: [0, 0.25, 0.5] },
+  )
+  root.querySelectorAll('[id^="prd-section-"]').forEach(el => observer!.observe(el))
+}
+
+watch([loading, chapters], async () => {
+  if (loading.value) return
+  await nextTick()
+  setupScrollSpy()
+})
+
+// ── 章节增删 ─────────────────────────────────────────────
+function openAddChapter() {
+  newChapterTitle.value = ''
+  addDialogVisible.value = true
+}
+
+async function confirmAddChapter() {
+  const t = newChapterTitle.value.trim()
+  if (!t) {
+    ElMessage.warning('请输入章节标题')
+    return
+  }
+  chapters.value.push({ title: t, content: '' })
+  markDirty()
+  addDialogVisible.value = false
+  const idx = chapters.value.length - 1
+  await nextTick()
+  selectNode({ key: `chapter-${idx}`, title: t, level: headingLevel(t), index: idx, kind: 'chapter' })
+  ElMessage.success('已新增章节')
+}
+
+async function removeChapter(index: number) {
+  const name = chapters.value[index]?.title || `章节 ${index + 1}`
   try {
-    const response = await client.get(`/prd/${id.value}/export`, { responseType: 'blob' })
+    await ElMessageBox.confirm(
+      `确定删除「${name}」吗？删除后需保存才会生效。`,
+      '删除章节',
+      { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' },
+    )
+  } catch {
+    return
+  }
+  chapters.value.splice(index, 1)
+  markDirty()
+  // 修正 activeKey
+  if (activeKey.value === `chapter-${index}` || activeKey.value.startsWith('chapter-')) {
+    activeKey.value = chapters.value.length
+      ? `chapter-${Math.min(index, chapters.value.length - 1)}`
+      : 'summary'
+  }
+  ElMessage.success('已删除章节')
+}
+
+// ── 工具栏操作 ───────────────────────────────────────────
+async function exportWord() {
+  if (dirty.value) {
+    try {
+      await ElMessageBox.confirm('有未保存的修改，导出将使用已保存版本。是否先保存？', '导出 Word', {
+        confirmButtonText: '保存并导出',
+        cancelButtonText: '直接导出',
+        distinguishCancelAndClose: true,
+        type: 'info',
+      })
+      await save()
+    } catch (e: any) {
+      if (e === 'close') return
+      // cancel → 直接导出
+    }
+  }
+  try {
+    // 收集含 mermaid 的章节，渲染为 PNG 一并导出；失败时仍 POST 空列表，由后端 Kroki 兜底
+    const chartImages: { key: string; pngBase64: string }[] = []
+    let mermaidCount = 0
+    for (let i = 0; i < chapters.value.length; i++) {
+      const ch = chapters.value[i]
+      if (!hasMermaid(ch.content)) continue
+      const code = extractMermaidCode(ch.content)
+      if (!code) continue
+      mermaidCount++
+      try {
+        const png = await mermaidCodeToPngBase64(code)
+        if (png) {
+          chartImages.push({ key: String(i), pngBase64: png })
+          // 语义 key：STANDARD 骨架第 2/3 章用
+          const t = (ch.type || '').toLowerCase()
+          if (t === 'flow' || (ch.title || '').includes('流程')) {
+            chartImages.push({ key: 'flow', pngBase64: png })
+          }
+          if (t === 'structure' || (ch.title || '').includes('结构')) {
+            chartImages.push({ key: 'structure', pngBase64: png })
+          }
+        }
+      } catch (err) {
+        console.warn('章节图表转 PNG 失败', i, err)
+      }
+    }
+    if (hasMermaid(summary.value)) {
+      const code = extractMermaidCode(summary.value)
+      if (code) {
+        mermaidCount++
+        try {
+          const png = await mermaidCodeToPngBase64(code)
+          if (png) chartImages.push({ key: 'summary', pngBase64: png })
+        } catch { /* ignore */ }
+      }
+    }
+
+    // 始终走 POST：即使前端 0 张图，后端也会从 mermaid 源码自动渲染
+    const response = await client.post(
+      `/prd/${id.value}/export`,
+      { chartImages },
+      { responseType: 'blob' },
+    )
     const url = URL.createObjectURL(response.data)
-    const anchor = document.createElement('a'); anchor.href = url; anchor.download = `${title.value || 'PRD'}.docx`; anchor.click()
-    URL.revokeObjectURL(url); ElMessage.success('Word 导出成功')
-  } catch { ElMessage.error('Word 导出失败') }
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = `${title.value || 'PRD'}.docx`
+    anchor.click()
+    URL.revokeObjectURL(url)
+    if (mermaidCount > 0 && chartImages.length === 0) {
+      ElMessage.success('Word 导出成功（图表由服务端渲染）')
+    } else if (chartImages.length) {
+      ElMessage.success(`Word 导出成功（含 ${chartImages.length} 张图）`)
+    } else {
+      ElMessage.success('Word 导出成功')
+    }
+  } catch {
+    ElMessage.error('Word 导出失败')
+  }
 }
 
 async function regenerate() {
   try {
     await ElMessageBox.confirm('将保留当前版本并重新提交生成，是否继续？', '重新生成', { type: 'info' })
-    const taskId = (await client.post(`/task/${(await client.get(`/prd/${id.value}`)).data.data.taskId}/regenerate`)).data.data.taskId
-    ElMessage.success(`已提交任务 ${taskId}`)
+    let tid = taskId.value
+    if (!tid) {
+      const data = await loadPrd(id.value)
+      tid = data.taskId
+    }
+    if (!tid) {
+      ElMessage.warning('未找到关联任务，无法重新生成')
+      return
+    }
+    const res = await client.post(`/task/${tid}/regenerate`)
+    const newTaskId = res.data.data.taskId
+    ElMessage.success(`已提交任务 ${newTaskId}，请稍后在「我的文档」查看`)
   } catch { /* cancelled */ }
 }
 
+function useForEnhance() {
+  router.push({ path: '/prd/enhance', query: { prdDocumentId: String(id.value) } })
+}
+
+function reReview() {
+  router.push({ path: '/prd/review', query: { prdDocumentId: String(id.value) } })
+}
+
+// ── 生命周期 ─────────────────────────────────────────────
+async function aiFixReview(issueIndexes?: number[]) {
+  if (!fromReviewId.value) return
+  const count = issueIndexes?.length ?? reviewCriticalMajorCount.value
+  if (count === 0) {
+    ElMessage.warning('没有可修复的严重/重要问题')
+    return
+  }
+
+  if (dirty.value) {
+    try {
+      await ElMessageBox.confirm(
+        '当前 PRD 有未保存修改。AI 修复会基于已保存内容执行，是否先保存再修复？',
+        'AI 修复 PRD',
+        { type: 'info', confirmButtonText: '保存并修复', cancelButtonText: '取消' },
+      )
+      await save()
+      if (dirty.value) {
+        ElMessage.warning('请先保存成功后再修复')
+        return
+      }
+    } catch {
+      return
+    }
+  } else {
+    try {
+      await ElMessageBox.confirm(
+        issueIndexes
+          ? '将根据该条审查建议生成修订版 PRD（保留当前版本），是否继续？'
+          : `将修复 ${count} 条严重/重要问题，生成新版 PRD（保留当前版本），是否继续？`,
+        'AI 修复 PRD',
+        { type: 'info', confirmButtonText: '开始修复', cancelButtonText: '取消' },
+      )
+    } catch {
+      return
+    }
+  }
+
+  reviewFixing.value = true
+  try {
+    const body = issueIndexes
+      ? { issueIndexes }
+      : { severities: ['CRITICAL', 'MAJOR'] }
+    const res = await client.post(`/review/${fromReviewId.value}/fix`, body)
+    watchReviewFixTask(res.data.data.taskId as number)
+  } catch {
+    reviewFixing.value = false
+  }
+}
+
+function watchReviewFixTask(fixTaskId: number) {
+  reviewFixEventSource?.close()
+  reviewFixEventSource = new EventSource(getTaskSseUrl(fixTaskId))
+  reviewFixEventSource.addEventListener('progress', async (e) => {
+    const d = JSON.parse((e as MessageEvent).data)
+    if (d.progress <= 0 && d.message && String(d.message).includes('失败')) {
+      reviewFixEventSource?.close()
+      reviewFixEventSource = null
+      reviewFixing.value = false
+      ElMessage.error(d.message)
+      return
+    }
+    if (d.progress >= 100) {
+      reviewFixEventSource?.close()
+      reviewFixEventSource = null
+      await openFixedPrd(fixTaskId)
+    }
+  })
+  reviewFixEventSource.onerror = async () => {
+    reviewFixEventSource?.close()
+    reviewFixEventSource = null
+    await openFixedPrd(fixTaskId)
+  }
+}
+
+async function openFixedPrd(fixTaskId: number) {
+  try {
+    const r = await getTaskById(fixTaskId)
+    if (r.data.data.status === 'SUCCESS' && r.data.data.resultRefId) {
+      reviewFixing.value = false
+      ElMessage.success('修复完成，正在打开新版本')
+      router.push({
+        path: `/prd/${r.data.data.resultRefId}`,
+        query: {
+          compare: String(id.value),
+          fixedFromReview: String(fromReviewId.value),
+        },
+      })
+    } else if (r.data.data.status === 'FAILED') {
+      reviewFixing.value = false
+      ElMessage.error(r.data.data.errorMessage || '修复失败')
+    } else {
+      reviewFixing.value = false
+      ElMessage.warning('修复任务仍在处理中，请稍后在我的文档中查看结果')
+    }
+  } catch {
+    reviewFixing.value = false
+    ElMessage.warning('修复状态获取失败，请稍后在我的文档中查看结果')
+  }
+}
+
 onMounted(load)
+onBeforeUnmount(() => {
+  observer?.disconnect()
+  reviewFixEventSource?.close()
+})
+
+// id 变化重新加载
+watch(id, () => load())
 </script>
 
 <template>
-  <div class="prd-detail-page" v-loading="loading">
-    <div class="detail-toolbar">
-      <el-button link @click="router.push('/documents')"><el-icon><ArrowLeft /></el-icon>我的文档</el-button>
-      <div class="toolbar-actions">
-        <el-button :loading="saving" type="primary" @click="save"><el-icon><Check /></el-icon>保存</el-button>
-        <el-button @click="exportWord"><el-icon><Download /></el-icon>导出 Word</el-button>
-        <el-button @click="regenerate"><el-icon><Refresh /></el-icon>重新生成</el-button>
-      </div>
-    </div>
-
-    <div class="detail-layout" v-if="!loading">
-      <main class="editor-column">
-        <div class="title-row">
-          <el-input v-model="title" class="title-input" placeholder="PRD 标题" />
-          <span class="doc-id">#{{ id }}</span>
+  <div class="prd-page" v-loading="loading">
+    <!-- 顶部工具栏 -->
+    <header class="prd-toolbar">
+      <div class="toolbar-left">
+        <el-button link class="back-btn" @click="router.push('/documents')">
+          <el-icon><ArrowLeft /></el-icon>
+          我的文档
+        </el-button>
+        <span class="toolbar-divider" />
+        <div class="title-wrap">
+          <el-input
+            v-model="title"
+            class="doc-title-input"
+            placeholder="PRD 标题"
+            @input="markDirty"
+          />
+          <span class="doc-meta">
+            #{{ id }}
+            <span v-if="templateType === 'CUSTOM'" class="tag-custom">自定义模板</span>
+            <span v-if="dirty" class="tag-dirty">未保存</span>
+          </span>
         </div>
-        <el-input v-model="description" type="textarea" :rows="2" placeholder="文档描述" class="description-input" />
-        <section class="editor-section">
-          <h3>一句话需求</h3>
-          <el-input v-model="summary" type="textarea" :rows="3" placeholder="填写需求价值和目标" />
+      </div>
+      <div class="toolbar-actions">
+        <el-button :loading="saving" type="primary" @click="save">
+          <el-icon><Check /></el-icon>
+          保存
+        </el-button>
+        <el-button @click="exportWord">
+          <el-icon><Download /></el-icon>
+          导出 Word
+        </el-button>
+        <el-button @click="regenerate">
+          <el-icon><Refresh /></el-icon>
+          重新生成
+        </el-button>
+        <el-button @click="useForEnhance">
+          <el-icon><MagicStick /></el-icon>
+          用作增强
+        </el-button>
+        <el-button v-if="fromReviewId || fixedFromReviewId" @click="reReview">
+          再审查
+        </el-button>
+      </div>
+    </header>
+
+    <!-- 主体：左大纲 + 右编辑 + 可选审查侧栏 -->
+    <div class="prd-workspace" v-if="!loading">
+      <!-- 左侧大纲 -->
+      <aside class="outline-panel" ref="outlineScrollRef">
+        <div class="outline-header">
+          <span class="outline-title">文档大纲</span>
+          <span class="outline-count">{{ chapters.length }} 章</span>
+        </div>
+
+        <nav class="outline-nav">
+          <button
+            v-for="node in outlineNodes"
+            :key="node.key"
+            type="button"
+            class="outline-item"
+            :class="{
+              active: activeKey === node.key,
+              [`level-${node.level}`]: true,
+            }"
+            @click="selectNode(node)"
+          >
+            <span class="outline-dot" />
+            <span class="outline-label" :title="node.title">{{ node.title }}</span>
+          </button>
+        </nav>
+
+        <div class="outline-footer">
+          <el-button class="btn-add-chapter" plain @click="openAddChapter">
+            <el-icon><Plus /></el-icon>
+            新增章节
+          </el-button>
+        </div>
+      </aside>
+
+      <!-- 右侧内容 -->
+      <main class="content-panel" ref="contentScrollRef">
+        <!-- 描述（可选折叠区） -->
+        <section class="doc-desc-block">
+          <label class="field-label">文档描述</label>
+          <el-input
+            v-model="description"
+            type="textarea"
+            :rows="2"
+            placeholder="原始需求描述（可选）"
+            maxlength="50000"
+            show-word-limit
+            @input="markDirty"
+          />
         </section>
-        <section v-for="(chapter, index) in chapters" :key="index" class="chapter-editor">
-          <div class="chapter-header">
-            <el-input v-model="chapter.title" class="chapter-title" />
-            <el-button text type="danger" @click="removeChapter(index)"><el-icon><Delete /></el-icon></el-button>
+
+        <!-- 一句话需求 -->
+        <section id="prd-section-summary" class="content-section" :class="{ active: activeKey === 'summary' }">
+          <div class="section-head">
+            <h2 class="section-title">一句话需求</h2>
           </div>
-          <el-input v-model="chapter.content" type="textarea" :rows="8" resize="vertical" />
+          <RichTextEditor
+            v-model="summary"
+            placeholder="用一句话概括本功能的核心价值与目标用户…"
+            min-height="100px"
+            @update:model-value="markDirty"
+            @focus="activeKey = 'summary'"
+          />
+          <div v-if="hasMermaid(summary)" class="chart-preview">
+            <div class="chart-preview-label">图表预览</div>
+            <MarkdownContent :content="summary" />
+          </div>
         </section>
-        <el-button class="add-chapter" plain @click="addChapter"><el-icon><Plus /></el-icon>新增章节</el-button>
+
+        <!-- 各章节 -->
+        <section
+          v-for="(chapter, index) in chapters"
+          :id="`prd-section-chapter-${index}`"
+          :key="`chapter-${index}-${chapter.title}`"
+          class="content-section chapter-section"
+          :class="{ active: activeKey === `chapter-${index}` }"
+        >
+          <div class="section-head">
+            <el-input
+              v-model="chapter.title"
+              class="chapter-title-input"
+              placeholder="章节标题"
+              @input="markDirty"
+              @focus="activeKey = `chapter-${index}`"
+            />
+            <el-button
+              text
+              type="danger"
+              class="btn-del-chapter"
+              @click="removeChapter(index)"
+            >
+              <el-icon><Delete /></el-icon>
+              删除
+            </el-button>
+          </div>
+
+          <!-- 结构图 / 流程图：默认渲染图 + 代码模式 + AI 改图 -->
+          <template v-if="isChartChapter(chapter)">
+            <div @click="activeKey = `chapter-${index}`">
+              <ChartSection
+                v-model="chapter.content"
+                :chart-type="chapter.type"
+                :prd-id="id"
+                :chapter-index="index"
+                :title="chapter.title"
+                @change="markDirty"
+              />
+            </div>
+          </template>
+          <template v-else>
+            <RichTextEditor
+              v-model="chapter.content"
+              placeholder="编辑本章节内容，支持加粗、列表、标题…"
+              min-height="180px"
+              @update:model-value="markDirty"
+              @focus="activeKey = `chapter-${index}`"
+            />
+            <div v-if="hasMermaid(chapter.content)" class="chart-preview">
+              <div class="chart-preview-label">图表预览</div>
+              <MarkdownContent :content="chapter.content" />
+            </div>
+          </template>
+        </section>
+
+        <div class="content-bottom-add">
+          <el-button plain @click="openAddChapter">
+            <el-icon><Plus /></el-icon>
+            在底部新增章节
+          </el-button>
+        </div>
+
+        <!-- 对比模式 -->
+        <aside v-if="route.query.compare" class="compare-block">
+          <div class="compare-heading">
+            <span>原始版本对比</span>
+            <span v-if="compareLoading">加载中…</span>
+          </div>
+          <template v-if="compare">
+            <h3 class="compare-title">{{ compare.title }}</h3>
+            <p class="compare-summary">{{ compare.summary }}</p>
+            <article
+              v-for="(ch, i) in compare.chapters"
+              :key="i"
+              class="compare-chapter"
+            >
+              <h4>{{ ch.title }}</h4>
+              <MarkdownContent :content="ch.content" />
+            </article>
+          </template>
+        </aside>
       </main>
 
-      <aside class="compare-column" v-if="route.query.compare">
-        <div class="compare-heading"><span>原始版本</span><span v-if="compareLoading">加载中...</span></div>
-        <template v-if="compare">
-          <h3>{{ compare.title }}</h3>
-          <p class="compare-summary">{{ compare.summary }}</p>
-          <article v-for="(chapter, index) in compare.chapters" :key="index" class="compare-chapter">
-            <h4>{{ chapter.title }}</h4><p>{{ chapter.content }}</p>
-          </article>
+      <!-- 审查问题侧栏 -->
+      <aside v-if="fromReviewId && reviewIssues.length" class="review-side" :class="{ collapsed: !reviewPanelOpen }">
+        <div class="review-side-head">
+          <div>
+            <div class="review-side-title">审查问题</div>
+            <div class="review-side-meta" v-if="reviewScore != null">
+              评分 <strong>{{ reviewScore }}</strong> · {{ reviewIssues.length }} 条
+            </div>
+          </div>
+          <el-button text size="small" @click="reviewPanelOpen = !reviewPanelOpen">
+            {{ reviewPanelOpen ? '收起' : '展开' }}
+          </el-button>
+        </div>
+        <template v-if="reviewPanelOpen">
+          <p v-if="reviewSummary" class="review-side-summary">{{ reviewSummary }}</p>
+          <div class="review-side-actions">
+            <el-button
+              size="small"
+              type="primary"
+              :loading="reviewFixing"
+              :disabled="reviewCriticalMajorCount === 0"
+              @click="aiFixReview()"
+            >
+              <el-icon><MagicStick /></el-icon>
+              AI 修复严重项 {{ reviewCriticalMajorCount }}
+            </el-button>
+          </div>
+          <div class="review-issue-list">
+            <div
+              v-for="(issue, idx) in reviewIssues"
+              :key="idx"
+              role="button"
+              tabindex="0"
+              class="review-issue-item"
+              :class="{ highlight: highlightIssueIndex === idx }"
+              @click="jumpToIssue(idx)"
+              @keydown.enter.prevent="jumpToIssue(idx)"
+            >
+              <div class="ri-head">
+                <span
+                  class="ri-sev"
+                  :style="{ color: severityMeta(issue.severity).color, background: severityMeta(issue.severity).bg }"
+                >{{ severityMeta(issue.severity).label }}</span>
+                <span class="ri-loc">{{ issue.location }}</span>
+              </div>
+              <p class="ri-desc">{{ issue.description }}</p>
+              <p class="ri-sug"><strong>建议：</strong>{{ issue.suggestion }}</p>
+              <div class="ri-actions">
+                <el-button
+                  size="small"
+                  text
+                  :loading="reviewFixing"
+                  @click.stop="aiFixReview([idx])"
+                >
+                  AI 修复此条
+                </el-button>
+              </div>
+            </div>
+          </div>
         </template>
       </aside>
     </div>
+
+    <!-- 新增章节对话框 -->
+    <el-dialog
+      v-model="addDialogVisible"
+      title="新增章节"
+      width="420px"
+      align-center
+      @opened="() => {}"
+    >
+      <el-form @submit.prevent="confirmAddChapter">
+        <el-form-item label="章节标题" required>
+          <el-input
+            v-model="newChapterTitle"
+            placeholder="例如：6. 配置项"
+            maxlength="80"
+            show-word-limit
+            autofocus
+            @keyup.enter="confirmAddChapter"
+          />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="addDialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="confirmAddChapter">确定新增</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <style scoped>
-.prd-detail-page { min-height: 100%; padding: 24px 36px; background: #f5f7fa; box-sizing: border-box; }
-.detail-toolbar { display:flex; justify-content:space-between; align-items:center; margin-bottom:18px; }
-.toolbar-actions { display:flex; gap:10px; }
-.detail-layout { display:grid; grid-template-columns:minmax(0, 1fr) minmax(320px, .8fr); gap:20px; align-items:start; }
-.editor-column, .compare-column { background:#fff; padding:24px; border:1px solid #ebeef5; border-radius:8px; }
-.editor-column { min-width:0; }
-.title-row { display:flex; align-items:center; gap:12px; margin-bottom:12px; }
-.title-input :deep(input) { font-size:22px; font-weight:600; }
-.doc-id { color:#909399; font-size:12px; }
-.description-input { margin-bottom:20px; }
-.editor-section { border-top:1px solid #ebeef5; padding-top:18px; margin-top:18px; }
-.editor-section h3 { font-size:15px; margin:0 0 10px; }
-.chapter-editor { border-top:1px solid #ebeef5; padding:18px 0; }
-.chapter-header { display:flex; gap:8px; align-items:center; margin-bottom:10px; }
-.chapter-title { font-weight:600; }
-.add-chapter { margin-top:8px; }
-.compare-column { max-height:calc(100vh - 130px); overflow:auto; background:#fbfcfe; }
-.compare-heading { display:flex; justify-content:space-between; color:#909399; font-size:13px; border-bottom:1px solid #ebeef5; padding-bottom:12px; }
-.compare-column h3 { font-size:18px; margin:16px 0 8px; }
-.compare-summary { color:#606266; line-height:1.6; }
-.compare-chapter { border-top:1px solid #ebeef5; padding:12px 0; }
-.compare-chapter h4 { margin:0 0 6px; font-size:14px; }
-.compare-chapter p { white-space:pre-wrap; color:#606266; line-height:1.7; margin:0; }
-@media (max-width: 900px) { .detail-layout { grid-template-columns:1fr; } .compare-column { max-height:none; } .detail-toolbar { align-items:flex-start; gap:12px; flex-direction:column; } }
+.prd-page {
+  height: 100%;
+  min-height: 0;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  background: #f2f1ed;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+/* ── Toolbar ─────────────────────────────────────────── */
+.prd-toolbar {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 20px;
+  background: #f7f7f4;
+  border-bottom: 1px solid rgba(38, 37, 30, 0.1);
+}
+.toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  flex: 1;
+}
+.back-btn { color: rgba(38, 37, 30, 0.55) !important; font-size: 13px; }
+.back-btn:hover { color: #cf2d56 !important; }
+.toolbar-divider {
+  width: 1px;
+  height: 20px;
+  background: rgba(38, 37, 30, 0.12);
+  flex-shrink: 0;
+}
+.title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  flex: 1;
+}
+.doc-title-input {
+  max-width: 420px;
+  min-width: 160px;
+}
+.doc-title-input :deep(.el-input__wrapper) {
+  box-shadow: none !important;
+  background: transparent;
+  padding-left: 0;
+}
+.doc-title-input :deep(.el-input__inner) {
+  font-size: 17px;
+  font-weight: 500;
+  color: #26251e;
+  height: 32px;
+}
+.doc-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: rgba(38, 37, 30, 0.4);
+  white-space: nowrap;
+}
+.tag-custom,
+.tag-dirty {
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+}
+.tag-custom {
+  background: rgba(31, 138, 101, 0.12);
+  color: #1f8a65;
+}
+.tag-dirty {
+  background: rgba(192, 133, 50, 0.15);
+  color: #c08532;
+}
+.toolbar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+/* ── Workspace ───────────────────────────────────────── */
+.prd-workspace {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  overflow: hidden;
+}
+
+/* ── Outline ─────────────────────────────────────────── */
+.outline-panel {
+  width: 300px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  background: #f7f7f4;
+  border-right: 1px solid rgba(38, 37, 30, 0.1);
+}
+.outline-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 18px 10px;
+}
+.outline-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #26251e;
+  letter-spacing: 0.02em;
+}
+.outline-count {
+  font-size: 12px;
+  color: rgba(38, 37, 30, 0.4);
+}
+.outline-nav {
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px 10px 12px;
+}
+.outline-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: none;
+  background: transparent;
+  text-align: left;
+  padding: 8px 10px;
+  margin-bottom: 2px;
+  border-radius: 8px;
+  cursor: pointer;
+  color: rgba(38, 37, 30, 0.7);
+  font-size: 13px;
+  line-height: 1.4;
+  transition: background .12s, color .12s;
+  font-family: inherit;
+}
+.outline-item:hover {
+  background: #e6e5e0;
+  color: #26251e;
+}
+.outline-item.active {
+  background: #26251e;
+  color: #f2f1ed;
+}
+.outline-item.active .outline-dot {
+  background: #f54e00;
+}
+.outline-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: rgba(38, 37, 30, 0.25);
+  flex-shrink: 0;
+}
+.outline-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.outline-item.level-2 { padding-left: 22px; font-size: 12.5px; }
+.outline-item.level-3 { padding-left: 34px; font-size: 12px; color: rgba(38, 37, 30, 0.55); }
+.outline-item.level-3.active { color: #f2f1ed; }
+
+.outline-footer {
+  padding: 12px 14px 16px;
+  border-top: 1px solid rgba(38, 37, 30, 0.08);
+}
+.btn-add-chapter {
+  width: 100%;
+  border-radius: 8px !important;
+  border-style: dashed !important;
+  color: rgba(38, 37, 30, 0.65) !important;
+  background: transparent !important;
+}
+.btn-add-chapter:hover {
+  color: #f54e00 !important;
+  border-color: #f54e00 !important;
+  background: rgba(245, 78, 0, 0.04) !important;
+}
+
+/* ── Content ─────────────────────────────────────────── */
+.content-panel {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  padding: 28px 40px 64px;
+  background: #f2f1ed;
+  scroll-behavior: smooth;
+}
+.doc-desc-block {
+  margin-bottom: 20px;
+  padding: 16px 18px;
+  background: #fff;
+  border: 1px solid rgba(38, 37, 30, 0.08);
+  border-radius: 10px;
+}
+.field-label {
+  display: block;
+  font-size: 12px;
+  font-weight: 500;
+  color: rgba(38, 37, 30, 0.5);
+  margin-bottom: 8px;
+}
+
+.content-section {
+  background: #fff;
+  border: 1px solid rgba(38, 37, 30, 0.08);
+  border-radius: 10px;
+  padding: 20px 22px;
+  margin-bottom: 16px;
+  transition: box-shadow .2s, border-color .2s;
+}
+.content-section.active {
+  border-color: rgba(38, 37, 30, 0.18);
+  box-shadow: 0 0 0 1px rgba(38, 37, 30, 0.04);
+}
+.content-section.section-flash {
+  animation: flash-border 0.9s ease;
+}
+@keyframes flash-border {
+  0%   { box-shadow: 0 0 0 2px rgba(245, 78, 0, 0.45); }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+
+.section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.section-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: #26251e;
+  letter-spacing: -0.01em;
+}
+.chapter-title-input {
+  flex: 1;
+}
+.chapter-title-input :deep(.el-input__wrapper) {
+  box-shadow: none !important;
+  background: transparent;
+  padding-left: 0;
+}
+.chapter-title-input :deep(.el-input__inner) {
+  font-size: 16px;
+  font-weight: 600;
+  color: #26251e;
+  height: 32px;
+}
+.btn-del-chapter {
+  flex-shrink: 0;
+  opacity: 0.55;
+}
+.btn-del-chapter:hover { opacity: 1; }
+
+.chart-preview {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px dashed rgba(38, 37, 30, 0.12);
+}
+.chart-preview-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: rgba(38, 37, 30, 0.5);
+  margin-bottom: 8px;
+  letter-spacing: 0.02em;
+}
+.chart-type-tag {
+  font-weight: 500;
+  font-size: 11px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: rgba(31, 138, 101, 0.1);
+  color: #1f8a65;
+}
+
+.content-bottom-add {
+  display: flex;
+  justify-content: center;
+  padding: 12px 0 8px;
+}
+
+/* ── Review side panel ──────────────────────────────── */
+.review-side {
+  width: 320px;
+  flex-shrink: 0;
+  border-left: 1px solid rgba(38, 37, 30, 0.1);
+  background: #fbfaf7;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.review-side.collapsed {
+  width: 140px;
+}
+.review-side-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: 14px 14px 10px;
+  border-bottom: 1px solid rgba(38, 37, 30, 0.08);
+}
+.review-side-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #26251e;
+}
+.review-side-meta {
+  font-size: 12px;
+  color: rgba(38, 37, 30, 0.5);
+  margin-top: 2px;
+}
+.review-side-meta strong { color: #c08532; font-size: 14px; }
+.review-side-summary {
+  margin: 0;
+  padding: 10px 14px;
+  font-size: 12px;
+  color: rgba(38, 37, 30, 0.65);
+  line-height: 1.5;
+  border-bottom: 1px solid rgba(38, 37, 30, 0.06);
+}
+.review-side-actions {
+  padding: 10px 14px;
+  border-bottom: 1px solid rgba(38, 37, 30, 0.06);
+}
+.review-side-actions :deep(.el-button) {
+  width: 100%;
+}
+.review-issue-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.review-issue-item {
+  border: 1px solid rgba(38, 37, 30, 0.08);
+  background: #fff;
+  border-radius: 8px;
+  padding: 10px 12px;
+  text-align: left;
+  cursor: pointer;
+  font-family: inherit;
+  transition: border-color .15s, box-shadow .15s;
+  outline: none;
+}
+.review-issue-item:hover {
+  border-color: rgba(245, 78, 0, 0.35);
+}
+.review-issue-item.highlight {
+  border-color: #f54e00;
+  box-shadow: 0 0 0 2px rgba(245, 78, 0, 0.12);
+}
+.ri-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.ri-sev {
+  font-size: 11px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-weight: 500;
+  flex-shrink: 0;
+}
+.ri-loc {
+  font-size: 12px;
+  color: #f54e00;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ri-desc {
+  margin: 0 0 6px;
+  font-size: 12.5px;
+  color: #26251e;
+  line-height: 1.5;
+}
+.ri-sug {
+  margin: 0;
+  font-size: 12px;
+  color: #1f8a65;
+  line-height: 1.45;
+  background: rgba(31, 138, 101, 0.06);
+  padding: 6px 8px;
+  border-radius: 6px;
+}
+.ri-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 6px;
+}
+
+/* ── Compare ─────────────────────────────────────────── */
+.compare-block {
+  margin-top: 28px;
+  padding: 20px;
+  background: #fbfcfe;
+  border: 1px dashed rgba(38, 37, 30, 0.15);
+  border-radius: 10px;
+}
+.compare-heading {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+  color: rgba(38, 37, 30, 0.55);
+  border-bottom: 1px solid rgba(38, 37, 30, 0.08);
+  padding-bottom: 10px;
+  margin-bottom: 12px;
+}
+.compare-title {
+  font-size: 16px;
+  font-weight: 500;
+  margin: 0 0 8px;
+  color: #26251e;
+}
+.compare-summary {
+  color: rgba(38, 37, 30, 0.7);
+  line-height: 1.6;
+  margin: 0 0 12px;
+}
+.compare-chapter {
+  border-top: 1px solid rgba(38, 37, 30, 0.08);
+  padding: 12px 0;
+}
+.compare-chapter h4 {
+  margin: 0 0 6px;
+  font-size: 14px;
+  color: #26251e;
+}
+.compare-content {
+  margin: 0;
+  white-space: pre-wrap;
+  font-family: inherit;
+  font-size: 13px;
+  color: rgba(38, 37, 30, 0.7);
+  line-height: 1.7;
+}
+
+/* ── Responsive ──────────────────────────────────────── */
+@media (max-width: 960px) {
+  .prd-workspace { flex-direction: column; }
+  .outline-panel {
+    width: 100%;
+    max-height: 200px;
+    border-right: none;
+    border-bottom: 1px solid rgba(38, 37, 30, 0.1);
+  }
+  .outline-nav { display: flex; flex-wrap: nowrap; overflow-x: auto; gap: 4px; padding: 0 10px 10px; }
+  .outline-item { width: auto; white-space: nowrap; flex-shrink: 0; }
+  .outline-item.level-2,
+  .outline-item.level-3 { padding-left: 10px; }
+  .outline-footer { display: none; }
+  .content-panel { padding: 16px 16px 48px; }
+  .prd-toolbar { flex-wrap: wrap; }
+}
 </style>

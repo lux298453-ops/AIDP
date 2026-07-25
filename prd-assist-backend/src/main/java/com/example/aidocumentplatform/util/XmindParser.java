@@ -153,29 +153,40 @@ public class XmindParser {
     }
 
     private void extractXmlTopics(Element topicEl, StringBuilder sb, int depth) {
-        String title = getXmlChildText(topicEl, "title");
+        String title = getDirectXmlChildText(topicEl, "title");
         if (!title.isEmpty()) {
             sb.append("  ".repeat(Math.max(0, depth)))
                     .append("- ").append(title).append("\n");
         }
 
-        // 递归 children → topics → topic
-        NodeList childrenNodes = topicEl.getElementsByTagName("children");
-        if (childrenNodes.getLength() > 0) {
-            Element children = (Element) childrenNodes.item(0);
-            NodeList childTopics = children.getElementsByTagName("topic");
-            for (int i = 0; i < childTopics.getLength(); i++) {
-                extractXmlTopics((Element) childTopics.item(i), sb, depth + 1);
+        // 只递归直接子节点：topic → children → topics → topic。
+        // getElementsByTagName 会返回所有后代，旧实现会把孙节点/重孙节点重复解析。
+        for (Element children : directXmlChildren(topicEl, "children")) {
+            for (Element topics : directXmlChildren(children, "topics")) {
+                for (Element childTopic : directXmlChildren(topics, "topic")) {
+                    extractXmlTopics(childTopic, sb, depth + 1);
+                }
             }
         }
     }
 
-    private String getXmlChildText(Element parent, String tagName) {
-        NodeList list = parent.getElementsByTagName(tagName);
-        if (list.getLength() > 0) {
-            return list.item(0).getTextContent();
+    private String getDirectXmlChildText(Element parent, String tagName) {
+        for (Element child : directXmlChildren(parent, tagName)) {
+            return child.getTextContent().trim();
         }
         return "";
+    }
+
+    private java.util.List<Element> directXmlChildren(Element parent, String tagName) {
+        java.util.List<Element> result = new java.util.ArrayList<>();
+        NodeList nodes = parent.getChildNodes();
+        for (int i = 0; i < nodes.getLength(); i++) {
+            Node node = nodes.item(i);
+            if (node instanceof Element element && tagName.equals(element.getTagName())) {
+                result.add(element);
+            }
+        }
+        return result;
     }
 
     // ==================== 工具方法 ====================

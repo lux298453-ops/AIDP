@@ -1,6 +1,7 @@
 package com.example.aidocumentplatform.service.impl;
 
 import com.example.aidocumentplatform.ai.AiClient;
+import com.example.aidocumentplatform.ai.AiRequestContext;
 import com.example.aidocumentplatform.ai.prompt.PrdGeneratePromptTemplate;
 import com.example.aidocumentplatform.model.dto.request.PrdGenerateRequest;
 import com.example.aidocumentplatform.model.entity.AsyncTask;
@@ -11,6 +12,7 @@ import com.example.aidocumentplatform.model.enums.TaskType;
 import com.example.aidocumentplatform.repository.AsyncTaskRepository;
 import com.example.aidocumentplatform.repository.PrdDocumentRepository;
 import com.example.aidocumentplatform.service.PrdGenerateService;
+import com.example.aidocumentplatform.util.JsonUtils;
 import com.example.aidocumentplatform.util.PrdContentParser;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -75,24 +77,33 @@ public class PrdGenerateServiceImpl implements PrdGenerateService {
             asyncTaskRepository.save(task);
             taskService.pushProgress(taskId, 10, "AI 正在生成 PRD...");
 
-            // 调用 AI
+            // 调用 AI（CUSTOM 时把模板内容注入 prompt，按用户章节结构生成）
             String systemPrompt = promptTemplate.getSystemPrompt();
             String userPrompt = promptTemplate.buildUserPrompt(
-                    request.getFeatureName(), request.getDescription(), request.getDetailLevel());
-            log.info("AI 调用开始: taskId={}, promptLen={}", taskId, userPrompt.length());
-            String aiResponse = aiClient.generate(systemPrompt, userPrompt);
+                    request.getFeatureName(),
+                    request.getDescription(),
+                    request.getDetailLevel(),
+                    request.getCustomTemplateContent());
+            log.info("AI 调用开始: taskId={}, template={}, promptLen={}",
+                    taskId, request.getTemplate(), userPrompt.length());
+            String aiResponse;
+            AiRequestContext.setUserId(userId);
+            try {
+                aiResponse = aiClient.generate(systemPrompt, userPrompt);
+            } finally {
+                AiRequestContext.clear();
+            }
             log.info("AI 调用完成: taskId={}, responseLen={}, firstChars={}",
                     taskId, aiResponse.length(),
                     aiResponse.length() > 200 ? aiResponse.substring(0, 200) : aiResponse);
 
-            taskService.pushProgress(taskId, 70, "AI 生成完成，正在保存...");
-
+            // 先落库再推 SSE，避免进度推送异常影响保存
             // 提取 JSON 内容（AI 可能包裹在 markdown 代码块中）
             String jsonContent = prdContentParser.normalizeToJson(aiResponse);
 
-            // 保存到 prd_document（description 限制 500 字符，XMind 大纲文本可能很长）
-            String safeDescription = request.getDescription() != null && request.getDescription().length() > 500
-                    ? request.getDescription().substring(0, 497) + "..."
+            // 保存到 prd_document（description 限制 50000 字符）
+            String safeDescription = request.getDescription() != null && request.getDescription().length() > 50000
+                    ? request.getDescription().substring(0, 49997) + "..."
                     : request.getDescription();
             PrdDocument doc = PrdDocument.builder()
                     .userId(userId)
@@ -129,19 +140,48 @@ public class PrdGenerateServiceImpl implements PrdGenerateService {
     }
 
     private String buildInputJson(PrdGenerateRequest req) {
-        return "{\"featureName\":\"" + escape(req.getFeatureName()) + "\"" +
-                ",\"description\":\"" + escape(req.getDescription()) + "\"" +
-                ",\"template\":\"" + req.getTemplate().name() + "\"" +
-                ",\"detailLevel\":\"" + req.getDetailLevel().name() + "\"}";
+        StringBuilder sb = new StringBuilder();
+        sb.append("{\"featureName\":\"").append(JsonUtils.escapeJsonString(req.getFeatureName())).append("\"");
+        sb.append(",\"description\":\"").append(JsonUtils.escapeJsonString(req.getDescription())).append("\"");
+        sb.append(",\"template\":\"").append(req.getTemplate().name()).append("\"");
+        sb.append(",\"detailLevel\":\"").append(req.getDetailLevel().name()).append("\"");
+        if (req.getCustomTemplateFileName() != null) {
+            sb.append(",\"customTemplateFileName\":\"")
+                    .append(JsonUtils.escapeJsonString(req.getCustomTemplateFileName())).append("\"");
+        }
+        // 重新生成时需要模板正文，截断到 8000 字写入 inputParams 以免过大
+        if (req.getCustomTemplateContent() != null && !req.getCustomTemplateContent().isBlank()) {
+            String content = req.getCustomTemplateContent();
+            if (content.length() > 8000) content = content.substring(0, 8000);
+            sb.append(",\"customTemplateContent\":\"").append(JsonUtils.escapeJsonString(content)).append("\"");
+        }
+        sb.append("}");
+        return sb.toString();
     }
 
     @Override
     public Long submitXmind(String fileName, String outlineText, String template, String detailLevel, Long userId) {
+        return submitXmind(fileName, outlineText, template, detailLevel, userId, null, null);
+    }
+
+    @Override
+    public Long submitXmind(String fileName, String outlineText, String template, String detailLevel, Long userId,
+                            String customTemplateContent, String customTemplateFileName) {
         String featureName = fileName.replaceAll("\\.xmind$", "");
-        String inputParams = "{\"source\":\"XMIND\",\"fileName\":\"" + escape(fileName) + "\"" +
-                ",\"outline\":\"" + escape(outlineText) + "\"" +
-                ",\"template\":\"" + template + "\"" +
-                ",\"detailLevel\":\"" + detailLevel + "\"}";
+
+        PrdGenerateRequest request = new PrdGenerateRequest();
+        request.setFeatureName(featureName);
+        request.setDescription(outlineText);
+        try { request.setTemplate(com.example.aidocumentplatform.model.enums.TemplateType.valueOf(template)); } catch (Exception ignored) {}
+        try { request.setDetailLevel(com.example.aidocumentplatform.model.enums.DetailLevel.valueOf(detailLevel)); } catch (Exception ignored) {}
+        request.setCustomTemplateContent(customTemplateContent);
+        request.setCustomTemplateFileName(customTemplateFileName);
+
+        // inputParams：在标准字段前附加 XMind 元信息，便于 regenerate 还原
+        String base = buildInputJson(request);
+        String inputParams = "{\"source\":\"XMIND\",\"fileName\":\"" + JsonUtils.escapeJsonString(fileName) + "\"" +
+                ",\"outline\":\"" + JsonUtils.escapeJsonString(outlineText) + "\"," +
+                base.substring(1); // 去掉 base 开头的 '{'，拼到前面
 
         AsyncTask task = AsyncTask.builder()
                 .userId(userId)
@@ -150,23 +190,11 @@ public class PrdGenerateServiceImpl implements PrdGenerateService {
                 .inputParams(inputParams)
                 .build();
         task = asyncTaskRepository.save(task);
-        log.info("XMind PRD生成任务已创建: taskId={}, userId={}, fileName={}", task.getId(), userId, fileName);
+        log.info("XMind PRD生成任务已创建: taskId={}, userId={}, fileName={}, template={}",
+                task.getId(), userId, fileName, template);
 
-        // 构建 request 并异步执行
-        PrdGenerateRequest request = new PrdGenerateRequest();
-        request.setFeatureName(featureName);
-        request.setDescription(outlineText);
-        // 用字符串匹配枚举
-        try { request.setTemplate(com.example.aidocumentplatform.model.enums.TemplateType.valueOf(template)); } catch (Exception ignored) {}
-        try { request.setDetailLevel(com.example.aidocumentplatform.model.enums.DetailLevel.valueOf(detailLevel)); } catch (Exception ignored) {}
-
-        // 通过 Spring 代理调用，确保 @Async 生效
         applicationContext.getBean(PrdGenerateServiceImpl.class).execute(task.getId(), request, userId);
         return task.getId();
     }
 
-    private String escape(String s) {
-        if (s == null) return "";
-        return s.replace("\\", "\\\\").replace("\"", "\\\"");
-    }
 }

@@ -16,5 +16,6 @@ export function getTaskById(id: number) {
 
 export function getTaskSseUrl(id: number): string {
   const token = localStorage.getItem('token')
-  return `/api/tasks/${id}/progress?token=${token}`
+  const query = token ? `?token=${encodeURIComponent(token)}` : ''
+  return `/api/tasks/${id}/progress${query}`
 }

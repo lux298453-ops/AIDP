@@ -24,7 +24,7 @@ const taskTypeOptions = [
 // ==================== 分页 ====================
 const docs = ref<DocumentVO[]>([])
 const loading = ref(false)
-const page = ref(0)
+const currentPage = ref(1)
 const total = ref(0)
 const pageSize = 20
 
@@ -35,28 +35,50 @@ async function loadDocs() {
     const res = await getDocumentList({
       keyword: keyword.value || undefined,
       taskType: taskTypeFilter.value || undefined,
-      page: page.value,
+      page: Math.max(0, currentPage.value - 1),
       size: pageSize,
     })
     docs.value = res.data.data.content || []
     total.value = res.data.data.totalElements || 0
+    const maxPage = Math.max(1, Math.ceil(total.value / pageSize))
+    if (currentPage.value > maxPage) {
+      currentPage.value = maxPage
+    }
   } catch { /* handled */ }
   finally { loading.value = false }
 }
 
 onMounted(loadDocs)
-watch([keyword, taskTypeFilter], () => { page.value = 0; loadDocs() })
-watch(page, loadDocs)
+watch([keyword, taskTypeFilter], () => { currentPage.value = 1; loadDocs() })
+watch(currentPage, loadDocs)
 
-// ==================== 导航 ====================
+// ==================== 导航：跳到对应模块的预览/详情页 ====================
 function goDetail(doc: DocumentVO) {
-  if (doc.docType === 'PRD') router.push(`/prd/${doc.id}`)
-  else if (doc.docType === 'PROTOTYPE') router.push('/prototype')
-  else router.push('/prd/review')
+  const type = String(doc?.docType || '').toUpperCase()
+  const id = Number(doc?.id)
+  if (!id) {
+    ElMessage.warning('文档 ID 无效')
+    return
+  }
+
+  if (type === 'PRD') {
+    router.push(`/prd/${id}`)
+    return
+  }
+  if (type === 'PROTOTYPE') {
+    // 专用详情路由，避免 query 丢失 / 组件复用导致不加载
+    router.push(`/prototype/${id}`)
+    return
+  }
+  if (type === 'REVIEW') {
+    router.push({ path: '/prd/review', query: { reportId: String(id) } })
+    return
+  }
+  ElMessage.warning(`未知文档类型：${doc?.docType || '空'}`)
 }
 
 // ==================== 工具 ====================
-const docTypeColors: Record<string, string> = { PRD: '#409eff', PROTOTYPE: '#e6a23c', REVIEW: '#67c23a' }
+const docTypeColors: Record<string, string> = { PRD: '#26251e', PROTOTYPE: '#c08532', REVIEW: '#1f8a65' }
 const docTypeLabels: Record<string, string> = { PRD: 'PRD', PROTOTYPE: '原型', REVIEW: '审查' }
 
 function formatDate(s: string) { return s ? s.substring(0, 10) + ' ' + s.substring(11, 16) : '' }
@@ -160,8 +182,11 @@ async function handleRegenerate(doc: DocumentVO) {
         <el-table-column prop="title" label="标题" min-width="240" show-overflow-tooltip />
         <el-table-column prop="description" label="描述" min-width="200" show-overflow-tooltip />
         <el-table-column prop="createdAt" label="创建时间" width="160" :formatter="(_r: any, _c: any, v: string) => formatDate(v)" />
-        <el-table-column label="操作" width="180" fixed="right">
+        <el-table-column label="操作" width="220" fixed="right">
           <template #default="{ row }">
+            <el-button type="primary" size="small" link @click.stop="goDetail(row)">
+              打开
+            </el-button>
             <el-button v-if="row.docType === 'PRD'" type="primary" size="small" link @click.stop="exportWord(row)">
               <el-icon><Download /></el-icon> 导出
             </el-button>
@@ -202,7 +227,7 @@ async function handleRegenerate(doc: DocumentVO) {
     <!-- 分页 -->
     <div v-if="total > pageSize" style="display:flex;justify-content:center;margin-top:20px">
       <el-pagination
-        v-model:current-page="page"
+        v-model:current-page="currentPage"
         :page-size="pageSize"
         :total="total"
         layout="prev, pager, next"
@@ -213,18 +238,18 @@ async function handleRegenerate(doc: DocumentVO) {
 </template>
 
 <style scoped>
-.doc-list-page { padding: 24px 32px; max-width: 1400px; margin: 0 auto; }
+.doc-list-page { padding: 32px 48px; max-width: 1400px; margin: 0 auto; }
 
 .toolbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
-.toolbar h3 { margin: 0; font-size: 18px; font-weight: 600; color: #303133; }
+.toolbar h3 { margin: 0; font-size: 22px; font-weight: 400; color: #26251e; letter-spacing: -0.11px; }
 .toolbar-right { display: flex; gap: 10px; align-items: center; }
 
-.doc-card { cursor: pointer; border-radius: 10px; transition: all .2s; border: 1px solid #ebeef5; }
-.doc-card:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.08); }
+.doc-card { cursor: pointer; border-radius: 8px; transition: all .2s; border: 1px solid rgba(38, 37, 30, 0.1); background: #fff !important; }
+.doc-card:hover { transform: translateY(-2px); box-shadow: rgba(0, 0, 0, 0.14) 0px 28px 70px, rgba(0, 0, 0, 0.1) 0px 14px 32px, rgba(38, 37, 30, 0.1) 0px 0px 0px 1px !important; }
 .card-tag-row { margin-bottom: 10px; }
-.card-title { margin: 0 0 6px; font-size: 14px; font-weight: 600; color: #303133; }
-.card-desc { margin: 0 0 10px; font-size: 12px; color: #909399; line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.card-date { font-size: 11px; color: #c0c4cc; }
+.card-title { margin: 0 0 6px; font-size: 15px; font-weight: 400; color: #26251e; }
+.card-desc { margin: 0 0 10px; font-size: 13px; color: rgba(38, 37, 30, 0.55); line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.card-date { font-size: 11px; color: rgba(38, 37, 30, 0.4); }
 
 .el-table { cursor: pointer; border-radius: 8px; overflow: hidden; }
 </style>

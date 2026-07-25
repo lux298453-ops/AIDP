@@ -1,5 +1,8 @@
 package com.example.aidocumentplatform.model.enums;
 
 public enum TemplateType {
-    STANDARD
+    /** 系统标准模板 */
+    STANDARD,
+    /** 用户上传的自定义模板 */
+    CUSTOM
 }

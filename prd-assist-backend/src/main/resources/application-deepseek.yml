@@ -8,5 +8,5 @@
 app:
   ai:
     api-url: ${AI_API_URL:https://api.deepseek.com/chat/completions}
-    api-key: ${AI_API_KEY:sk-96123fc26ccd40679a995b349046b61d}
+    api-key: ${AI_API_KEY:}
     model: ${AI_MODEL:deepseek-chat}

@@ -64,50 +64,76 @@ public class TaskServiceImpl implements TaskService {
 
         // 如果任务已经结束，立即发送最终状态并关闭连接
         if (task.getStatus() == TaskStatus.SUCCESS) {
-            try {
-                emitter.send(SseEmitter.event().name("progress")
-                        .data(Map.of("taskId", taskId, "progress", 100, "message", "任务已完成")));
-                emitter.complete();
-            } catch (IOException ignored) {}
+            safeSendAndComplete(emitter, taskId, 100, "任务已完成");
             return emitter;
         }
         if (task.getStatus() == TaskStatus.FAILED) {
-            try {
-                emitter.send(SseEmitter.event().name("progress")
-                        .data(Map.of("taskId", taskId, "progress", 0,
-                                "message", "任务失败: " + (task.getErrorMessage() != null ? task.getErrorMessage() : "未知错误"))));
-                emitter.complete();
-            } catch (IOException ignored) {}
+            String failMessage = "任务失败: " + (task.getErrorMessage() != null ? task.getErrorMessage() : "未知错误");
+            safeSendAndComplete(emitter, taskId, 0, failMessage);
             return emitter;
         }
 
         // 任务还在运行中，注册 emitter 等待后续推送
         sseRegistry.put(taskId, emitter);
         emitter.onCompletion(() -> sseRegistry.remove(taskId));
-        emitter.onTimeout(() -> sseRegistry.remove(taskId));
-        emitter.onError(e -> sseRegistry.remove(taskId));
+        emitter.onTimeout(() -> {
+            sseRegistry.remove(taskId);
+            log.debug("SSE 超时, taskId={}", taskId);
+        });
+        emitter.onError(e -> {
+            sseRegistry.remove(taskId);
+            log.debug("SSE 连接异常, taskId={}, cause={}", taskId, e.toString());
+        });
 
         return emitter;
     }
 
+    /**
+     * 推送任务进度。SSE 断连/客户端离开只记日志，绝不向上抛，
+     * 避免 AI 已成功时因进度推送失败把整个异步任务打成 FAILED。
+     */
     public void pushProgress(Long taskId, int progress, String message) {
         SseEmitter emitter = sseRegistry.get(taskId);
-        if (emitter != null) {
-            try {
-                emitter.send(SseEmitter.event()
-                        .name("progress")
-                        .data(Map.of("taskId", taskId, "progress", progress, "message", message)));
-            } catch (IOException e) {
-                sseRegistry.remove(taskId);
-                log.warn("SSE推送失败, taskId={}", taskId, e);
-            }
-            // 终态（成功/失败）推送后关闭 emitter，让前端 onerror 能触发
-            if (progress >= 100 || progress < 0) {
-                try { emitter.complete(); } catch (Exception ignored) {}
-                sseRegistry.remove(taskId);
-            }
-        } else {
+        if (emitter == null) {
             log.debug("SSE emitter 不存在, taskId={}, progress={}（前端可能已断开或任务已结束）", taskId, progress);
+            return;
+        }
+
+        try {
+            emitter.send(SseEmitter.event()
+                    .name("progress")
+                    .data(Map.of("taskId", taskId, "progress", progress, "message", message)));
+        } catch (Exception e) {
+            // Spring 在客户端断开时可能抛 AsyncRequestNotUsableException 等 RuntimeException，
+            // 不能只 catch IOException。
+            sseRegistry.remove(taskId);
+            log.warn("SSE推送失败（已忽略，不影响任务状态）, taskId={}, progress={}, cause={}",
+                    taskId, progress, e.toString());
+            return;
+        }
+
+        // 终态（成功/失败）推送后关闭 emitter
+        if (progress >= 100 || progress <= 0) {
+            try {
+                emitter.complete();
+            } catch (Exception ignored) {
+                // complete 时连接可能已断，忽略
+            }
+            sseRegistry.remove(taskId);
+        }
+    }
+
+    private void safeSendAndComplete(SseEmitter emitter, Long taskId, int progress, String message) {
+        try {
+            emitter.send(SseEmitter.event().name("progress")
+                    .data(Map.of("taskId", taskId, "progress", progress, "message", message)));
+            emitter.complete();
+        } catch (Exception e) {
+            log.debug("SSE 终态推送失败, taskId={}, cause={}", taskId, e.toString());
+            try {
+                emitter.complete();
+            } catch (Exception ignored) {
+            }
         }
     }
 }

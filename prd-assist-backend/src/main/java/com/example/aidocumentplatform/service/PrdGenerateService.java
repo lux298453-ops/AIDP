@@ -27,4 +27,13 @@ public interface PrdGenerateService {
      * @return async_task.id（taskId）
      */
     Long submitXmind(String fileName, String outlineText, String template, String detailLevel, Long userId);
+
+    /**
+     * 提交 XMind 文件生成请求（支持自定义模板）。
+     *
+     * @param customTemplateContent  自定义模板纯文本，template=CUSTOM 时必填
+     * @param customTemplateFileName 自定义模板文件名
+     */
+    Long submitXmind(String fileName, String outlineText, String template, String detailLevel, Long userId,
+                     String customTemplateContent, String customTemplateFileName);
 }

@@ -1,6 +1,7 @@
 package com.example.aidocumentplatform.config;
 
 import com.example.aidocumentplatform.security.JwtAuthFilter;
+import jakarta.servlet.DispatcherType;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -44,6 +45,8 @@ public class SecurityConfig {
 
             // 接口权限配置
             .authorizeHttpRequests(auth -> auth
+                .dispatcherTypeMatchers(DispatcherType.ASYNC, DispatcherType.ERROR).permitAll()
+                .requestMatchers("/error").permitAll()
                 // 白名单：认证相关接口 + 健康检查
                 .requestMatchers("/api/auth/**", "/api/health").permitAll()
                 // 其余所有接口必须认证

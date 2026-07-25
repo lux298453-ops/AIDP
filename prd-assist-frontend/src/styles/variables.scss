@@ -1,44 +1,79 @@
 // =====================================================
-//  AI 辅助设计平台 — 全局设计 Token
+//  AI 辅助设计平台 — 全局设计 Token (Cursor-inspired)
 // =====================================================
 
-// 主色
-$color-primary: #409eff;
-$color-primary-light: #66b1ff;
-$color-primary-dark: #3a8ee6;
+// ── Warm Primary ──────────────────────────────────────
+$color-primary: #26251e;          // Cursor Dark — primary text, dark surfaces
+$color-accent: #f54e00;           // Cursor Orange — brand accent, active links
+$color-error: #cf2d56;            // warm crimson — hover state, error
+$color-success: #1f8a65;          // muted teal — success
+$color-gold: #c08532;             // secondary accent
+$color-link-hover: #cf2d56;       // link/button hover shifts to warm crimson
 
-// 文字
-$text-primary: #303133;
-$text-regular: #606266;
-$text-secondary: #909399;
-$text-placeholder: #c0c4cc;
+// ── Text ──────────────────────────────────────────────
+$text-primary: #26251e;           // warm near-black with yellow undertone
+$text-regular: rgba(38, 37, 30, 0.75);  // primary body text
+$text-secondary: rgba(38, 37, 30, 0.55); // secondary/muted
+$text-tertiary: rgba(38, 37, 30, 0.4);   // tertiary/placeholder
+$text-inverse: #f2f1ed;           // on dark backgrounds
 
-// 背景
-$bg-page: #f5f7fa;
-$bg-card: #ffffff;
-$bg-sidebar: #ffffff;
+// ── Backgrounds ───────────────────────────────────────
+$bg-page: #f2f1ed;                // Cursor Cream — page background
+$bg-surface-100: #f7f7f4;        // lightest surface
+$bg-surface-200: #f2f1ed;        // page background (alias)
+$bg-surface-300: #ebeae5;        // button default, subtle emphasis
+$bg-surface-400: #e6e5e0;        // card backgrounds, secondary surfaces
+$bg-surface-500: #e1e0db;        // active/pressed, deeper emphasis
+$bg-card: #ffffff;                // pure white card surface (sparingly)
+$bg-sidebar: #f2f1ed;            // sidebar/nav background
 
-// 边框
-$border-color: #ebeef5;
-$border-color-light: #f0f0f0;
+// ── Borders ───────────────────────────────────────────
+$border-color: rgba(38, 37, 30, 0.1);       // default warm border
+$border-color-medium: rgba(38, 37, 30, 0.2); // emphasized border
+$border-color-strong: rgba(38, 37, 30, 0.55); // strong rules
+$border-color-light: rgba(38, 37, 30, 0.06);  // subtle separator
 
-// 圆角
+// ── AI Timeline Colors ────────────────────────────────
+$color-thinking: #dfa88f;         // warm peach — thinking/planning
+$color-search: #9fc9a2;           // soft sage — search/grep
+$color-read: #9fbbe0;             // soft blue — file reading
+$color-edit: #c0a8dd;             // soft lavender — editing
+
+// ── Radius ────────────────────────────────────────────
 $radius-sm: 6px;
 $radius-base: 8px;
-$radius-lg: 12px;
+$radius-lg: 10px;
+$radius-xl: 12px;
+$radius-pill: 9999px;
 
-// 阴影
-$shadow-light: 0 2px 12px rgba(0, 0, 0, 0.06);
-$shadow-card: 0 1px 4px rgba(0, 0, 0, 0.04);
-$shadow-hover: 0 4px 16px rgba(0, 0, 0, 0.08);
+// ── Shadows (warm, large-blur, atmospheric) ───────────
+$shadow-light: rgba(0, 0, 0, 0.02) 0px 0px 16px, rgba(0, 0, 0, 0.008) 0px 0px 8px;
+$shadow-card: rgba(38, 37, 30, 0.1) 0px 0px 0px 1px;
+$shadow-elevated: rgba(0, 0, 0, 0.14) 0px 28px 70px, rgba(0, 0, 0, 0.1) 0px 14px 32px, rgba(38, 37, 30, 0.1) 0px 0px 0px 1px;
+$shadow-hover: rgba(0, 0, 0, 0.1) 0px 4px 16px;
+$shadow-focus: rgba(0, 0, 0, 0.1) 0px 4px 12px;
 
-// 间距
+// ── Spacing ───────────────────────────────────────────
+$spacing-2: 2px;
+$spacing-3: 3px;
+$spacing-4: 4px;
+$spacing-5: 5px;
+$spacing-6: 6px;
 $spacing-xs: 8px;
 $spacing-sm: 12px;
 $spacing-base: 16px;
 $spacing-md: 20px;
 $spacing-lg: 24px;
 $spacing-xl: 32px;
+$spacing-2xl: 48px;
+$spacing-3xl: 64px;
 
-// 配置面板宽度
+// ── Layout ────────────────────────────────────────────
 $config-panel-width: 420px;
+$max-content-width: 1200px;
+
+// ── Typography ────────────────────────────────────────
+$font-gothic: system-ui, -apple-system, 'Segoe UI', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+$font-serif: 'Source Serif 4', 'Iowan Old Style', 'Palatino Linotype', Georgia, Cambria, 'Times New Roman', Times, serif;
+$font-mono: ui-monospace, SFMono-Regular, 'Cascadia Code', 'Fira Code', Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+$font-ui: system-ui, -apple-system, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;

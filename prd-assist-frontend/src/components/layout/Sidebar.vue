@@ -11,6 +11,7 @@ const menus = [
   { label: 'PRD 增强', path: '/prd/enhance', icon: 'Edit' },
   { label: 'PRD 审查', path: '/prd/review', icon: 'Checked' },
   { label: '原型图生成', path: '/prototype', icon: 'PictureFilled' },
+  { label: '模型设置', path: '/settings/ai', icon: 'Setting' },
 ]
 </script>
 

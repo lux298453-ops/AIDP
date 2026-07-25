@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref } from 'vue'
+import { getTaskSseUrl } from '@/api/task'
 
 const props = defineProps<{ taskId: number }>()
 
@@ -8,8 +9,7 @@ const message = ref('')
 let eventSource: EventSource | null = null
 
 onMounted(() => {
-  const url = `/api/tasks/${props.taskId}/progress`
-  eventSource = new EventSource(url)
+  eventSource = new EventSource(getTaskSseUrl(props.taskId))
 
   eventSource.addEventListener('progress', (event) => {
     const data = JSON.parse(event.data)

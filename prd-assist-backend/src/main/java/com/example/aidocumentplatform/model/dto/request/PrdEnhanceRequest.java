@@ -13,7 +13,7 @@ import java.util.List;
 public class PrdEnhanceRequest {
 
     /** 原始 PRD 内容（直接粘贴），与 prdDocumentId 二选一 */
-    @Size(max = 5000, message = "PRD内容最多5000字")
+    @Size(max = 50000, message = "PRD内容最多50000字")
     private String prdContent;
 
     /** 引用已有 PRD 文档的 ID，与 prdContent 二选一 */

@@ -1,9 +1,10 @@
 package com.example.aidocumentplatform.model.entity;
 
-import com.example.aidocumentplatform.common.JsonConverter;
 import com.example.aidocumentplatform.model.enums.TaskStatus;
 import com.example.aidocumentplatform.model.enums.TaskType;
 import jakarta.persistence.*;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 import lombok.*;
 
 import java.time.LocalDateTime;
@@ -31,7 +32,7 @@ public class AsyncTask {
     @Column(nullable = false, length = 20)
     private TaskStatus status;
 
-    @Convert(converter = JsonConverter.class)
+    @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "input_params", columnDefinition = "JSONB")
     private String inputParams;
 
