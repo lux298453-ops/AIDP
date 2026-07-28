@@ -296,8 +296,9 @@ public class OpenAiClient implements AiClient {
 
     private String callOpenAi(AiCallConfig config, RequestVariant request, int promptLen, boolean withImage) {
         if (request == null) throw new RuntimeException("AI API type is empty");
-        log.info("OpenAI-compatible API call: provider={}, type={}, model={}, url={}, promptLen={}, withImage={}",
-                config.provider(), request.apiType(), config.model(), request.apiUrl(), promptLen, withImage);
+        log.info("OpenAI-compatible API call: provider={}, type={}, model={}, url={}, auth={}, actorHeader={}, promptLen={}, withImage={}",
+                config.provider(), request.apiType(), config.model(), request.apiUrl(),
+                authDescription(config), !config.actorAuthorization().isBlank(), promptLen, withImage);
         if (config.openAiAuthEnabled() && config.apiKey().isBlank()) {
             throw new RuntimeException("OpenAI API Key 未配置，请在模型设置页填写 API Key");
         }
@@ -328,7 +329,14 @@ public class OpenAiClient implements AiClient {
         } catch (WebClientResponseException e) {
             String message = extractErrorMessage(e.getResponseBodyAsString());
             if (message.isBlank()) message = e.getStatusCode() + " " + e.getStatusText();
-            throw new RuntimeException("OpenAI API 调用失败: " + message, e);
+            throw new RuntimeException(String.format(
+                    "OpenAI API 调用失败: %s (status=%s, provider=%s, type=%s, url=%s)",
+                    message,
+                    e.getStatusCode().value(),
+                    config.provider(),
+                    request.apiType(),
+                    request.apiUrl()
+            ), e);
         } catch (Exception e) {
             throw new RuntimeException("OpenAI API 调用失败: " + e.getMessage(), e);
         }
@@ -575,7 +583,7 @@ public class OpenAiClient implements AiClient {
     }
 
     private static String defaultApiType(String provider, String apiUrl) {
-        if ("deepseek".equals(provider) || "custom".equals(provider)) return "chat-completions";
+        if ("deepseek".equals(provider)) return "chat-completions";
         return normalizeApiType("auto", apiUrl);
     }
 
@@ -596,6 +604,11 @@ public class OpenAiClient implements AiClient {
             case "x-api-key", "x-goog-api-key", "none" -> type;
             default -> "bearer";
         };
+    }
+
+    private static String authDescription(AiCallConfig config) {
+        if (!config.openAiAuthEnabled()) return "disabled";
+        return config.authHeaderType();
     }
 
     private static String normalizeImageDetail(String detail) {

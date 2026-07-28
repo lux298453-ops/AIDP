@@ -6,6 +6,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
@@ -38,6 +39,9 @@ public class SecurityConfig {
         http
             // 关闭 CSRF —— JWT 模式下不需要
             .csrf(AbstractHttpConfigurer::disable)
+
+            // 让 Spring Security 使用 CorsConfig 中的跨域规则处理浏览器 Origin/预检请求
+            .cors(Customizer.withDefaults())
 
             // 无状态会话 —— 不创建 HttpSession，每次请求独立认证
             .sessionManagement(session ->

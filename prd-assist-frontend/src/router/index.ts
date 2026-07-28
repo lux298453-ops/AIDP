@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
+import { clearAuthSession, isStoredTokenValid } from '@/utils/session'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -92,16 +93,18 @@ const router = createRouter({
  *   3. 其余情况放行
  */
 router.beforeEach((to, _from, next) => {
-  const token = localStorage.getItem('token')
+  const tokenValid = isStoredTokenValid()
+
+  if (!tokenValid) clearAuthSession()
 
   // 目标页需要登录但未登录 → 强制跳转登录页
-  if (to.meta.requiresAuth && !token) {
+  if (to.meta.requiresAuth && !tokenValid) {
     next('/login')
     return
   }
 
   // 已登录时访问登录/注册页 → 直接进入工作台
-  if ((to.path === '/login' || to.path === '/register') && token) {
+  if ((to.path === '/login' || to.path === '/register') && tokenValid) {
     next('/')
     return
   }

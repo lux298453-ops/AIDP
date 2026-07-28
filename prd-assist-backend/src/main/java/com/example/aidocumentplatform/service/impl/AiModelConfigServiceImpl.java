@@ -32,14 +32,16 @@ public class AiModelConfigServiceImpl implements AiModelConfigService {
                 .orElseGet(() -> AiModelConfig.builder().userId(userId).build());
         String nextProvider = normalize(request.getProvider(), "openai");
         String nextBaseUrl = trim(request.getBaseUrl());
+        boolean nextOpenAiAuthEnabled = request.getOpenAiAuthEnabled() == null || request.getOpenAiAuthEnabled();
+        boolean keyRequired = isApiKeyRequired(nextProvider, nextOpenAiAuthEnabled);
         boolean hasNewApiKey = request.getApiKey() != null && !request.getApiKey().isBlank();
         boolean providerOrEndpointChanged = config.getId() != null
                 && (!normalize(config.getProvider(), "").equals(nextProvider)
                 || !trim(config.getBaseUrl()).equals(nextBaseUrl));
-        if (providerOrEndpointChanged && !hasNewApiKey) {
+        if (keyRequired && providerOrEndpointChanged && !hasNewApiKey) {
             throw new IllegalArgumentException("切换供应商或 Base URL 时请重新填写 API Key，避免沿用旧供应商的 Key");
         }
-        if ((config.getApiKey() == null || config.getApiKey().isBlank()) && !hasNewApiKey) {
+        if (keyRequired && (config.getApiKey() == null || config.getApiKey().isBlank()) && !hasNewApiKey) {
             throw new IllegalArgumentException("请填写 API Key");
         }
 
@@ -48,7 +50,7 @@ public class AiModelConfigServiceImpl implements AiModelConfigService {
         config.setModel(trim(request.getModel()));
         config.setApiType(normalize(request.getApiType(), "responses"));
         config.setAppendApiPath(request.getAppendApiPath() == null || request.getAppendApiPath());
-        config.setOpenAiAuthEnabled(request.getOpenAiAuthEnabled() == null || request.getOpenAiAuthEnabled());
+        config.setOpenAiAuthEnabled(nextOpenAiAuthEnabled);
         config.setAuthHeaderType(normalizeAuthHeaderType(request.getAuthHeaderType()));
         config.setActorAuthorization(trimToNull(request.getActorAuthorization()));
         config.setReasoningEffort(trimToNull(request.getReasoningEffort()));
@@ -139,4 +141,9 @@ public class AiModelConfigServiceImpl implements AiModelConfigService {
             default -> "bearer";
         };
     }
+
+    private static boolean isApiKeyRequired(String provider, boolean openAiAuthEnabled) {
+        return "claude".equals(provider) || openAiAuthEnabled;
+    }
+
 }

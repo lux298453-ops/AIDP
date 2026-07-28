@@ -21,6 +21,7 @@ type Preset = {
   appendApiPath: boolean
   openAiAuthEnabled: boolean
   authHeaderType: string
+  actorAuthorization: string
   reasoningEffort: string
   imageDetail: string
   maxOutputTokens: number
@@ -38,6 +39,7 @@ const presets: Preset[] = [
     appendApiPath: true,
     openAiAuthEnabled: true,
     authHeaderType: 'bearer',
+    actorAuthorization: '',
     reasoningEffort: 'medium',
     imageDetail: 'high',
     maxOutputTokens: 16384,
@@ -53,6 +55,7 @@ const presets: Preset[] = [
     appendApiPath: true,
     openAiAuthEnabled: true,
     authHeaderType: 'x-api-key',
+    actorAuthorization: '',
     reasoningEffort: '',
     imageDetail: 'high',
     maxOutputTokens: 16384,
@@ -68,10 +71,27 @@ const presets: Preset[] = [
     appendApiPath: true,
     openAiAuthEnabled: true,
     authHeaderType: 'bearer',
+    actorAuthorization: '',
     reasoningEffort: '',
     imageDetail: 'high',
     maxOutputTokens: 8192,
     supportsImage: false,
+  },
+  {
+    label: 'Flintic / Codex',
+    value: 'flintic',
+    desc: '按 ccswitch / Codex Responses 模式连接 Flintic 中转站',
+    baseUrl: 'https://api.flintic.uk',
+    model: 'gpt-5.5',
+    apiType: 'responses',
+    appendApiPath: true,
+    openAiAuthEnabled: false,
+    authHeaderType: 'none',
+    actorAuthorization: 'local-image-extension',
+    reasoningEffort: 'xhigh',
+    imageDetail: 'high',
+    maxOutputTokens: 16384,
+    supportsImage: true,
   },
   {
     label: '中转站 / 自定义',
@@ -79,10 +99,11 @@ const presets: Preset[] = [
     desc: '兼容 OpenAI 的聚合平台或私有网关',
     baseUrl: '',
     model: '',
-    apiType: 'chat-completions',
+    apiType: 'responses',
     appendApiPath: true,
     openAiAuthEnabled: true,
     authHeaderType: 'bearer',
+    actorAuthorization: '',
     reasoningEffort: '',
     imageDetail: 'high',
     maxOutputTokens: 16384,
@@ -111,12 +132,16 @@ const selectedPreset = computed(() => presets.find(item => item.value === form.p
 const isClaude = computed(() => form.provider === 'claude')
 const isDeepSeek = computed(() => form.provider === 'deepseek')
 const isCustom = computed(() => form.provider === 'custom')
+const isFlintic = computed(() => form.provider === 'flintic')
+const isCustomGateway = computed(() => isCustom.value || isFlintic.value)
 const showApiType = computed(() => isCustom.value)
-const showOpenAiAdvanced = computed(() => form.provider === 'openai' || isCustom.value)
+const showOpenAiAdvanced = computed(() => form.provider === 'openai' || isCustomGateway.value)
 const showImageDetail = computed(() => selectedPreset.value.supportsImage && !isDeepSeek.value)
+const willSendApiKeyAuth = computed(() => isCustom.value ? form.openAiAuthEnabled : selectedPreset.value.openAiAuthEnabled)
+const apiKeyRequired = computed(() => isClaude.value || willSendApiKeyAuth.value)
 const modelPlaceholder = computed(() => selectedPreset.value.model || '请输入模型名称')
 const baseUrlPlaceholder = computed(() => selectedPreset.value.baseUrl || 'https://api.example.com')
-const apiKeyLabel = computed(() => isClaude.value ? 'Claude API Key' : isDeepSeek.value ? 'DeepSeek API Key' : 'API Key')
+const apiKeyLabel = computed(() => isClaude.value ? 'Claude API Key' : isDeepSeek.value ? 'DeepSeek API Key' : isFlintic.value ? 'API Key（可留空）' : 'API Key')
 
 function applyPreset(provider: string) {
   const preset = presets.find(item => item.value === provider)
@@ -128,10 +153,10 @@ function applyPreset(provider: string) {
   form.appendApiPath = preset.appendApiPath
   form.openAiAuthEnabled = preset.openAiAuthEnabled
   form.authHeaderType = preset.authHeaderType
+  form.actorAuthorization = preset.actorAuthorization
   form.reasoningEffort = preset.reasoningEffort
   form.imageDetail = preset.imageDetail
   form.maxOutputTokens = preset.maxOutputTokens
-  if (preset.value !== 'custom') form.actorAuthorization = ''
 }
 
 async function loadConfig() {
@@ -173,14 +198,14 @@ async function handleSave() {
     ElMessage.warning('请填写模型名称')
     return
   }
-  if (!form.apiKey?.trim() && !hasSavedKey.value) {
+  if (apiKeyRequired.value && !form.apiKey?.trim() && !hasSavedKey.value) {
     ElMessage.warning('请填写 API Key')
     return
   }
 
   const providerOrEndpointChanged = savedProvider.value
     && (savedProvider.value !== form.provider || savedBaseUrl.value !== form.baseUrl.trim())
-  if (!form.apiKey?.trim() && providerOrEndpointChanged) {
+  if (apiKeyRequired.value && !form.apiKey?.trim() && providerOrEndpointChanged) {
     ElMessage.warning('切换供应商或 Base URL 时请重新填写 API Key')
     return
   }
@@ -193,9 +218,11 @@ async function handleSave() {
       model: form.model.trim(),
       apiType: isCustom.value ? form.apiType : selectedPreset.value.apiType,
       appendApiPath: isCustom.value ? form.appendApiPath : selectedPreset.value.appendApiPath,
-      openAiAuthEnabled: isCustom.value ? form.openAiAuthEnabled : selectedPreset.value.openAiAuthEnabled,
-      authHeaderType: isCustom.value ? form.authHeaderType : selectedPreset.value.authHeaderType,
-      actorAuthorization: isCustom.value ? form.actorAuthorization?.trim() || undefined : undefined,
+      openAiAuthEnabled: willSendApiKeyAuth.value,
+      authHeaderType: willSendApiKeyAuth.value
+        ? (isCustom.value ? form.authHeaderType : selectedPreset.value.authHeaderType)
+        : 'none',
+      actorAuthorization: isCustomGateway.value ? form.actorAuthorization?.trim() || undefined : undefined,
       reasoningEffort: showOpenAiAdvanced.value ? form.reasoningEffort?.trim() || undefined : undefined,
       imageDetail: showImageDetail.value ? form.imageDetail : selectedPreset.value.imageDetail,
       apiKey: form.apiKey?.trim() || undefined,
@@ -223,6 +250,7 @@ onMounted(loadConfig)
         <p>配置当前账号用于 PRD 生成、增强、审查和原型生成的模型接口。</p>
       </div>
       <el-tag v-if="hasSavedKey" type="success" effect="plain">已配置 Key：{{ savedMaskedKey }}</el-tag>
+      <el-tag v-else-if="!apiKeyRequired" type="info" effect="plain">当前模式不发送 API Key</el-tag>
       <el-tag v-else type="warning" effect="plain">未配置 API Key</el-tag>
     </div>
 
@@ -266,7 +294,7 @@ onMounted(loadConfig)
                 type="password"
                 show-password
                 autocomplete="off"
-                :placeholder="hasSavedKey ? '留空则继续使用已保存的 Key' : '请输入 API Key'"
+                :placeholder="!apiKeyRequired ? '当前模式可留空' : hasSavedKey ? '留空则继续使用已保存的 Key' : '请输入 API Key'"
               />
             </el-form-item>
           </div>

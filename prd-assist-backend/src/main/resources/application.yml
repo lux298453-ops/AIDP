@@ -40,6 +40,9 @@ server:
 
 # ==================== 应用自定义配置 ====================
 app:
+  cors:
+    # 开发/临时演示默认允许 localhost 和常见局域网地址；正式部署建议用环境变量收紧为实际域名。
+    allowed-origin-patterns: ${CORS_ALLOWED_ORIGIN_PATTERNS:http://localhost:[*],http://127.0.0.1:[*],http://192.168.*.*:[*],http://10.*.*.*:[*],http://172.*.*.*:[*]}
   jwt:
     secret: ${JWT_SECRET:YWlEb2N1bWVudFBsYXRmb3JtU2VjcmV0S2V5Rm9ySldUU2lnbmluZzIwMjQ=}
     expiration-ms: ${JWT_EXPIRATION:86400000}  # 默认24小时

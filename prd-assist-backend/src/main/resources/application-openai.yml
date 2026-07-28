@@ -11,14 +11,19 @@
 #   AI_IMAGE_DETAIL=high
 
 app:
+  http:
+    # Some relay/proxy/TUN combinations corrupt TLS 1.3 streams in Reactor Netty
+    # and surface as "SSLException: Tag mismatch!" before the API returns HTTP.
+    tls-protocols: ${AI_TLS_PROTOCOLS:TLSv1.2}
   ai:
     api-url: ${AI_API_URL:${OPENAI_BASE_URL:https://api.flintic.uk}}
     api-key: ${AI_API_KEY:${OPENAI_API_KEY:}}
     model: ${AI_MODEL:gpt-5.5}
     api-type: ${AI_API_TYPE:responses}
-    fallback-api-type: ${AI_FALLBACK_API_TYPE:chat-completions}
+    fallback-api-type: ${AI_FALLBACK_API_TYPE:off}
     append-api-path: ${AI_APPEND_API_PATH:true}
-    openai-auth-enabled: ${AI_OPENAI_AUTH_ENABLED:true}
+    openai-auth-enabled: ${AI_OPENAI_AUTH_ENABLED:false}
+    auth-header-type: ${AI_AUTH_HEADER_TYPE:none}
     actor-authorization: ${AI_ACTOR_AUTHORIZATION:local-image-extension}
     reasoning-effort: ${AI_REASONING_EFFORT:xhigh}
     disable-response-storage: ${AI_DISABLE_RESPONSE_STORAGE:true}
