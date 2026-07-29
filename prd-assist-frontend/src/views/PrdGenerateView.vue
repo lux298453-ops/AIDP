@@ -82,6 +82,7 @@ const loading = ref(false)
 const progress = ref(0)
 const progressMsg = ref('')
 const liveMessages = ref<string[]>([])
+const liveContent = ref('')
 const result = ref('')
 let taskId: number | null = null
 
@@ -94,6 +95,7 @@ const canGenerate = computed(() => {
 async function handleGenerate() {
   loading.value = true
   result.value = ''
+  liveContent.value = ''
   progress.value = 0
   progressMsg.value = '正在提交生成任务...'
   liveMessages.value = ['正在提交生成任务...']
@@ -151,6 +153,14 @@ function startSse() {
   if (!taskId) return
   appendLiveMessage('任务已创建，正在连接 AI 生成服务...')
   const eventSource = new EventSource(getTaskSseUrl(taskId))
+  eventSource.addEventListener('content', (event) => {
+    try {
+      const data = JSON.parse((event as MessageEvent).data)
+      if (data.snapshot) liveContent.value = data.delta || ''
+      else liveContent.value += data.delta || ''
+      result.value = formatLiveContent(liveContent.value)
+    } catch { /* ignore */ }
+  })
   eventSource.addEventListener('progress', async (event) => {
     try {
       const data = JSON.parse((event as MessageEvent).data)
@@ -192,6 +202,19 @@ function appendLiveMessage(message?: string) {
   if (!text) return
   if (liveMessages.value[liveMessages.value.length - 1] === text) return
   liveMessages.value = [...liveMessages.value.slice(-5), text]
+}
+
+function formatLiveContent(text: string) {
+  return escapeHtml(text).replace(/\n/g, '<br>')
+}
+
+function escapeHtml(text: string) {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
 }
 
 function parseAndFormat(raw: any): string {

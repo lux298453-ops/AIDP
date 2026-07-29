@@ -110,6 +110,7 @@ const opening = ref(false)
 const progress = ref(0)
 const progressMsg = ref('')
 const liveMessages = ref<string[]>([])
+const liveContent = ref('')
 const showPreview = ref(false)
 
 // 单页面
@@ -175,6 +176,7 @@ async function handleGenerate() {
   currentPageIndex.value = 0
   resultId.value = null
   progress.value = 0
+  liveContent.value = ''
   progressMsg.value = '正在提交原型生成任务...'
   liveMessages.value = ['正在提交原型生成任务...']
 
@@ -212,6 +214,13 @@ function startSse() {
   if (!taskId) return
   appendLiveMessage('任务已创建，正在连接 AI 原型生成服务...')
   const es = new EventSource(getTaskSseUrl(taskId))
+  es.addEventListener('content', (e) => {
+    try {
+      const d = JSON.parse((e as MessageEvent).data)
+      if (d.snapshot) liveContent.value = d.delta || ''
+      else liveContent.value += d.delta || ''
+    } catch { /* ignore */ }
+  })
   es.addEventListener('progress', (e) => {
     const d = JSON.parse((e as MessageEvent).data)
     progress.value = d.progress
@@ -544,6 +553,7 @@ watch(
               {{ msg }}
             </div>
           </div>
+          <pre v-if="liveContent" class="stream-preview">{{ liveContent }}</pre>
           <el-skeleton animated style="width:80%;max-width:500px">
             <template #template>
               <div style="display:flex;flex-direction:column;gap:16px;align-items:center">
@@ -568,6 +578,7 @@ watch(
 .form-group { margin-bottom: 18px; }
 .form-label { display: block; font-size: 14px; font-weight: 500; color: #26251e; margin-bottom: 8px; }
 .required { color: #cf2d56; }
+.stream-preview { width: min(760px, 92%); max-height: 280px; overflow: auto; white-space: pre-wrap; text-align: left; padding: 14px 16px; border-radius: 8px; background: rgba(255,255,255,0.72); border: 1px solid rgba(38,37,30,0.1); color: #26251e; font-size: 13px; line-height: 1.7; }
 .optional-tag {
   margin-left: 6px;
   font-size: 11px;

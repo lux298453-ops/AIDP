@@ -19,7 +19,7 @@ import {
   Iphone, Platform, Monitor, RefreshRight, FullScreen, MagicStick,
   Download, Pointer, View, Brush, Rank, Close, CircleCheck,
 } from '@element-plus/icons-vue'
-import { aiEditPrototype } from '@/api/prototype'
+import { aiEditPrototype, getPrototype } from '@/api/prototype'
 
 /* ==================== Props / Emits / v-model ==================== */
 const html = defineModel<string>({ default: '' })
@@ -390,6 +390,69 @@ function download(content: string) {
 }
 
 /* ==================== AI 辅助修改 ==================== */
+function applyAiHtml(newHtml: string) {
+  pendingSync = null
+  selected.value = null
+  treeData.value = []
+  renderHtml.value = newHtml
+  html.value = newHtml
+  frameKey.value++
+}
+
+function wait(ms: number) {
+  return new Promise(resolve => setTimeout(resolve, ms))
+}
+
+function extractCurrentPageHtml(content: string): string {
+  let decoded: any = content
+  for (let i = 0; i < 3 && typeof decoded === 'string'; i++) {
+    try {
+      const parsed = JSON.parse(decoded)
+      decoded = parsed
+    } catch {
+      break
+    }
+  }
+
+  if (Array.isArray(decoded)) {
+    return decoded[props.pageIndex || 0]?.html || ''
+  }
+  if (decoded && typeof decoded === 'object') {
+    if (Array.isArray(decoded.pages)) return decoded.pages[props.pageIndex || 0]?.html || ''
+    if (typeof decoded.html === 'string') return decoded.html
+  }
+  return typeof decoded === 'string'
+    ? decoded.replace(/\\n/g, '\n').replace(/\\t/g, '\t').replace(/\\"/g, '"')
+    : ''
+}
+
+async function recoverLatestPrototype(previousHtml: string) {
+  for (let i = 0; i < 6; i++) {
+    await wait(i === 0 ? 800 : 1800)
+    try {
+      const res = await getPrototype(props.prototypeId)
+      const latestHtml = extractCurrentPageHtml(res.data.data?.content || '')
+      if (latestHtml && latestHtml.trim() && latestHtml !== previousHtml) {
+        applyAiHtml(latestHtml)
+        return true
+      }
+    } catch {
+      // 继续重试，避免刚保存完成时短暂读取失败。
+    }
+  }
+  return false
+}
+
+function aiEditErrorMessage(error: any) {
+  const serverMessage = error?.response?.data?.message
+  if (serverMessage) return serverMessage
+  if (error?.code === 'ECONNABORTED' || String(error?.message || '').toLowerCase().includes('timeout')) {
+    return 'AI 修改耗时过长，连接已超时；如果后台稍后保存成功，刷新或重新打开原型即可看到最新版本'
+  }
+  if (!error?.response) return 'AI 修改连接中断，已尝试刷新服务端最新原型但未发现新版本'
+  return error?.message || 'AI 修改失败'
+}
+
 async function doAiModify() {
   const text = aiText.value.trim()
   if (!text) { ElMessage.warning('请先描述你想修改的内容'); return }
@@ -398,19 +461,27 @@ async function doAiModify() {
 
   aiLoading.value = true
   aiSummary.value = ''
+  const beforeHtml = html.value
   try {
     const res = await aiEditPrototype(props.prototypeId, {
       instruction: text,
+      pageIndex: props.pageIndex || 0,
       currentHtml: html.value,          // 传当前最新 HTML（含用户手动微调）
     })
     const data = res.data.data
-    html.value = data.newHtml           // 更新 v-model → 上方 iframe 自动刷新
+    applyAiHtml(data.newHtml)           // 更新 v-model 并强制重挂载 iframe
     aiSummary.value = data.changeSummary || 'AI 已根据你的描述完成修改'
     aiText.value = ''
-    selected.value = null
     ElMessage.success('AI 修改完成')
-  } catch {
-    // 失败提示由 axios 响应拦截器统一处理
+  } catch (error: any) {
+    const recovered = await recoverLatestPrototype(beforeHtml)
+    if (recovered) {
+      aiSummary.value = 'AI 修改已在服务端完成，预览已自动刷新'
+      aiText.value = ''
+      ElMessage.success('AI 修改完成，已刷新预览')
+    } else {
+      ElMessage.error(aiEditErrorMessage(error))
+    }
   } finally {
     aiLoading.value = false
   }

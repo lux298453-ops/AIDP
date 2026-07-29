@@ -11,6 +11,8 @@ import com.example.aidocumentplatform.repository.PrototypeResultRepository;
 import com.example.aidocumentplatform.service.PrototypeAiEditService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -70,11 +72,8 @@ public class PrototypeAiEditServiceImpl implements PrototypeAiEditService {
             throw new RuntimeException("AI 未返回有效的 HTML，请调整描述后重试");
         }
 
-        // 5. 落库（多页面原型的内容是 JSON 数组，单条 HTML 不能直接覆盖，交由前端另行保存）
-        if (proto.getPrototypeType() == PrototypeType.SINGLE_PAGE) {
-            proto.setContent(newHtml);
-            prototypeResultRepository.save(proto);
-        }
+        // 5. 落库。同步请求可能被前端超时断开，所以服务端必须保存结果，便于前端恢复刷新。
+        saveEditedHtml(proto, newHtml, request.getPageIndex());
 
         return PrototypeAiEditResponse.builder()
                 .prototypeId(prototypeId)
@@ -86,6 +85,55 @@ public class PrototypeAiEditServiceImpl implements PrototypeAiEditService {
     // ==================== 输出解析 ====================
 
     private record ParsedEdit(String summary, String html) {}
+
+    private void saveEditedHtml(PrototypeResult proto, String newHtml, Integer pageIndex) {
+        if (proto.getPrototypeType() == PrototypeType.SINGLE_PAGE) {
+            proto.setContent(newHtml);
+            prototypeResultRepository.save(proto);
+            return;
+        }
+
+        String content = proto.getContent();
+        if (content == null || content.isBlank()) {
+            throw new IllegalStateException("多页原型内容为空，无法保存当前页修改");
+        }
+
+        int idx = pageIndex != null && pageIndex >= 0 ? pageIndex : 0;
+        try {
+            JsonNode root = objectMapper.readTree(content);
+            if (root.isArray()) {
+                ArrayNode pages = (ArrayNode) root.deepCopy();
+                replacePageHtml(pages, idx, newHtml);
+                proto.setContent(objectMapper.writeValueAsString(pages));
+                prototypeResultRepository.save(proto);
+                return;
+            }
+            if (root.has("pages") && root.get("pages").isArray()) {
+                ObjectNode wrapper = (ObjectNode) root.deepCopy();
+                ArrayNode pages = (ArrayNode) wrapper.get("pages");
+                replacePageHtml(pages, idx, newHtml);
+                proto.setContent(objectMapper.writeValueAsString(wrapper));
+                prototypeResultRepository.save(proto);
+                return;
+            }
+        } catch (Exception e) {
+            throw new IllegalStateException("多页原型内容解析失败，无法保存当前页修改", e);
+        }
+
+        throw new IllegalStateException("多页原型内容格式不支持，无法保存当前页修改");
+    }
+
+    private void replacePageHtml(ArrayNode pages, int pageIndex, String newHtml) {
+        if (pageIndex < 0 || pageIndex >= pages.size()) {
+            throw new IllegalArgumentException("当前页不存在，无法保存 AI 修改结果");
+        }
+        JsonNode page = pages.get(pageIndex);
+        ObjectNode nextPage = page != null && page.isObject()
+                ? (ObjectNode) page.deepCopy()
+                : objectMapper.createObjectNode();
+        nextPage.put("html", newHtml);
+        pages.set(pageIndex, nextPage);
+    }
 
     private ParsedEdit parseOutput(String out) {
         if (out == null) return new ParsedEdit("AI 已完成修改", "");

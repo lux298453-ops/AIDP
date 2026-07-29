@@ -47,6 +47,7 @@ const loading = ref(false)
 const progress = ref(0)
 const progressMsg = ref('')
 const liveMessages = ref<string[]>([])
+const liveContent = ref('')
 const result = ref('')
 let taskId: number | null = null
 
@@ -64,6 +65,7 @@ async function handleEnhance() {
 
   loading.value = true
   result.value = ''
+  liveContent.value = ''
   progress.value = 0
   progressMsg.value = '正在提交增强任务...'
   liveMessages.value = ['正在提交增强任务...']
@@ -95,6 +97,14 @@ function startSse() {
   if (!taskId) return
   appendLiveMessage('任务已创建，正在连接 AI 增强服务...')
   const es = new EventSource(getTaskSseUrl(taskId))
+  es.addEventListener('content', (e) => {
+    try {
+      const d = JSON.parse((e as MessageEvent).data)
+      if (d.snapshot) liveContent.value = d.delta || ''
+      else liveContent.value += d.delta || ''
+      result.value = liveContent.value
+    } catch { /* ignore */ }
+  })
   es.addEventListener('progress', (e) => {
     const d = JSON.parse(e.data); progress.value = d.progress; progressMsg.value = d.message
     appendLiveMessage(d.message)

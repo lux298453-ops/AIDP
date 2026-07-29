@@ -12,7 +12,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
-import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -23,9 +22,8 @@ import java.util.concurrent.ConcurrentHashMap;
 public class TaskServiceImpl implements TaskService {
 
     private final AsyncTaskRepository asyncTaskRepository;
-
-    // 内存中的 SSE 连接注册表（每任务一个 emitter）
     private final Map<Long, SseEmitter> sseRegistry = new ConcurrentHashMap<>();
+    private final Map<Long, StringBuilder> contentBuffers = new ConcurrentHashMap<>();
 
     @Override
     public AsyncTask createTask(TaskCreateRequest request, Long userId) {
@@ -59,10 +57,8 @@ public class TaskServiceImpl implements TaskService {
     @Override
     public SseEmitter subscribeTaskProgress(Long taskId, Long userId) {
         AsyncTask task = getTask(taskId, userId);
-
         SseEmitter emitter = new SseEmitter(30 * 60 * 1000L);
 
-        // 如果任务已经结束，立即发送最终状态并关闭连接
         if (task.getStatus() == TaskStatus.SUCCESS) {
             safeSendAndComplete(emitter, taskId, 100, "任务已完成");
             return emitter;
@@ -73,29 +69,30 @@ public class TaskServiceImpl implements TaskService {
             return emitter;
         }
 
-        // 任务还在运行中，注册 emitter 等待后续推送
         sseRegistry.put(taskId, emitter);
         emitter.onCompletion(() -> sseRegistry.remove(taskId));
         emitter.onTimeout(() -> {
             sseRegistry.remove(taskId);
-            log.debug("SSE 超时, taskId={}", taskId);
+            log.debug("SSE timeout, taskId={}", taskId);
         });
         emitter.onError(e -> {
             sseRegistry.remove(taskId);
-            log.debug("SSE 连接异常, taskId={}, cause={}", taskId, e.toString());
+            log.debug("SSE connection error, taskId={}, cause={}", taskId, e.toString());
         });
+
+        StringBuilder buffered = contentBuffers.get(taskId);
+        if (buffered != null && !buffered.isEmpty()) {
+            sendContentEvent(taskId, buffered.toString(), true);
+        }
 
         return emitter;
     }
 
-    /**
-     * 推送任务进度。SSE 断连/客户端离开只记日志，绝不向上抛，
-     * 避免 AI 已成功时因进度推送失败把整个异步任务打成 FAILED。
-     */
     public void pushProgress(Long taskId, int progress, String message) {
         SseEmitter emitter = sseRegistry.get(taskId);
         if (emitter == null) {
-            log.debug("SSE emitter 不存在, taskId={}, progress={}（前端可能已断开或任务已结束）", taskId, progress);
+            log.debug("SSE emitter missing, taskId={}, progress={}", taskId, progress);
+            if (progress >= 100 || progress <= 0) contentBuffers.remove(taskId);
             return;
         }
 
@@ -104,22 +101,45 @@ public class TaskServiceImpl implements TaskService {
                     .name("progress")
                     .data(Map.of("taskId", taskId, "progress", progress, "message", message)));
         } catch (Exception e) {
-            // Spring 在客户端断开时可能抛 AsyncRequestNotUsableException 等 RuntimeException，
-            // 不能只 catch IOException。
             sseRegistry.remove(taskId);
-            log.warn("SSE推送失败（已忽略，不影响任务状态）, taskId={}, progress={}, cause={}",
+            log.warn("SSE progress push failed and ignored, taskId={}, progress={}, cause={}",
                     taskId, progress, e.toString());
             return;
         }
 
-        // 终态（成功/失败）推送后关闭 emitter
         if (progress >= 100 || progress <= 0) {
             try {
                 emitter.complete();
             } catch (Exception ignored) {
-                // complete 时连接可能已断，忽略
             }
             sseRegistry.remove(taskId);
+            contentBuffers.remove(taskId);
+        }
+    }
+
+    public void pushContentDelta(Long taskId, String delta) {
+        if (delta == null || delta.isBlank()) return;
+        contentBuffers.compute(taskId, (id, buffer) -> {
+            StringBuilder next = buffer == null ? new StringBuilder() : buffer;
+            next.append(delta);
+            return next;
+        });
+        sendContentEvent(taskId, delta, false);
+    }
+
+    private void sendContentEvent(Long taskId, String delta, boolean snapshot) {
+        SseEmitter emitter = sseRegistry.get(taskId);
+        if (emitter == null) {
+            log.debug("SSE emitter missing, taskId={}, contentLen={}", taskId, delta.length());
+            return;
+        }
+        try {
+            emitter.send(SseEmitter.event()
+                    .name("content")
+                    .data(Map.of("taskId", taskId, "delta", delta, "snapshot", snapshot)));
+        } catch (Exception e) {
+            sseRegistry.remove(taskId);
+            log.warn("SSE content push failed and ignored, taskId={}, cause={}", taskId, e.toString());
         }
     }
 
@@ -129,7 +149,7 @@ public class TaskServiceImpl implements TaskService {
                     .data(Map.of("taskId", taskId, "progress", progress, "message", message)));
             emitter.complete();
         } catch (Exception e) {
-            log.debug("SSE 终态推送失败, taskId={}, cause={}", taskId, e.toString());
+            log.debug("SSE terminal push failed, taskId={}, cause={}", taskId, e.toString());
             try {
                 emitter.complete();
             } catch (Exception ignored) {

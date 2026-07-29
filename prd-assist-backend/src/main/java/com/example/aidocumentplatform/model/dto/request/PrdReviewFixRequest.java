@@ -22,4 +22,11 @@ public class PrdReviewFixRequest {
      * 默认 CRITICAL、MAJOR。
      */
     private List<String> severities;
+
+    /**
+     * Optional source PRD document id. When omitted, the PRD linked to the
+     * review report is used. The PRD editor passes the current document id so
+     * consecutive fixes build on the latest version.
+     */
+    private Long sourcePrdDocumentId;
 }

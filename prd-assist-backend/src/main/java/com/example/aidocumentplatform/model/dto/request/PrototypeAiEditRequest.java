@@ -24,6 +24,11 @@ public class PrototypeAiEditRequest {
     private String targetElement;
 
     /**
+     * 多页原型当前页索引。单页原型忽略。
+     */
+    private Integer pageIndex;
+
+    /**
      * 可选：前端可视化编辑后的「最新 HTML」。
      * 若提供则以此为基准修改（保证包含用户手动微调的内容）；
      * 为空则使用数据库中存储的原型内容。

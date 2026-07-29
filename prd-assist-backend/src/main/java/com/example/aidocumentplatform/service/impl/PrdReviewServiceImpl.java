@@ -103,7 +103,8 @@ public class PrdReviewServiceImpl implements PrdReviewService {
             String aiResponse;
             AiRequestContext.setUserId(userId);
             try {
-                aiResponse = aiClient.generate(systemPrompt, userPrompt);
+                aiResponse = aiClient.generateStream(systemPrompt, userPrompt,
+                        delta -> taskService.pushContentDelta(taskId, delta));
             } finally {
                 AiRequestContext.clear();
             }
@@ -149,7 +150,10 @@ public class PrdReviewServiceImpl implements PrdReviewService {
             throw new IllegalArgumentException("该报告未关联 PRD 文档，无法修复");
         }
 
-        PrdDocument source = prdDocumentRepository.findById(report.getPrdDocumentId())
+        Long sourcePrdId = request != null && request.getSourcePrdDocumentId() != null
+                ? request.getSourcePrdDocumentId()
+                : report.getPrdDocumentId();
+        PrdDocument source = prdDocumentRepository.findById(sourcePrdId)
                 .orElseThrow(() -> new IllegalArgumentException("关联的 PRD 不存在"));
         if (!source.getUserId().equals(userId)) {
             throw new IllegalArgumentException("无权访问该 PRD");
@@ -194,7 +198,8 @@ public class PrdReviewServiceImpl implements PrdReviewService {
             String aiResponse;
             AiRequestContext.setUserId(userId);
             try {
-                aiResponse = aiClient.generate(systemPrompt, userPrompt);
+                aiResponse = aiClient.generateStream(systemPrompt, userPrompt,
+                        delta -> taskService.pushContentDelta(taskId, delta));
             } finally {
                 AiRequestContext.clear();
             }

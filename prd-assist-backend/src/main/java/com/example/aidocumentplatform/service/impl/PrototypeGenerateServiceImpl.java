@@ -85,13 +85,15 @@ public class PrototypeGenerateServiceImpl implements PrototypeGenerateService {
             AiRequestContext.setUserId(userId);
             try {
                 if (hasRef) {
-                    aiOutput = aiClient.generateWithImage(
+                    aiOutput = aiClient.generateWithImageStream(
                             systemPrompt,
                             userPrompt,
                             request.getReferenceImageMimeType(),
-                            request.getReferenceImageBase64());
+                            request.getReferenceImageBase64(),
+                            delta -> taskService.pushContentDelta(taskId, delta));
                 } else {
-                    aiOutput = aiClient.generate(systemPrompt, userPrompt);
+                    aiOutput = aiClient.generateStream(systemPrompt, userPrompt,
+                            delta -> taskService.pushContentDelta(taskId, delta));
                 }
             } finally {
                 AiRequestContext.clear();

@@ -17,6 +17,15 @@ public interface AiClient {
      */
     String generate(String systemPrompt, String userPrompt);
 
+    default String generateStream(String systemPrompt, String userPrompt,
+                                  java.util.function.Consumer<String> onDelta) {
+        String result = generate(systemPrompt, userPrompt);
+        if (onDelta != null && result != null && !result.isBlank()) {
+            onDelta.accept(result);
+        }
+        return result;
+    }
+
     /**
      * 带图片的多模态生成（风格参考图等）。
      * 默认实现：忽略图片，退化为纯文本（适合 DeepSeek 等无 vision 模型）。
@@ -29,5 +38,15 @@ public interface AiClient {
     default String generateWithImage(String systemPrompt, String userPrompt,
                                      String imageMime, String imageBase64) {
         return generate(systemPrompt, userPrompt);
+    }
+
+    default String generateWithImageStream(String systemPrompt, String userPrompt,
+                                           String imageMime, String imageBase64,
+                                           java.util.function.Consumer<String> onDelta) {
+        String result = generateWithImage(systemPrompt, userPrompt, imageMime, imageBase64);
+        if (onDelta != null && result != null && !result.isBlank()) {
+            onDelta.accept(result);
+        }
+        return result;
     }
 }

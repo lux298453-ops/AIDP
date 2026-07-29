@@ -119,7 +119,8 @@ public class PrdEnhanceServiceImpl implements PrdEnhanceService {
             String aiResponse;
             AiRequestContext.setUserId(userId);
             try {
-                aiResponse = aiClient.generate(systemPrompt, userPrompt);
+                aiResponse = aiClient.generateStream(systemPrompt, userPrompt,
+                        delta -> taskService.pushContentDelta(taskId, delta));
             } finally {
                 AiRequestContext.clear();
             }

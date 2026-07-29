@@ -34,6 +34,9 @@ client.interceptors.response.use(
       return Promise.reject(new Error(data.message || '登录已过期，请重新登录'))
     }
     if (data.code !== 200) {
+      if ((response.config as any)?.silentError) {
+        return Promise.reject(new Error(data.message))
+      }
       ElMessage.error(data.message || '请求失败')
       return Promise.reject(new Error(data.message))
     }
@@ -46,7 +49,9 @@ client.interceptors.response.use(
       }
       return Promise.reject(error)
     }
-    ElMessage.error(error.response?.data?.message || '网络错误')
+    if (!(error.config as any)?.silentError) {
+      ElMessage.error(error.response?.data?.message || '网络错误')
+    }
     return Promise.reject(error)
   }
 )

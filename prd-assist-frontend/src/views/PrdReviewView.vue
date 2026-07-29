@@ -31,9 +31,11 @@ function toggleDim(item: { key: string; active: boolean }) { item.active = !item
 // ==================== 状态 ====================
 const loading = ref(false)
 const fixing = ref(false)
+const fixingTarget = ref<'batch' | number | null>(null)
 const progress = ref(0)
 const progressMsg = ref('')
 const liveMessages = ref<string[]>([])
+const liveContent = ref('')
 let taskId: number | null = null
 
 interface Issue {
@@ -91,6 +93,7 @@ async function handleReview() {
   summary.value = ''
   score.value = 0
   progress.value = 0
+  liveContent.value = ''
   progressMsg.value = '正在提交审查任务...'
   liveMessages.value = ['正在提交审查任务...']
   reportId.value = null
@@ -115,6 +118,9 @@ function startSse() {
   if (!taskId) return
   appendLiveMessage('任务已创建，正在连接 AI 审查服务...')
   const es = new EventSource(getTaskSseUrl(taskId))
+  es.addEventListener('content', (e) => {
+    handleContentEvent(e as MessageEvent)
+  })
   es.addEventListener('progress', (e) => {
     const d = JSON.parse(e.data)
     progress.value = d.progress
@@ -136,6 +142,21 @@ function appendLiveMessage(message?: string) {
   if (!text) return
   if (liveMessages.value[liveMessages.value.length - 1] === text) return
   liveMessages.value = [...liveMessages.value.slice(-5), text]
+}
+
+function finishFixing() {
+  fixing.value = false
+  fixingTarget.value = null
+}
+
+function handleContentEvent(event: MessageEvent) {
+  try {
+    const data = JSON.parse(event.data)
+    if (data.snapshot) liveContent.value = data.delta || ''
+    else liveContent.value += data.delta || ''
+  } catch {
+    // 流式内容只用于预览，解析失败不影响最终结果拉取。
+  }
 }
 
 async function fetchReport() {
@@ -231,8 +252,8 @@ async function aiFix(issueIndexes?: number[]) {
     return
   }
 
-  const count = issueIndexes?.length
-    ?? criticalMajorCount.value
+  const selectedIssueIndexes = resolveFixIssueIndexes(issueIndexes)
+  const count = selectedIssueIndexes.length
   if (count === 0) {
     ElMessage.warning('没有可修复的严重/重要问题')
     return
@@ -251,31 +272,51 @@ async function aiFix(issueIndexes?: number[]) {
   }
 
   fixing.value = true
+  fixingTarget.value = selectedIssueIndexes.length === 1 ? selectedIssueIndexes[0] : 'batch'
   progress.value = 0
+  liveContent.value = ''
   progressMsg.value = '正在提交修复任务...'
   liveMessages.value = ['正在提交修复任务...']
   try {
-    const body = issueIndexes
-      ? { issueIndexes }
-      : { severities: ['CRITICAL', 'MAJOR'] }
+    const body = { issueIndexes: selectedIssueIndexes }
     const res = await client.post(`/review/${reportId.value}/fix`, body)
     const fixTaskId = res.data.data.taskId as number
-    watchFixTask(fixTaskId)
+    watchFixTask(fixTaskId, selectedIssueIndexes)
   } catch {
-    fixing.value = false
+    finishFixing()
   }
 }
 
-function watchFixTask(fixTaskId: number) {
+function resolveFixIssueIndexes(issueIndexes?: number[]): number[] {
+  if (issueIndexes?.length) return issueIndexes
+  return issues.value
+    .map((issue, index) => ({ issue, index }))
+    .filter(({ issue }) => issue.severity === 'CRITICAL' || issue.severity === 'MAJOR')
+    .map(({ index }) => index)
+}
+
+function buildFixedPrdQuery(fixedIssueIndexes: number[]) {
+  return {
+    compare: String(linkedPrdId.value),
+    fromReview: String(reportId.value),
+    fixedFromReview: String(reportId.value),
+    fixedIssues: fixedIssueIndexes.join(','),
+  }
+}
+
+function watchFixTask(fixTaskId: number, fixedIssueIndexes: number[]) {
   appendLiveMessage('任务已创建，正在连接 AI 修复服务...')
   const es = new EventSource(getTaskSseUrl(fixTaskId))
+  es.addEventListener('content', (e) => {
+    handleContentEvent(e as MessageEvent)
+  })
   es.addEventListener('progress', async (e) => {
     const d = JSON.parse((e as MessageEvent).data)
     progress.value = d.progress
     progressMsg.value = d.message
     appendLiveMessage(d.message)
     if (d.progress <= 0 && d.message && String(d.message).includes('失败')) {
-      es.close(); fixing.value = false; ElMessage.error(d.message)
+      es.close(); finishFixing(); ElMessage.error(d.message)
       return
     }
     if (d.progress >= 100) {
@@ -284,22 +325,19 @@ function watchFixTask(fixTaskId: number) {
       try {
         const r = await getTaskById(fixTaskId)
         const newPrdId = r.data.data.resultRefId
-        fixing.value = false
+        finishFixing()
         if (newPrdId) {
           ElMessage.success('修订完成，正在打开新版本')
           // 打开新版，并对比原版
           router.push({
             path: `/prd/${newPrdId}`,
-            query: {
-              compare: String(linkedPrdId.value),
-              fixedFromReview: String(reportId.value),
-            },
+            query: buildFixedPrdQuery(fixedIssueIndexes),
           })
         } else {
           ElMessage.warning('修复完成但未拿到文档 ID')
         }
       } catch {
-        fixing.value = false
+        finishFixing()
       }
     }
   })
@@ -308,20 +346,20 @@ function watchFixTask(fixTaskId: number) {
     try {
       const r = await getTaskById(fixTaskId)
       if (r.data.data.status === 'SUCCESS' && r.data.data.resultRefId) {
-        fixing.value = false
+        finishFixing()
         router.push({
           path: `/prd/${r.data.data.resultRefId}`,
-          query: { compare: String(linkedPrdId.value), fixedFromReview: String(reportId.value) },
+          query: buildFixedPrdQuery(fixedIssueIndexes),
         })
       } else if (r.data.data.status === 'FAILED') {
-        fixing.value = false
+        finishFixing()
         ElMessage.error(r.data.data.errorMessage || '修复失败')
       } else {
-        fixing.value = false
+        finishFixing()
         ElMessage.warning('连接断开，请在我的文档中查看结果')
       }
     } catch {
-      fixing.value = false
+      finishFixing()
     }
   }
 }
@@ -491,8 +529,8 @@ function dimLabel(d: string) {
                   打开 PRD 编辑
                 </el-button>
                 <el-button
-                  :loading="fixing"
-                  :disabled="!linkedPrdId || criticalMajorCount === 0"
+                  :loading="fixingTarget === 'batch'"
+                  :disabled="!linkedPrdId || criticalMajorCount === 0 || (fixing && fixingTarget !== 'batch')"
                   @click="aiFix()"
                 >
                   <el-icon><MagicStick /></el-icon>
@@ -534,8 +572,8 @@ function dimLabel(d: string) {
                 <el-button
                   size="small"
                   text
-                  :loading="fixing"
-                  :disabled="!linkedPrdId"
+                  :loading="fixingTarget === item.originalIndex"
+                  :disabled="!linkedPrdId || (fixing && fixingTarget !== item.originalIndex)"
                   @click="aiFix([item.originalIndex])"
                 >
                   AI 修复此条
@@ -565,6 +603,7 @@ function dimLabel(d: string) {
               {{ msg }}
             </div>
           </div>
+          <pre v-if="liveContent" class="stream-preview">{{ liveContent }}</pre>
           <el-skeleton animated style="width:80%;max-width:500px">
             <template #template>
               <div style="display:flex;flex-direction:column;gap:16px;align-items:center">
@@ -575,7 +614,7 @@ function dimLabel(d: string) {
             </template>
           </el-skeleton>
           <p style="color:#909399;font-size:14px;margin-top:20px">
-            {{ progressMsg || (fixing ? 'AI 正在修订 PRD…' : 'AI 正在审查 PRD，请稍候…') }}
+            {{ progressMsg || (fixing ? 'AI 正在修订 PRD...' : 'AI 正在审查 PRD，请稍候...') }}
           </p>
         </div>
       </div>
@@ -592,6 +631,7 @@ function dimLabel(d: string) {
 .form-group { margin-bottom: 18px; }
 .form-label { display: block; font-size: 14px; font-weight: 500; color: #26251e; margin-bottom: 8px; }
 .progress-msg { color: rgba(38,37,30,0.55); font-size: 13px; margin-top: 6px; }
+.stream-preview { width: min(760px, 92%); max-height: 280px; overflow: auto; white-space: pre-wrap; text-align: left; padding: 14px 16px; border-radius: 8px; background: rgba(255,255,255,0.72); border: 1px solid rgba(38,37,30,0.1); color: #26251e; font-size: 13px; line-height: 1.7; }
 
 .mode-tabs { display: flex; gap: 4px; }
 .mode-tab { flex: 1; text-align: center; padding: 10px 0; font-size: 13px; cursor: pointer; background: #e6e5e0; color: rgba(38, 37, 30, 0.55); transition: all .15s; user-select: none; border-radius: 8px; font-weight: 500; }

@@ -10,6 +10,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Profile;
+import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
@@ -21,6 +22,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Consumer;
 
 @Slf4j
 @Component
@@ -103,6 +105,22 @@ public class OpenAiClient implements AiClient {
     }
 
     @Override
+    public String generateStream(String systemPrompt, String userPrompt, Consumer<String> onDelta) {
+        AiCallConfig config = resolveConfig();
+        if ("claude".equals(config.provider())) {
+            String result = callClaude(claudeTextRequest(config, systemPrompt, userPrompt), config,
+                    userPrompt != null ? userPrompt.length() : 0, false);
+            emitOnce(onDelta, result);
+            return result;
+        }
+
+        RequestVariant primary = textRequest(config, config.apiType(), systemPrompt, userPrompt);
+        RequestVariant fallback = textRequest(config, config.fallbackApiType(), systemPrompt, userPrompt);
+        return callOpenAiStreamWithFallback(config, primary, fallback,
+                userPrompt != null ? userPrompt.length() : 0, false, onDelta);
+    }
+
+    @Override
     public String generateWithImage(String systemPrompt, String userPrompt,
                                     String imageMime, String imageBase64) {
         if (imageBase64 == null || imageBase64.isBlank()) {
@@ -125,6 +143,35 @@ public class OpenAiClient implements AiClient {
         RequestVariant primary = imageRequest(config, config.apiType(), systemPrompt, userPrompt, imageMime, imageBase64);
         RequestVariant fallback = imageRequest(config, config.fallbackApiType(), systemPrompt, userPrompt, imageMime, imageBase64);
         return callOpenAiWithFallback(config, primary, fallback, userPrompt != null ? userPrompt.length() : 0, true);
+    }
+
+    @Override
+    public String generateWithImageStream(String systemPrompt, String userPrompt,
+                                          String imageMime, String imageBase64,
+                                          Consumer<String> onDelta) {
+        if (imageBase64 == null || imageBase64.isBlank()) {
+            return generateStream(systemPrompt, userPrompt, onDelta);
+        }
+
+        AiCallConfig config = resolveConfig();
+        if ("claude".equals(config.provider())) {
+            String result = callClaude(claudeImageRequest(config, systemPrompt, userPrompt, imageMime, imageBase64),
+                    config, userPrompt != null ? userPrompt.length() : 0, true);
+            emitOnce(onDelta, result);
+            return result;
+        }
+        if (!supportsImageInput(config)) {
+            log.warn("Provider {} does not support image input, falling back to text-only stream generation: model={}",
+                    config.provider(), config.model());
+            String textOnlyPrompt = (userPrompt == null ? "" : userPrompt)
+                    + "\n\n注意：当前模型配置不支持读取参考图，已仅根据文字描述生成。";
+            return generateStream(systemPrompt, textOnlyPrompt, onDelta);
+        }
+
+        RequestVariant primary = imageRequest(config, config.apiType(), systemPrompt, userPrompt, imageMime, imageBase64);
+        RequestVariant fallback = imageRequest(config, config.fallbackApiType(), systemPrompt, userPrompt, imageMime, imageBase64);
+        return callOpenAiStreamWithFallback(config, primary, fallback,
+                userPrompt != null ? userPrompt.length() : 0, true, onDelta);
     }
 
     private AiCallConfig resolveConfig() {
@@ -294,6 +341,19 @@ public class OpenAiClient implements AiClient {
         }
     }
 
+    private String callOpenAiStreamWithFallback(AiCallConfig config, RequestVariant primary,
+                                                RequestVariant fallback, int promptLen, boolean withImage,
+                                                Consumer<String> onDelta) {
+        try {
+            return callOpenAiStream(config, primary, promptLen, withImage, onDelta);
+        } catch (RuntimeException e) {
+            if (!shouldFallback(primary, fallback, e)) throw e;
+            log.warn("OpenAI-compatible stream API failed, retrying fallback type={}, url={}, cause={}",
+                    fallback.apiType(), fallback.apiUrl(), rootMessage(e));
+            return callOpenAiStream(config, fallback, promptLen, withImage, onDelta);
+        }
+    }
+
     private String callOpenAi(AiCallConfig config, RequestVariant request, int promptLen, boolean withImage) {
         if (request == null) throw new RuntimeException("AI API type is empty");
         log.info("OpenAI-compatible API call: provider={}, type={}, model={}, url={}, auth={}, actorHeader={}, promptLen={}, withImage={}",
@@ -339,6 +399,75 @@ public class OpenAiClient implements AiClient {
             ), e);
         } catch (Exception e) {
             throw new RuntimeException("OpenAI API 调用失败: " + e.getMessage(), e);
+        }
+    }
+
+    private String callOpenAiStream(AiCallConfig config, RequestVariant request, int promptLen, boolean withImage,
+                                    Consumer<String> onDelta) {
+        if (request == null) throw new RuntimeException("AI API type is empty");
+        Map<String, Object> body = new LinkedHashMap<>(request.body());
+        body.put("stream", true);
+        log.info("OpenAI-compatible stream API call: provider={}, type={}, model={}, url={}, auth={}, actorHeader={}, promptLen={}, withImage={}",
+                config.provider(), request.apiType(), config.model(), request.apiUrl(),
+                authDescription(config), !config.actorAuthorization().isBlank(), promptLen, withImage);
+        if (config.openAiAuthEnabled() && config.apiKey().isBlank()) {
+            throw new RuntimeException("OpenAI API Key 未配置，请在模型设置页填写 API Key");
+        }
+
+        StringBuilder raw = new StringBuilder();
+        StringBuilder eventBuffer = new StringBuilder();
+        StringBuilder text = new StringBuilder();
+        try {
+            webClient.post()
+                    .uri(request.apiUrl())
+                    .accept(MediaType.TEXT_EVENT_STREAM)
+                    .headers(headers -> {
+                        if (config.openAiAuthEnabled()) {
+                            setApiKeyHeader(headers, config);
+                        }
+                        if (!config.actorAuthorization().isBlank()) {
+                            headers.set("x-openai-actor-authorization", config.actorAuthorization());
+                        }
+                    })
+                    .bodyValue(body)
+                    .retrieve()
+                    .bodyToFlux(String.class)
+                    .doOnNext(chunk -> {
+                        raw.append(chunk);
+                        handleStreamChunk(chunk, eventBuffer, text, onDelta);
+                    })
+                    .retryWhen(Retry.backoff(2, Duration.ofSeconds(2))
+                            .filter(this::isRetryable)
+                            .maxBackoff(Duration.ofSeconds(10))
+                            .onRetryExhaustedThrow((spec, signal) -> signal.failure()))
+                    .blockLast();
+
+            flushStreamBuffer(eventBuffer, text, onDelta);
+            if (!text.isEmpty()) {
+                String result = text.toString().trim();
+                log.info("OpenAI-compatible stream API success: provider={}, model={}, textLen={}",
+                        config.provider(), config.model(), result.length());
+                return result;
+            }
+
+            String fallbackText = extractContent(raw.toString());
+            emitOnce(onDelta, fallbackText);
+            log.info("OpenAI-compatible stream API returned non-SSE JSON, parsed as full response: provider={}, model={}, textLen={}",
+                    config.provider(), config.model(), fallbackText.length());
+            return fallbackText;
+        } catch (WebClientResponseException e) {
+            String message = extractErrorMessage(e.getResponseBodyAsString());
+            if (message.isBlank()) message = e.getStatusCode() + " " + e.getStatusText();
+            throw new RuntimeException(String.format(
+                    "OpenAI API 流式调用失败: %s (status=%s, provider=%s, type=%s, url=%s)",
+                    message,
+                    e.getStatusCode().value(),
+                    config.provider(),
+                    request.apiType(),
+                    request.apiUrl()
+            ), e);
+        } catch (Exception e) {
+            throw new RuntimeException("OpenAI API 流式调用失败: " + e.getMessage(), e);
         }
     }
 
@@ -393,6 +522,88 @@ public class OpenAiClient implements AiClient {
             return code == 429 || e.getStatusCode().is5xxServerError() || e.getStatusCode().is2xxSuccessful();
         }
         return true;
+    }
+
+    private void handleStreamChunk(String chunk, StringBuilder eventBuffer, StringBuilder text,
+                                   Consumer<String> onDelta) {
+        if (chunk == null || chunk.isEmpty()) return;
+        String normalized = chunk.replace("\r\n", "\n").replace('\r', '\n');
+        String trimmed = normalized.trim();
+        if (trimmed.startsWith("{") || "[DONE]".equals(trimmed)) {
+            processStreamEvent(trimmed, text, onDelta);
+            return;
+        }
+
+        eventBuffer.append(normalized);
+        int boundary;
+        while ((boundary = eventBuffer.indexOf("\n\n")) >= 0) {
+            String eventBlock = eventBuffer.substring(0, boundary);
+            eventBuffer.delete(0, boundary + 2);
+            processStreamEvent(eventBlock, text, onDelta);
+        }
+    }
+
+    private void flushStreamBuffer(StringBuilder eventBuffer, StringBuilder text, Consumer<String> onDelta) {
+        if (eventBuffer.isEmpty()) return;
+        String remaining = eventBuffer.toString().trim();
+        eventBuffer.setLength(0);
+        if (!remaining.isBlank()) processStreamEvent(remaining, text, onDelta);
+    }
+
+    private void processStreamEvent(String eventBlock, StringBuilder text, Consumer<String> onDelta) {
+        if (eventBlock == null || eventBlock.isBlank()) return;
+        String eventName = "";
+        StringBuilder data = new StringBuilder();
+        for (String line : eventBlock.split("\n", -1)) {
+            if (line.startsWith("event:")) {
+                eventName = line.substring(6).trim();
+            } else if (line.startsWith("data:")) {
+                if (!data.isEmpty()) data.append('\n');
+                data.append(line.substring(5).trim());
+            }
+        }
+        String payload = data.isEmpty() ? eventBlock.trim() : data.toString().trim();
+        if (payload.isBlank() || "[DONE]".equals(payload)) return;
+
+        try {
+            JsonNode root = objectMapper.readTree(payload);
+            String errorMessage = root.path("error").path("message").asText("");
+            if (!errorMessage.isBlank()) throw new RuntimeException(errorMessage);
+
+            String type = root.path("type").asText(eventName);
+            if ("response.failed".equals(type) || "response.error".equals(type)) {
+                String message = root.path("message").asText("");
+                if (message.isBlank()) message = root.path("response").path("error").path("message").asText("");
+                throw new RuntimeException(message.isBlank() ? "AI stream failed" : message);
+            }
+
+            String delta = "";
+            if ("response.output_text.delta".equals(type)) {
+                delta = root.path("delta").asText("");
+            } else {
+                delta = extractChatStreamDelta(root);
+            }
+            if (!delta.isBlank()) {
+                text.append(delta);
+                if (onDelta != null) onDelta.accept(delta);
+            }
+        } catch (RuntimeException e) {
+            throw e;
+        } catch (Exception e) {
+            log.debug("Ignore unparsable stream event: event={}, cause={}", eventName, e.getMessage());
+        }
+    }
+
+    private String extractChatStreamDelta(JsonNode root) {
+        JsonNode choices = root.path("choices");
+        if (!choices.isArray() || choices.isEmpty()) return "";
+        StringBuilder sb = new StringBuilder();
+        for (JsonNode choice : choices) {
+            String content = extractMessageText(choice.path("delta").path("content"));
+            if (content.isBlank()) content = extractMessageText(choice.path("message").path("content"));
+            if (!content.isBlank()) sb.append(content);
+        }
+        return sb.toString();
     }
 
     String extractContent(String responseJson) {
@@ -609,6 +820,12 @@ public class OpenAiClient implements AiClient {
     private static String authDescription(AiCallConfig config) {
         if (!config.openAiAuthEnabled()) return "disabled";
         return config.authHeaderType();
+    }
+
+    private static void emitOnce(Consumer<String> onDelta, String result) {
+        if (onDelta != null && result != null && !result.isBlank()) {
+            onDelta.accept(result);
+        }
     }
 
     private static String normalizeImageDetail(String detail) {

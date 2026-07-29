@@ -57,6 +57,7 @@ interface ReviewIssue {
   dimension: string
   chapterIndex?: number
   chapterTitle?: string
+  originalIndex?: number
   location: string
   description: string
   suggestion: string
@@ -64,8 +65,11 @@ interface ReviewIssue {
 const reviewIssues = ref<ReviewIssue[]>([])
 const reviewScore = ref<number | null>(null)
 const reviewSummary = ref('')
+const reviewTotalIssueCount = ref(0)
+const reviewFilteredFixedCount = ref(0)
 const reviewPanelOpen = ref(true)
 const reviewFixing = ref(false)
+const reviewFixTarget = ref<'batch' | number | null>(null)
 const fromReviewId = computed(() => {
   const v = route.query.fromReview
   return v ? Number(v) : null
@@ -78,6 +82,18 @@ const highlightIssueIndex = computed(() => {
   const v = route.query.issue
   return v != null && v !== '' ? Number(v) : null
 })
+const fixedReviewIssueIndexes = computed(() => parseIssueIndexesQuery(route.query.fixedIssues))
+const highlightIssueDisplayIndex = computed(() => {
+  const originalIndex = highlightIssueIndex.value
+  if (originalIndex == null || Number.isNaN(originalIndex)) return null
+  const displayIndex = reviewIssues.value.findIndex((issue, idx) =>
+    reviewIssueOriginalIndex(issue, idx) === originalIndex,
+  )
+  return displayIndex >= 0 ? displayIndex : null
+})
+const reviewSideTitle = computed(() =>
+  reviewFilteredFixedCount.value > 0 ? '剩余审查问题' : '审查问题',
+)
 const reviewCriticalMajorCount = computed(() =>
   reviewIssues.value.filter(i => i.severity === 'CRITICAL' || i.severity === 'MAJOR').length,
 )
@@ -175,7 +191,7 @@ async function load() {
       compare.value = null
     }
 
-    // 从审查页进入原 PRD 时加载旧报告问题；AI 修复后的新 PRD 不再显示旧报告问题。
+    // 从审查页进入或修复后继续处理时，加载报告中尚未被本次流程处理的问题。
     if (fromReviewId.value) {
       await loadReviewIssues(fromReviewId.value)
     } else {
@@ -187,8 +203,8 @@ async function load() {
     await nextTick()
 
     // 若带了 issue 参数，定位到对应章节
-    if (highlightIssueIndex.value != null && reviewIssues.value[highlightIssueIndex.value]) {
-      jumpToIssue(highlightIssueIndex.value)
+    if (highlightIssueDisplayIndex.value != null && reviewIssues.value[highlightIssueDisplayIndex.value]) {
+      jumpToIssue(highlightIssueDisplayIndex.value)
     }
   } catch {
     ElMessage.error('PRD 加载失败')
@@ -207,7 +223,18 @@ async function loadReviewIssues(reportId: number) {
     }
     reviewSummary.value = parsed.summary || ''
     reviewScore.value = typeof parsed.score === 'number' ? parsed.score : null
-    reviewIssues.value = Array.isArray(parsed.issues) ? parsed.issues : []
+    const allIssues: ReviewIssue[] = Array.isArray(parsed.issues)
+      ? parsed.issues.map((issue: ReviewIssue, originalIndex: number) => ({ ...issue, originalIndex }))
+      : []
+    const fixedIndexes = fixedReviewIssueIndexes.value
+    reviewTotalIssueCount.value = allIssues.length
+    reviewFilteredFixedCount.value = 0
+    reviewIssues.value = allIssues.filter((issue, idx) => {
+      const originalIndex = reviewIssueOriginalIndex(issue, idx)
+      const fixed = fixedIndexes.has(originalIndex)
+      if (fixed) reviewFilteredFixedCount.value += 1
+      return !fixed
+    })
     reviewPanelOpen.value = true
   } catch {
     clearReviewIssues()
@@ -218,6 +245,22 @@ function clearReviewIssues() {
   reviewIssues.value = []
   reviewScore.value = null
   reviewSummary.value = ''
+  reviewTotalIssueCount.value = 0
+  reviewFilteredFixedCount.value = 0
+}
+
+function parseIssueIndexesQuery(value: unknown): Set<number> {
+  const rawValues = Array.isArray(value) ? value : [value]
+  const indexes = rawValues
+    .filter((v): v is string => typeof v === 'string' && v.trim().length > 0)
+    .flatMap(v => v.split(','))
+    .map(v => Number(v.trim()))
+    .filter(v => Number.isInteger(v) && v >= 0)
+  return new Set(indexes)
+}
+
+function reviewIssueOriginalIndex(issue: ReviewIssue, fallbackIndex: number): number {
+  return Number.isInteger(issue.originalIndex) ? issue.originalIndex! : fallbackIndex
 }
 
 function normalizeAnchorText(value: string | undefined | null): string {
@@ -520,10 +563,24 @@ function reReview() {
   router.push({ path: '/prd/review', query: { prdDocumentId: String(id.value) } })
 }
 
+function resolveReviewFixIssueIndexes(issueIndexes?: number[]): number[] {
+  if (issueIndexes?.length) return issueIndexes
+  return reviewIssues.value
+    .map((issue, idx) => ({ issue, originalIndex: reviewIssueOriginalIndex(issue, idx) }))
+    .filter(({ issue }) => issue.severity === 'CRITICAL' || issue.severity === 'MAJOR')
+    .map(({ originalIndex }) => originalIndex)
+}
+
+function mergeFixedIssueIndexes(nextIndexes: number[]): number[] {
+  return Array.from(new Set([...fixedReviewIssueIndexes.value, ...nextIndexes]))
+    .sort((a, b) => a - b)
+}
+
 // ── 生命周期 ─────────────────────────────────────────────
 async function aiFixReview(issueIndexes?: number[]) {
   if (!fromReviewId.value) return
-  const count = issueIndexes?.length ?? reviewCriticalMajorCount.value
+  const selectedIssueIndexes = resolveReviewFixIssueIndexes(issueIndexes)
+  const count = selectedIssueIndexes.length
   if (count === 0) {
     ElMessage.warning('没有可修复的严重/重要问题')
     return
@@ -559,18 +616,25 @@ async function aiFixReview(issueIndexes?: number[]) {
   }
 
   reviewFixing.value = true
+  reviewFixTarget.value = selectedIssueIndexes.length === 1 ? selectedIssueIndexes[0] : 'batch'
   try {
-    const body = issueIndexes
-      ? { issueIndexes }
-      : { severities: ['CRITICAL', 'MAJOR'] }
+    const body = {
+      issueIndexes: selectedIssueIndexes,
+      sourcePrdDocumentId: id.value,
+    }
     const res = await client.post(`/review/${fromReviewId.value}/fix`, body)
-    watchReviewFixTask(res.data.data.taskId as number)
+    watchReviewFixTask(res.data.data.taskId as number, selectedIssueIndexes)
   } catch {
-    reviewFixing.value = false
+    finishReviewFixing()
   }
 }
 
-function watchReviewFixTask(fixTaskId: number) {
+function finishReviewFixing() {
+  reviewFixing.value = false
+  reviewFixTarget.value = null
+}
+
+function watchReviewFixTask(fixTaskId: number, fixedIssueIndexes: number[]) {
   reviewFixEventSource?.close()
   reviewFixEventSource = new EventSource(getTaskSseUrl(fixTaskId))
   reviewFixEventSource.addEventListener('progress', async (e) => {
@@ -578,45 +642,48 @@ function watchReviewFixTask(fixTaskId: number) {
     if (d.progress <= 0 && d.message && String(d.message).includes('失败')) {
       reviewFixEventSource?.close()
       reviewFixEventSource = null
-      reviewFixing.value = false
+      finishReviewFixing()
       ElMessage.error(d.message)
       return
     }
     if (d.progress >= 100) {
       reviewFixEventSource?.close()
       reviewFixEventSource = null
-      await openFixedPrd(fixTaskId)
+      await openFixedPrd(fixTaskId, fixedIssueIndexes)
     }
   })
   reviewFixEventSource.onerror = async () => {
     reviewFixEventSource?.close()
     reviewFixEventSource = null
-    await openFixedPrd(fixTaskId)
+    await openFixedPrd(fixTaskId, fixedIssueIndexes)
   }
 }
 
-async function openFixedPrd(fixTaskId: number) {
+async function openFixedPrd(fixTaskId: number, fixedIssueIndexes: number[]) {
   try {
     const r = await getTaskById(fixTaskId)
     if (r.data.data.status === 'SUCCESS' && r.data.data.resultRefId) {
-      reviewFixing.value = false
+      finishReviewFixing()
+      const mergedFixedIssues = mergeFixedIssueIndexes(fixedIssueIndexes)
       ElMessage.success('修复完成，正在打开新版本')
       router.push({
         path: `/prd/${r.data.data.resultRefId}`,
         query: {
           compare: String(id.value),
+          fromReview: String(fromReviewId.value),
           fixedFromReview: String(fromReviewId.value),
+          fixedIssues: mergedFixedIssues.join(','),
         },
       })
     } else if (r.data.data.status === 'FAILED') {
-      reviewFixing.value = false
+      finishReviewFixing()
       ElMessage.error(r.data.data.errorMessage || '修复失败')
     } else {
-      reviewFixing.value = false
+      finishReviewFixing()
       ElMessage.warning('修复任务仍在处理中，请稍后在我的文档中查看结果')
     }
   } catch {
-    reviewFixing.value = false
+    finishReviewFixing()
     ElMessage.warning('修复状态获取失败，请稍后在我的文档中查看结果')
   }
 }
@@ -625,6 +692,7 @@ onMounted(load)
 onBeforeUnmount(() => {
   observer?.disconnect()
   reviewFixEventSource?.close()
+  finishReviewFixing()
 })
 
 // id 变化重新加载
@@ -833,9 +901,10 @@ watch(id, () => load())
       <aside v-if="fromReviewId && reviewIssues.length" class="review-side" :class="{ collapsed: !reviewPanelOpen }">
         <div class="review-side-head">
           <div>
-            <div class="review-side-title">审查问题</div>
+            <div class="review-side-title">{{ reviewSideTitle }}</div>
             <div class="review-side-meta" v-if="reviewScore != null">
               评分 <strong>{{ reviewScore }}</strong> · {{ reviewIssues.length }} 条
+              <span v-if="reviewFilteredFixedCount"> · 已处理 {{ reviewFilteredFixedCount }}/{{ reviewTotalIssueCount }} 条</span>
             </div>
           </div>
           <el-button text size="small" @click="reviewPanelOpen = !reviewPanelOpen">
@@ -844,12 +913,15 @@ watch(id, () => load())
         </div>
         <template v-if="reviewPanelOpen">
           <p v-if="reviewSummary" class="review-side-summary">{{ reviewSummary }}</p>
+          <p v-if="reviewFilteredFixedCount" class="review-side-note">
+            本页保留未在本次修复中选中的旧报告问题，是否已解决建议重新审查确认。
+          </p>
           <div class="review-side-actions">
             <el-button
               size="small"
               type="primary"
-              :loading="reviewFixing"
-              :disabled="reviewCriticalMajorCount === 0"
+              :loading="reviewFixTarget === 'batch'"
+              :disabled="reviewCriticalMajorCount === 0 || (reviewFixing && reviewFixTarget !== 'batch')"
               @click="aiFixReview()"
             >
               <el-icon><MagicStick /></el-icon>
@@ -863,7 +935,7 @@ watch(id, () => load())
               role="button"
               tabindex="0"
               class="review-issue-item"
-              :class="{ highlight: highlightIssueIndex === idx }"
+              :class="{ highlight: highlightIssueDisplayIndex === idx }"
               @click="jumpToIssue(idx)"
               @keydown.enter.prevent="jumpToIssue(idx)"
             >
@@ -880,8 +952,9 @@ watch(id, () => load())
                 <el-button
                   size="small"
                   text
-                  :loading="reviewFixing"
-                  @click.stop="aiFixReview([idx])"
+                  :loading="reviewFixTarget === reviewIssueOriginalIndex(issue, idx)"
+                  :disabled="reviewFixing && reviewFixTarget !== reviewIssueOriginalIndex(issue, idx)"
+                  @click.stop="aiFixReview([reviewIssueOriginalIndex(issue, idx)])"
                 >
                   AI 修复此条
                 </el-button>
@@ -1254,6 +1327,15 @@ watch(id, () => load())
   font-size: 12px;
   color: rgba(38, 37, 30, 0.65);
   line-height: 1.5;
+  border-bottom: 1px solid rgba(38, 37, 30, 0.06);
+}
+.review-side-note {
+  margin: 0;
+  padding: 9px 14px;
+  font-size: 12px;
+  color: #8a5d1f;
+  line-height: 1.5;
+  background: rgba(192, 133, 50, 0.08);
   border-bottom: 1px solid rgba(38, 37, 30, 0.06);
 }
 .review-side-actions {
