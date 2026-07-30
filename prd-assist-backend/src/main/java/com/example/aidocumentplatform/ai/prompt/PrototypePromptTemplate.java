@@ -682,10 +682,13 @@ public class PrototypePromptTemplate {
                        - 页面边距：16px；卡片间距：12px；卡片内间距：14~16px；列表项高度：52~64px；表单项间距：16px；分组间距：24px。
                        - 禁止横向滚动；禁止 Web 后台结构；禁止为了填满屏幕而人为撑高。
 
-                    2. 导航与图标尺寸（iOS + Material 3 + Vant 综合）
-                       - 顶部栏 .mobile-header：高度 46~56px（Vant 46px / iOS 44pt / 安全区设备 56px），padding 0 16px，标题 17px/600，返回按钮触控区 44x44。
-                       - 底部 TabBar .mobile-tabbar：高度 50~64px（Vant 50px / iOS 49pt / 安全区设备 64px），3~5 个 Tab，图标 20~22px，标签 10~11px。
-                       - 图标尺寸：
+                     2. 导航与图标尺寸（iOS + Material 3 + Vant 综合）
+                        - 顶部栏 .mobile-header：高度 46~56px（Vant 46px / iOS 44pt / 安全区设备 56px），padding 0 16px，标题 17px/600，返回按钮触控区 44x44。
+                        - 底部 TabBar .mobile-tabbar：高度 50~64px（Vant 50px / iOS 49pt / 安全区设备 64px），图标 20~22px，标签 10~11px。
+                          * Tab 数量没有默认值，也完全不由 AI 自行推断；必须完全按需求文档或用户明确输入生成。
+                          * 如果需求明确写了“底部导航栏有 5 个 tab”，则必须生成 5 个 .tab-item，禁止以“屏幕不够”“常见 3~4 个”“美观”等任何理由减少或合并。
+                        - 图标尺寸：
+
                          * 顶部栏图标：22px，触控区 44x44
                          * TabBar 图标：20~22px
                          * 列表项头像/图标：36x36（大）/ 28x28（紧凑），圆角 8px
@@ -818,13 +821,15 @@ public class PrototypePromptTemplate {
                             .tab-label { font-size: 10px; color: #64748b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
                             .tab-item.active .tab-label { color: #0bb6c7; }
                             ```
-                             需求动态绑定：
-                             - Tab 数量由需求文档决定；AI 禁止自作主张增减、合并或省略任何 Tab，也禁止把多个 Tab 折叠成“更多”。
+                             需求绝对绑定（最高优先级组件规则）：
+                             - 如果用户或需求文档明确指定了 Tab 数量（例如“底部导航栏 5 个 tab”），AI 必须按该精确数量生成，不得以任何理由增减、合并、省略或折叠为“更多”。这是硬性命令，优先级高于任何设计系统建议、常见 App 做法、空间限制或美观判断。
+                             - Tab 数量没有默认值；需求没指定时才允许按页面类型推断最少数量的合理 Tab（首页、我的、发现等最小闭环），但一旦需求明确指定，必须严格遵循。
                              - 当 Tab 数量较少（2~3 个）时，Tab 等宽均分父容器（.tab-item flex:1; min-width:0）。
                              - 当 Tab 数量较多（4 个及以上）或标签文字较长时，允许 TabBar 整体横向滚动：父容器设置 overflow-x: auto，内部轨道 display: flex; gap: 0;，每个 .tab-item 设置固定最小宽度（建议 64~80px，按文字长度和内容密度判断），flex-shrink: 0；超出部分水平滑动查看，禁止压缩/合并 Tab。
                              - 所有 Tab 标签必须 white-space: nowrap + overflow: hidden + text-overflow: ellipsis，图标与文字垂直居中，禁止文字被截断后仍溢出容器。
                              - 底部 TabBar 必须置于页面最底部，高度固定（50px，安全区额外 padding-bottom），与上方内容区互不挤压；内容区 .mobile-content 必须设置 padding-bottom: calc(50px + env(safe-area-inset-bottom)) 或等效机制。
                              - 禁止隐藏文字只显示图标；每个 Tab 必须同时保留图标+文字或按需求保留文字。
+                             - 生成后数量校验：输出 HTML 前，必须数一遍 .mobile-tabbar 内的 .tab-item 数量；如果用户明确指定了数量但数量不符，立即修正后再输出。
 
 
 
