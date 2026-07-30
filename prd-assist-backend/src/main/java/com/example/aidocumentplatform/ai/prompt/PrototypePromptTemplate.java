@@ -672,9 +672,14 @@ public class PrototypePromptTemplate {
                            .mobile-btn-secondary { background: #f1f5f9; color: #334155; }
                            .mobile-btn-ghost { background: transparent; color: #0bb6c7; }
                            ```
-                           规则：整行主按钮可 width:100%；每屏最多 1 个强主按钮；所有按钮点击目标不小于 44x44px。
+                            规则：整行主按钮可 width:100%；每屏最多 1 个强主按钮；所有按钮点击目标不小于 44x44px。
+                            按钮/筛选/排序/Chips 尺寸禁区：
+                            - 顶部筛选、分类、排序、状态切换等辅助按钮，不是主按钮，高度只能 32~36px，padding 0 10~12px，字号 13px，圆角 8px，不能和主按钮一样大。
+                            - 这类 Chips 之间 gap 8px，禁止一行只放 1~2 个超大按钮占满宽度。
+                            - 主按钮（提交、保存、下一步、立即购买）才能用 44~48px；辅助操作必须明显小于主按钮。
 
-                       M2. 卡片 .mobile-card
+                        M2. 卡片 .mobile-card
+
                            ```css
                            .mobile-card {
                              background: #fff; border-radius: 16px;
@@ -685,7 +690,12 @@ public class PrototypePromptTemplate {
                            }
                            .mobile-card:last-child { margin-bottom: 0; }
                            ```
-                           规则：卡片内部必须用 flex column + gap，禁止 float/绝对定位；卡片间距统一 12px；禁止卡片嵌套超过两层。
+                            规则：卡片内部必须用 flex column + gap，禁止 float/绝对定位；卡片间距统一 12px；禁止卡片嵌套超过两层。
+                            高度规则：
+                            - .mobile-card 不设置固定高度，高度由内部内容 + padding 自然决定；内容少时（只有 1~2 行文字）卡片保持紧凑，不要人为撑高。
+                            - 禁止在卡片内加空 div 或 placeholder 来“填满屏幕”。
+                            - 需要多个卡片纵向排列时，每张卡片独立、紧凑，不要合成一张超大卡片。
+
 
                        M3. 列表项 .mobile-cell
                            ```css
@@ -758,16 +768,23 @@ public class PrototypePromptTemplate {
                        - 表单流程：步骤用纵向 step 或顶部轻量步骤；表单单列；提交按钮固定底部或跟随表单底部；步骤卡片高度由内容决定，禁止撑高。
                        - 个人中心/设置：头像/账号区 + .mobile-cell 列表 + 分组标题，遵循 WeUI/Vant cell 模式。
 
-                    5. 视觉与排版
-                       - 主色 #0bb6c7，背景 #FAFAFA，卡片 #FFFFFF，正文 rgba(0,0,0,.90)，辅助文字 rgba(0,0,0,.60)，弱提示 rgba(0,0,0,.40)。
-                       - 字号：顶部标题 17px，页面标题 20px，卡片标题 16px/500，正文 15px，辅助 13px，小提示 11px；禁止小于 11px。
-                       - 间距：以 4dp/8dp 栅格为基础；卡片间距 12px，列表项间距 0（靠 border-bottom 分隔），表单项间距 16px，区块间距 16~24px。
-                       - 圆角：按钮/输入框 12px，卡片 16px，列表项 0 或 12px（分组卡片时），底部面板顶部 16~20px。
-                       - 阴影：普通卡片 0 2px 10px rgba(0,0,0,.06)，底部面板/SnackBar 0 6px 20px rgba(0,0,0,.08)。
-                       - 字体：系统无衬线（-apple-system / Roboto / Noto Sans SC），标题清晰、正文舒展。
-                       - 图标：每页最多 4 个功能性图标；禁止 emoji、装饰性图标堆叠。
-                       - 【关键】禁止为了“填满一屏”而故意加大 padding、margin、行高、卡片高度；内容少则页面直接紧凑结束，底部不留空白。
-                    """;
+                     5. 视觉与排版
+                        - 主色 #0bb6c7，背景 #FAFAFA，卡片 #FFFFFF，正文 rgba(0,0,0,.90)，辅助文字 rgba(0,0,0,.60)，弱提示 rgba(0,0,0,.40)。
+                        - 字号：顶部标题 17px，页面标题 20px，卡片标题 16px/500，正文 15px，辅助 13px，小提示 11px；禁止小于 11px。
+                        - 间距：以 4dp/8dp 栅格为基础；卡片间距 12px，列表项间距 0（靠 border-bottom 分隔），表单项间距 16px，区块间距 16~24px。
+                        - 圆角：按钮/输入框 12px，卡片 16px，列表项 0 或 12px（分组卡片时），底部面板顶部 16~20px。
+                        - 阴影：普通卡片 0 2px 10px rgba(0,0,0,.06)，底部面板/SnackBar 0 6px 20px rgba(0,0,0,.08)。
+                        - 字体：系统无衬线（-apple-system / Roboto / Noto Sans SC），标题清晰、正文舒展。
+                        - 图标：每页最多 4 个功能性图标；禁止 emoji、装饰性图标堆叠。
+                        - 【关键】禁止为了“填满一屏”而故意加大 padding、margin、行高、卡片高度；内容少则页面直接紧凑结束，底部不留空白。
+
+                     6. 对比度硬约束（防止白底白字/浅色文字看不见）
+                        - 白色/浅色背景（#fff、#FAFAFA、#f1f5f9）上的文字必须使用 rgba(0,0,0,.90) 或 #0f172a 等深色；禁止使用 #fff、rgba(255,255,255,.x) 或浅灰色作为主文字。
+                        - 主色背景（#0bb6c7）上的文字使用 #fff；次级背景（#f1f5f9）上的文字使用 rgba(0,0,0,.85)。
+                        - 生成完成后自检：若卡片/页面背景为白色，确保其内部标题和正文颜色对比度足够，不得与背景色接近。
+                        - 禁止在白色卡片上使用 #f8fafc、#e2e8f0 等接近白色的文字颜色。
+                     """;
+
             case MINI_PROGRAM -> """
                     【小程序专用设计规范 — 必须优先于通用 Web 规范】
                     参考设计系统：WeUI、Vant Weapp、TDesign 小程序组件模式，并兼容 APP 端 .mobile-* class 食谱。
@@ -792,14 +809,20 @@ public class PrototypePromptTemplate {
                        - 表单流程：单列，输入框 44~48px，提交按钮整行 48px，底部固定或跟随表单。
                        - 个人中心/设置：头像区 + .mobile-cell 分组列表。
 
-                    4. 视觉与排版
-                       - 主色 #0bb6c7，背景 #f7f8fa，卡片 #fff，正文 rgba(0,0,0,.90)，辅助文字 rgba(0,0,0,.55)。
-                       - 字号：页面标题 18px，卡片标题 16px，正文 14~15px，辅助 12~13px，小提示 11px。
-                       - 间距：卡片间距 12px，表单项间距 16px，区块间距 16~20px。
-                       - 圆角：按钮/输入框/卡片统一 12~16px，头像/图标 8px。
-                       - 阴影：仅卡片使用极轻阴影；禁止大面积强阴影或渐变。
-                       - 图标：每页最多 4 个功能性图标；禁止 emoji、装饰性图标。
+                     4. 视觉与排版
+                        - 主色 #0bb6c7，背景 #f7f8fa，卡片 #fff，正文 rgba(0,0,0,.90)，辅助文字 rgba(0,0,0,.55)。
+                        - 字号：页面标题 18px，卡片标题 16px，正文 14~15px，辅助 12~13px，小提示 11px。
+                        - 间距：卡片间距 12px，表单项间距 16px，区块间距 16~20px。
+                        - 圆角：按钮/输入框/卡片统一 12~16px，头像/图标 8px。
+                        - 阴影：仅卡片使用极轻阴影；禁止大面积强阴影或渐变。
+                        - 图标：每页最多 4 个功能性图标；禁止 emoji、装饰性图标。
+
+                     5. 小程序端额外禁区
+                        - 卡片高度由内容决定，禁止固定高度；只有 1~2 行文字时保持紧凑。
+                        - 筛选/分类/排序 Chips 高度 32~36px，字号 13px，不能做成 44~48px 的大按钮。
+                        - 白色/浅色卡片上文字必须深色（rgba(0,0,0,.90) 或 #0f172a），禁止白底白字。
                     """;
+
             case PAD -> """
                     【PAD 端专用设计规范 — 必须优先于通用 Web 规范】
                     规范来源：Apple iPadOS Split View / Sidebar、Material 3 canonical layouts 与 Android window size classes。
