@@ -708,8 +708,12 @@ public class PrototypePromptTemplate {
                             - 顶部筛选、分类、排序、状态切换等辅助按钮，不是主按钮，高度只能 32~36px，padding 0 10~12px，字号 13px，圆角 8px，不能和主按钮一样大。
                             - 这类 Chips 之间 gap 8px，禁止一行只放 1~2 个超大按钮占满宽度。
                             - 主按钮（提交、保存、下一步、立即购买）才能用 44~48px；辅助操作必须明显小于主按钮。
+                            按钮内图标/加号约束：
+                            - 必须在 .mobile-btn 内用 .btn-icon 容器包裹图标/加号，尺寸固定 16~18px（最大不超过 20px），与文字间距 6px。
+                            - 禁止在按钮里直接写 <span style="font-size:24px">+</span> 或 <svg width="32"> 这种裸放大图标。
+                            - 充值/新增/快捷入口的加号按钮，外层按钮 48px，内部加号图标 18px；绝对禁止内部图标比按钮本身还高/还宽。
 
-                        M2. 卡片 .mobile-card
+                        M2. 卡片 .mobile-card（防漂移重点）
 
                            ```css
                            .mobile-card {
@@ -718,29 +722,58 @@ public class PrototypePromptTemplate {
                              box-shadow: 0 2px 10px rgba(0,0,0,.06);
                              display: flex; flex-direction: column; gap: 10px;
                              min-width: 0; overflow-wrap: break-word;
+                             position: relative; /* 允许内部相对定位，但禁止 absolute 漂移 */
                            }
                            .mobile-card:last-child { margin-bottom: 0; }
+                           /* 卡片内每一行/文字块都必须是文档流内的 flex 子项 */
+                           .card-row {
+                             display: flex; align-items: center; justify-content: space-between;
+                             gap: 10px; min-width: 0;
+                           }
+                           .card-col {
+                             display: flex; flex-direction: column; gap: 4px; min-width: 0; flex: 1;
+                           }
+                           .card-title {
+                             font-size: 16px; font-weight: 500; color: #0f172a; line-height: 1.4;
+                             overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+                           }
+                           .card-desc {
+                             font-size: 13px; color: #64748b; line-height: 1.4;
+                             overflow-wrap: break-word;
+                           }
+                           .card-meta {
+                             font-size: 12px; color: #94a3b8; flex-shrink: 0;
+                           }
                            ```
                             规则：卡片内部必须用 flex column + gap，禁止 float/绝对定位；卡片间距统一 12px；禁止卡片嵌套超过两层。
                             高度规则：
                             - .mobile-card 不设置固定高度，高度由内部内容 + padding 自然决定；内容少时（只有 1~2 行文字）卡片保持紧凑，不要人为撑高。
                             - 禁止在卡片内加空 div 或 placeholder 来“填满屏幕”。
                             - 需要多个卡片纵向排列时，每张卡片独立、紧凑，不要合成一张超大卡片。
+                            防漂移规则：
+                            - 卡片内所有文字必须包在 .card-title / .card-desc / .card-meta / .card-col 内，禁止裸文字直接放在 .mobile-card 里。
+                            - 卡片内所有行必须包在 .card-row 或 .card-col 内，每一级子元素都要设置 min-width:0。
+                            - 禁止在 .mobile-card 内部使用 position:absolute 来“对齐到右上角”，可用 .card-row + justify-content:space-between 代替。
+                            - 卡片内按钮/操作入口必须放在 .card-row 最右侧，不能脱离文档流漂浮。
+                            - 卡组/快捷切换这类容器，外层用 2 列 grid（grid-template-columns:1fr 1fr; gap:12px），每张卡片内部仍然遵循 .mobile-card 结构，禁止把文字挤出卡片。
 
 
-                       M3. 列表项 .mobile-cell
-                           ```css
-                           .mobile-cell {
-                             min-height: 56px; padding: 14px 16px;
-                             display: flex; align-items: center; justify-content: space-between;
-                             gap: 12px; background: #fff; border-bottom: 1px solid #f1f5f9;
-                             font-size: 15px; color: rgba(0,0,0,.90);
-                           }
-                           .mobile-cell .cell-title { font-weight: 500; }
-                           .mobile-cell .cell-desc { font-size: 13px; color: rgba(0,0,0,.50); }
-                           .mobile-cell .cell-arrow { color: rgba(0,0,0,.30); font-size: 13px; }
-                           ```
-                           规则：每条数据用 cell/card 展示，不要生成 table/data-table/宽表格；操作按钮放在 cell 右侧或卡片底部。
+                        M3. 列表项 .mobile-cell
+                            ```css
+                            .mobile-cell {
+                              min-height: 56px; padding: 14px 16px;
+                              display: flex; align-items: center; justify-content: space-between;
+                              gap: 12px; background: #fff; border-bottom: 1px solid #f1f5f9;
+                              font-size: 15px; color: #0f172a;
+                            }
+                            .mobile-cell .cell-title { font-weight: 500; color: #0f172a; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+                            .mobile-cell .cell-desc { font-size: 13px; color: #64748b; min-width: 0; }
+                            .mobile-cell .cell-arrow { color: #94a3b8; font-size: 13px; flex-shrink: 0; }
+                            ```
+                            规则：每条数据用 cell/card 展示，不要生成 table/data-table/宽表格；操作按钮放在 cell 右侧或卡片底部。
+                            - cell 内左侧文字区域必须设置 min-width:0，超长标题自动省略，禁止文字挤出容器。
+                            - 右侧操作按钮/箭头必须 flex-shrink:0，不能被左侧文字挤压消失。
+
 
                        M4. 输入框 .mobile-input
                            ```css
@@ -812,10 +845,15 @@ public class PrototypePromptTemplate {
                         - 【关键】禁止为了“填满一屏”而故意加大 padding、margin、行高、卡片高度；内容少则页面直接紧凑结束，底部不留空白。
 
                      6. 对比度硬约束（防止白底白字/浅色文字看不见）
-                        - 白色/浅色背景（#fff、#FAFAFA、#f1f5f9）上的文字必须使用 rgba(0,0,0,.90) 或 #0f172a 等深色；禁止使用 #fff、rgba(255,255,255,.x) 或浅灰色作为主文字。
-                        - 主色背景（#0bb6c7）上的文字使用 #fff；次级背景（#f1f5f9）上的文字使用 rgba(0,0,0,.85)。
-                        - 生成完成后自检：若卡片/页面背景为白色，确保其内部标题和正文颜色对比度足够，不得与背景色接近。
-                        - 禁止在白色卡片上使用 #f8fafc、#e2e8f0 等接近白色的文字颜色。
+                        - 当 .mobile-card / .mobile-cell / .mobile-header 背景为 #fff 时，内部文字颜色必须严格使用以下色值：
+                          * 标题 .card-title / .cell-title：#0f172a（接近纯黑）
+                          * 正文 .card-desc / 说明文字：#334155（深灰）
+                          * 辅助/元信息 .card-meta / .cell-desc：#64748b（中灰）
+                          * 弱提示 / placeholder：#94a3b8
+                        - 绝对禁止在白色背景上使用 #fff、#f8fafc、#e2e8f0、rgba(255,255,255,any) 作为主文字或标题。
+                        - 主色背景（#0bb6c7）上的文字使用 #fff；次级背景（#f1f5f9）上的文字使用 #0f172a。
+                        - 生成完成后自检：在浅色/白色背景上，标题和正文颜色对比度必须 ≥4.5:1，确保肉眼清晰可见。
+                        - 如果用户没有明确指定暗色主题，APP 端默认保持浅色背景 + 深色文字，不要擅自生成暗黑模式导致对比度失控。
                      """;
 
             case MINI_PROGRAM -> """
