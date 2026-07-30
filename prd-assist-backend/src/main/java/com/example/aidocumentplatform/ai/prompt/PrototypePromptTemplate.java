@@ -762,8 +762,14 @@ public class PrototypePromptTemplate {
                            - 卡片内部必须用 flex column + gap；禁止 float/absolute 漂移；禁止卡片嵌套超过两层。
                            - 高度由内容决定，禁止固定高度；内容少时保持紧凑。
                            - 所有文字必须包在 .card-title/.card-desc/.card-meta/.card-col 内，禁止裸文字。
-                           - 卡组/快捷切换外层用 2 列 grid（gap:12px），内部仍遵循 .mobile-card 结构。
-                           - 背景固定 #fff，内部文字必须深色：标题 #0f172a、正文 #334155、辅助 #64748b、弱提示 #94a3b8；禁止白底白字。
+                            - 卡组/快捷切换外层用 2 列 grid（gap:12px），内部仍遵循 .mobile-card 结构。
+                            - 如果需求明确为“卡组切换区是横向滚动轮播”：
+                              * 父容器固定宽度，overflow-x: auto；禁止横向等比例压缩卡片，禁止出现横向缩放。
+                              * 内部滚动轨道 display: flex; gap: 12px; padding: 4px;（padding 用于显示阴影，不增加卡片宽度）。
+                              * 每张卡片固定宽度 120px，flex-shrink: 0；内容超长用省略号；超出部分水平滑动查看。
+                              * 必须隐藏原生滚动条：`.carousel-track::-webkit-scrollbar { display: none; }` 并配合 `-ms-overflow-style: none; scrollbar-width: none;`。
+                            - 背景固定 #fff，内部文字必须深色：标题 #0f172a、正文 #334155、辅助 #64748b、弱提示 #94a3b8；禁止白底白字。
+
 
                        M4. 输入框 .mobile-input（参考 Vant Field + WeUI 表单）
                            ```css
