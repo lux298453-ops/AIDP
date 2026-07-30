@@ -742,33 +742,38 @@ public class PrototypePromptTemplate {
                            ```
                            规则：每条数据用 cell/card 展示，禁止 table/data-table；左侧 media、中间 body、右侧 extra/arrow 三段式结构；超长文字自动省略。
 
-                       M3. 卡片 .mobile-card（参考 Vant Card + iOS 圆角 + Material 3 elevation）
-                           ```css
-                           .mobile-card {
-                             background: #fff; border-radius: 12px;
-                             padding: 16px; margin-bottom: 12px;
-                             box-shadow: 0 1px 3px rgba(0,0,0,.08);
-                             display: flex; flex-direction: column; gap: 10px;
-                             min-width: 0; overflow-wrap: break-word; position: relative;
-                           }
-                           .mobile-card:last-child { margin-bottom: 0; }
-                           .card-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-width: 0; }
-                           .card-col { display: flex; flex-direction: column; gap: 4px; min-width: 0; flex: 1; }
-                           .card-title { font-size: 16px; font-weight: 500; color: #0f172a; line-height: 1.4; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-                           .card-desc { font-size: 13px; color: #64748b; line-height: 1.4; overflow-wrap: break-word; }
-                           .card-meta { font-size: 12px; color: #94a3b8; flex-shrink: 0; }
-                           ```
-                           规则：
-                           - 卡片内部必须用 flex column + gap；禁止 float/absolute 漂移；禁止卡片嵌套超过两层。
-                           - 高度由内容决定，禁止固定高度；内容少时保持紧凑。
-                           - 所有文字必须包在 .card-title/.card-desc/.card-meta/.card-col 内，禁止裸文字。
-                            - 卡组/快捷切换外层用 2 列 grid（gap:12px），内部仍遵循 .mobile-card 结构。
-                            - 如果需求明确为“卡组切换区是横向滚动轮播”：
-                              * 父容器固定宽度，overflow-x: auto；禁止横向等比例压缩卡片，禁止出现横向缩放。
-                              * 内部滚动轨道 display: flex; gap: 12px; padding: 4px;（padding 用于显示阴影，不增加卡片宽度）。
-                              * 每张卡片固定宽度 120px，flex-shrink: 0；内容超长用省略号；超出部分水平滑动查看。
+                        M3. 卡片 .mobile-card（参考 Vant Card + iOS 圆角 + Material 3 elevation）
+                            ```css
+                            .mobile-card {
+                              background: #fff; border-radius: 12px;
+                              padding: 16px; margin-bottom: 12px;
+                              box-shadow: 0 1px 3px rgba(0,0,0,.08);
+                              display: flex; flex-direction: column; gap: 10px;
+                              min-width: 0; overflow-wrap: break-word; position: relative;
+                            }
+                            .mobile-card:last-child { margin-bottom: 0; }
+                            .card-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-width: 0; }
+                            .card-col { display: flex; flex-direction: column; gap: 4px; min-width: 0; flex: 1; }
+                            .card-title { font-size: 16px; font-weight: 500; color: #0f172a; line-height: 1.4; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+                            .card-desc { font-size: 13px; color: #64748b; line-height: 1.4; overflow-wrap: break-word; }
+                            .card-meta { font-size: 12px; color: #94a3b8; flex-shrink: 0; }
+                            ```
+                            规则：
+                            - 卡片内部必须用 flex column + gap；禁止 float/absolute 漂移；禁止卡片嵌套超过两层。
+                            - 高度由内容决定，禁止固定高度；内容少时保持紧凑。
+                            - 所有文字必须包在 .card-title/.card-desc/.card-meta/.card-col 内，禁止裸文字；文字过多用省略号，禁止撑破卡片。
+                            - 卡组/快捷切换/多卡片入口区有两种布局策略，由内容密度决定：
+                              * 2~3 张简单卡片：用 2 列 grid（gap:12px），内部遵循 .mobile-card 结构。
+                              * 4 张及以上或卡片内容复杂：使用横向滚动轮播；父容器宽度等于内容区可用宽度，overflow-x: auto；内部滚动轨道 display: flex; gap: 12px; padding: 4px;。
+                              * 轮播中每张卡片宽度由内容类型决定，不要写死 120px：
+                                - 仅含图标+标题+数量的入口卡：88~100px；
+                                - 含标题+一行描述/状态的信息卡：140~180px；
+                                - 含封面/头像+多行信息的卡片：200~260px。
+                                AI 根据每张卡实际内容选择最小合适宽度，保证内容不拥挤、不被压缩。
+                              * 轮播卡片统一设置 flex-shrink: 0; overflow: hidden; 内容超长用省略号；超出部分水平滑动查看。
                               * 必须隐藏原生滚动条：`.carousel-track::-webkit-scrollbar { display: none; }` 并配合 `-ms-overflow-style: none; scrollbar-width: none;`。
                             - 背景固定 #fff，内部文字必须深色：标题 #0f172a、正文 #334155、辅助 #64748b、弱提示 #94a3b8；禁止白底白字。
+
 
 
                        M4. 输入框 .mobile-input（参考 Vant Field + WeUI 表单）
@@ -811,12 +816,14 @@ public class PrototypePromptTemplate {
                             .tab-label { font-size: 10px; color: #64748b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
                             .tab-item.active .tab-label { color: #0bb6c7; }
                             ```
-                            需求强制绑定：
-                            - Tab 数量必须严格按照需求文档确认，禁止 AI 自作主张增减、合并或省略任何 Tab。
-                            - 即使屏幕空间有限，Tab 也必须完整显示，且等宽均分父容器宽度（每个 .tab-item 设置 flex: 1; min-width: 0;）。
-                            - 禁止把多个 Tab 折叠成“更多”，禁止隐藏文字只显示图标，禁止把 5 个 Tab 合并成 4 个。
-                            - 底部 TabBar 必须置于页面最底部，position: fixed 或作为 flex 父容器的 flex-shrink:0 底部元素；高度固定（50px，安全区额外 padding-bottom），与上方内容区互不挤压。
-                            - 内容区 .mobile-content 必须设置 padding-bottom: calc(50px + env(safe-area-inset-bottom)) 或等效机制，确保内容不会被 TabBar 遮挡。
+                             需求动态绑定：
+                             - Tab 数量由需求文档决定；AI 禁止自作主张增减、合并或省略任何 Tab，也禁止把多个 Tab 折叠成“更多”。
+                             - 当 Tab 数量较少（2~3 个）时，Tab 等宽均分父容器（.tab-item flex:1; min-width:0）。
+                             - 当 Tab 数量较多（4 个及以上）或标签文字较长时，允许 TabBar 整体横向滚动：父容器设置 overflow-x: auto，内部轨道 display: flex; gap: 0;，每个 .tab-item 设置固定最小宽度（建议 64~80px，按文字长度和内容密度判断），flex-shrink: 0；超出部分水平滑动查看，禁止压缩/合并 Tab。
+                             - 所有 Tab 标签必须 white-space: nowrap + overflow: hidden + text-overflow: ellipsis，图标与文字垂直居中，禁止文字被截断后仍溢出容器。
+                             - 底部 TabBar 必须置于页面最底部，高度固定（50px，安全区额外 padding-bottom），与上方内容区互不挤压；内容区 .mobile-content 必须设置 padding-bottom: calc(50px + env(safe-area-inset-bottom)) 或等效机制。
+                             - 禁止隐藏文字只显示图标；每个 Tab 必须同时保留图标+文字或按需求保留文字。
+
 
 
                        M7. 标签/徽章/状态 .mobile-tag（参考 Vant Tag）
