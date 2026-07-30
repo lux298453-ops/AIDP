@@ -205,7 +205,10 @@ public class PrototypePromptTemplate {
                 C. 页面类型规范
                    C1. 登录页：auth-shell 居中或左右分栏；auth-card 宽 420px、padding 32px；auth-visual padding 48px；只保留必要登录内容。
                    C2. 工作台/后台首页：app-shell + sidebar + app-header + page-main；指标区用 metric-card 四列；内容区 gap 20px。
-                   C3. CRUD 表格页：page-title 区 + toolbar/filter-bar + table-panel + table-scroll + data-table + 分页；表格操作列使用 action-cell/table-actions。
+                   C3. CRUD 表格页：page-title 区 + toolbar/filter-bar + table-panel（内部：table-scroll + data-table） + pagination；表格操作列使用 action-cell/table-actions。
+                        - table-panel 必须包含 table-scroll 和 pagination 上下两部分，用 flex column + gap 16px 分隔，禁止分页与表格底部重叠。
+                        - data-table 必须设置 table-layout: fixed; 并通过 th class 固定列宽（.col-check / .col-id / .col-actions 等）。
+                        - pagination 中“上一页/下一页”按钮高度 34px，字号 13px，禁止做成大按钮。
                    C4. 表单流程页：steps/step-list 在顶部，step-item padding 14px 16px；下方 form-panel 两列表单，右侧 summary-panel。
                    C5. 内容详情页：detail-panel 阅读宽 720~960px，padding 24px；目录/摘要面板 280~320px。
                    C6. 数据看板页：metric-card + chart panel + table-panel；图表面板 padding 20px，图表周围留白至少 18px。
@@ -262,16 +265,67 @@ public class PrototypePromptTemplate {
                        ```
                        规则：复杂表单使用两列 grid（gap 18px）；移动端自动单列；连续表单项 gap 16~18px。
 
-                   D4. 表格 .data-table
-                       ```css
-                       .table-scroll { width: 100%; overflow-x: auto; border: 1px solid #e2e8f0; border-radius: 10px; }
-                       .data-table { width: 100%; border-collapse: collapse; min-width: 640px; }
-                       .data-table th, .data-table td { padding: 12px 20px; text-align: left; border-bottom: 1px solid #e2e8f0; }
-                       .data-table th { font-size: 13px; font-weight: 600; color: #475569; background: #f8fafc; }
-                       .data-table td { font-size: 14px; color: #334155; }
-                       .data-table tr:hover td { background: #f1f5f9; }
-                       ```
-                       规则：表格必须包在 .table-scroll 内；表头 13px/600，正文 14px，行高 48px；状态标签高度 22~24px，字号 12px。
+                    D4. 表格 .data-table + 分页 .pagination（防重叠/防错位重点）
+                        ```css
+                        /* 表格面板：让表格和分页在一个垂直 flex 容器内，保证间距 */
+                        .table-panel {
+                          display: flex; flex-direction: column; gap: 16px;
+                          background: #fff; border: 1px solid #e2e8f0; border-radius: 12px;
+                          padding: 20px; box-shadow: 0 1px 3px rgba(15,23,42,.08);
+                        }
+                        .table-scroll {
+                          width: 100%; overflow-x: auto; overflow-y: hidden;
+                          border: 1px solid #e2e8f0; border-radius: 10px;
+                        }
+                        .data-table {
+                          width: 100%; border-collapse: collapse; table-layout: fixed; min-width: 640px;
+                          font-size: 14px; line-height: 1.5;
+                        }
+                        .data-table th, .data-table td {
+                          padding: 12px 20px; text-align: left; vertical-align: middle;
+                          border-bottom: 1px solid #e2e8f0;
+                          white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+                        }
+                        /* 多行文本列放开换行，但仍要垂直居中 */
+                        .data-table td.wrap { white-space: normal; overflow-wrap: break-word; }
+                        .data-table th { font-size: 13px; font-weight: 600; color: #475569; background: #f8fafc; }
+                        .data-table td { color: #334155; }
+                        .data-table tr:last-child td { border-bottom: none; }
+                        .data-table tr:hover td { background: #f1f5f9; }
+                        /* 操作列统一宽度，禁止各列参差不齐 */
+                        .data-table .col-actions { width: 160px; text-align: right; }
+                        .data-table .col-check { width: 48px; text-align: center; }
+                        .data-table .col-id { width: 72px; text-align: left; }
+
+                        /* 分页 */
+                        .pagination {
+                          display: flex; align-items: center; justify-content: flex-end;
+                          gap: 8px; flex-wrap: wrap;
+                          min-height: 36px; padding-top: 0;
+                        }
+                        .pagination .page-btn, .pagination .page-prev, .pagination .page-next {
+                          display: inline-flex; align-items: center; justify-content: center;
+                          height: 34px; min-width: 34px; padding: 0 10px;
+                          border: 1px solid #e2e8f0; border-radius: 8px;
+                          background: #fff; color: #334155; font-size: 13px; font-weight: 500;
+                          white-space: nowrap; cursor: pointer; transition: all 150ms ease-out;
+                        }
+                        .pagination .page-btn:hover, .pagination .page-prev:hover, .pagination .page-next:hover {
+                          background: #f8fafc; border-color: #cbd5e1;
+                        }
+                        .pagination .page-btn.active {
+                          background: #1e40af; border-color: #1e40af; color: #fff;
+                        }
+                        .pagination .page-info { font-size: 13px; color: #64748b; margin-right: 8px; }
+                        ```
+                        规则：
+                        - 表格必须包在 .table-scroll 内，.table-scroll 必须包在 .table-panel 内；.table-panel 内用 flex column + gap 分隔表格与分页，禁止分页贴到表格底部或重叠。
+                        - 必须给 .data-table 加 table-layout: fixed; 保证各列对齐；每列通过 col 或 th class 明确宽度（如 .col-id、.col-actions），禁止让 AI 自由决定列宽。
+                        - th、td 必须统一 vertical-align: middle; text-align: left; padding 12px 20px；禁止同一张表里不同列的 padding 或对齐方式不一致。
+                        - 分页按钮高度固定 34px，最小宽度 34px，字号 13px；禁止把“上一页/下一页”做成 40px+ 的大按钮。
+                        - 分页容器 .pagination 必须使用 justify-content: flex-end（或 center）并带 gap:8px，禁止分页按钮挤在表格边框内或紧贴表格。
+                        - 表格操作列按钮必须使用 action-cell/table-actions 包裹，与 D1 按钮食谱同高（34~40px），同 padding，禁止忽大忽小。
+
 
                    D5. 顶部栏 .app-header
                        ```css
