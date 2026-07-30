@@ -639,47 +639,166 @@ public class PrototypePromptTemplate {
         return switch (platform) {
             case APP -> """
                     【APP 端专用设计规范 — 必须优先于通用 Web 规范】
-                    规范来源：OPPO / ColorOS 视觉方向 + Apple HIG 的 iOS 触控/可读性原则、Material 移动端触控目标、Ant Design Mobile / TDesign Mobile / WeUI / Vant 的业务移动组件模式。
+                    参考设计系统：OPPO / ColorOS 视觉方向 + Apple iOS HIG + Material Design 3 移动组件 + Ant Design Mobile / TDesign Mobile / Vant / WeUI 业务组件模式。
+                    默认视觉气质：轻盈、水生感、清透背景、柔和层次、圆润但不夸张、信息分组清楚。主色 #0bb6c7，背景 #FAFAFA，卡片 #FFFFFF。
+
                     1. 画布与安全区
-                       - 使用 .mobile-shell 或 .phone-shell，宽度 390px，max-width:100%，高度由内容自然决定，禁止 min-height:100vh 强制撑高，居中展示。
+                       - 使用 .mobile-shell / .phone-shell，宽度 390px，max-width:100%，高度由内容自然决定，禁止 min-height:100vh 强制撑高，居中展示。
                        - body 背景 #FAFAFA，手机画布背景 #FAFAFA；内容区 padding 16px。
                        - 顶部和底部使用 safe-area：padding-top: env(safe-area-inset-top)，padding-bottom: env(safe-area-inset-bottom)。
                        - 禁止横向滚动；禁止出现 Web 后台侧边栏、宽表格、桌面大工具栏。
                        - App 端禁止使用 sidebar / side-nav / nav-sidebar 作为底部导航 class；底部导航只能使用 mobile-tabbar / bottom-tab / tabbar。
-                    2. 导航结构
-                       - 顶部栏 .mobile-header / .app-navbar 高度 44~56px，左右 padding 12~16px，标题 17px/600，返回按钮触控区 44x44。
-                       - 底部 TabBar .mobile-tabbar 高度 56~64px，固定底部，3~5 个 Tab；图标可省略，若使用图标必须统一 20~22px。
-                       - 页面主内容 .mobile-content 必须为单列纵向内容流，底部距最后一个卡片或按钮 16px 即可结束；仅在存在底部 TabBar/固定操作栏时才留出 72px 空间，无固定导航时禁止留空。
-                    3. 组件尺寸
-                       - 主要按钮高度 44~48px，圆角 10~12px（OPPO 大按钮可用 32px 胶囊形），整行按钮可 width:100%；每屏最多 1 个强主按钮。
-                       - 输入框/选择器/搜索框高度 44~48px，字号 15~16px，label 14px，说明/错误 12~13px。
-                       - 列表项高度 52~64px，左右 padding 16px；卡片 padding 14~16px，圆角 12~14px（OPPO 规范大卡片可用 16~24px），卡片间距 12~16px。
-                       - 点击目标至少 44x44px；Android/Material 风格控件优先按 48px 触控目标处理。
-                       - 步骤/流程卡片内部要紧凑：padding 14~16px，标题 15px/600，说明 13px，间距 4~6px，禁止为了“填满屏幕”而加大高度或 padding。
+
+                    2. 导航结构（必须写固定尺寸）
+                       - 顶部栏 .mobile-header / .app-navbar：高度 56px，左右 padding 16px，标题 17px/600，返回按钮触控区 44x44。
+                       - 底部 TabBar .mobile-tabbar：高度 64px，固定底部，3~5 个 Tab，背景 #fff；图标可省略，若使用统一 20~22px。
+                       - 页面主内容 .mobile-content：单列纵向内容流，padding 16px，底部距最后一个卡片/按钮 16px 即可结束；仅在存在底部 TabBar/固定操作栏时才留出 72px 空间，无固定导航时禁止留空。
+
+                    3. 移动端组件食谱（必须按此写 CSS）
+                       以下数值是 APP 端默认值，参考图只能覆盖颜色/圆角/阴影/字体气质，不要覆盖尺寸和间距。
+
+                       M1. 主按钮 .mobile-btn / .mobile-btn-primary
+                           ```css
+                           .mobile-btn {
+                             display: flex; align-items: center; justify-content: center;
+                             height: 48px; min-width: 88px; width: auto;
+                             padding: 0 20px; border-radius: 12px;
+                             font-size: 16px; font-weight: 600; line-height: 1;
+                             white-space: nowrap; cursor: pointer; border: none;
+                             transition: all 200ms ease-out;
+                           }
+                           .mobile-btn-primary { background: #0bb6c7; color: #fff; }
+                           .mobile-btn-primary:active { transform: scale(0.98); background: #09a3b2; }
+                           .mobile-btn-secondary { background: #f1f5f9; color: #334155; }
+                           .mobile-btn-ghost { background: transparent; color: #0bb6c7; }
+                           ```
+                           规则：整行主按钮可 width:100%；每屏最多 1 个强主按钮；所有按钮点击目标不小于 44x44px。
+
+                       M2. 卡片 .mobile-card
+                           ```css
+                           .mobile-card {
+                             background: #fff; border-radius: 16px;
+                             padding: 16px; margin-bottom: 12px;
+                             box-shadow: 0 2px 10px rgba(0,0,0,.06);
+                             display: flex; flex-direction: column; gap: 10px;
+                             min-width: 0; overflow-wrap: break-word;
+                           }
+                           .mobile-card:last-child { margin-bottom: 0; }
+                           ```
+                           规则：卡片内部必须用 flex column + gap，禁止 float/绝对定位；卡片间距统一 12px；禁止卡片嵌套超过两层。
+
+                       M3. 列表项 .mobile-cell
+                           ```css
+                           .mobile-cell {
+                             min-height: 56px; padding: 14px 16px;
+                             display: flex; align-items: center; justify-content: space-between;
+                             gap: 12px; background: #fff; border-bottom: 1px solid #f1f5f9;
+                             font-size: 15px; color: rgba(0,0,0,.90);
+                           }
+                           .mobile-cell .cell-title { font-weight: 500; }
+                           .mobile-cell .cell-desc { font-size: 13px; color: rgba(0,0,0,.50); }
+                           .mobile-cell .cell-arrow { color: rgba(0,0,0,.30); font-size: 13px; }
+                           ```
+                           规则：每条数据用 cell/card 展示，不要生成 table/data-table/宽表格；操作按钮放在 cell 右侧或卡片底部。
+
+                       M4. 输入框 .mobile-input
+                           ```css
+                           .mobile-input-item { display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px; }
+                           .mobile-input-item label { font-size: 14px; font-weight: 500; color: rgba(0,0,0,.70); }
+                           .mobile-input-item input, .mobile-input-item select, .mobile-input-item textarea {
+                             height: 48px; padding: 0 14px; border: 1px solid #e2e8f0;
+                             border-radius: 12px; font-size: 15px; color: rgba(0,0,0,.90); background: #fff;
+                           }
+                           .mobile-input-item input:focus, .mobile-input-item select:focus, .mobile-input-item textarea:focus {
+                             outline: none; border-color: #0bb6c7; box-shadow: 0 0 0 3px rgba(11,182,199,.12);
+                           }
+                           .mobile-input-item .input-error { font-size: 12px; color: #ef4444; margin-top: 4px; }
+                           ```
+                           规则：表单单列；连续输入项 margin-bottom 16px；输入框高度 48px，触控目标足够。
+
+                       M5. 顶部栏 .mobile-header
+                           ```css
+                           .mobile-header {
+                             height: 56px; padding: 0 16px; flex-shrink: 0;
+                             display: flex; align-items: center; justify-content: space-between;
+                             background: #fff; border-bottom: 1px solid #f1f5f9; gap: 12px;
+                           }
+                           .mobile-header .nav-title { font-size: 17px; font-weight: 600; color: rgba(0,0,0,.90); }
+                           .mobile-header .nav-back { width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; }
+                           ```
+
+                       M6. 底部 TabBar .mobile-tabbar
+                           ```css
+                           .mobile-tabbar {
+                             height: 64px; flex-shrink: 0; padding-bottom: env(safe-area-inset-bottom);
+                             display: flex; align-items: center; justify-content: space-around;
+                             background: #fff; border-top: 1px solid #f1f5f9;
+                           }
+                           .mobile-tabbar .tab-item { flex: 1; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; }
+                           .mobile-tabbar .tab-item .tab-icon { font-size: 20px; }
+                           .mobile-tabbar .tab-item .tab-label { font-size: 11px; color: rgba(0,0,0,.50); }
+                           .mobile-tabbar .tab-item.active .tab-label { color: #0bb6c7; }
+                           ```
+
+                       M7. 空状态 .mobile-empty
+                           ```css
+                           .mobile-empty {
+                             display: flex; flex-direction: column; align-items: center; justify-content: center;
+                             padding: 48px 24px; gap: 12px; text-align: center;
+                           }
+                           .mobile-empty .empty-title { font-size: 15px; color: rgba(0,0,0,.60); }
+                           .mobile-empty .empty-hint { font-size: 13px; color: rgba(0,0,0,.40); }
+                           ```
+
                     4. 页面类型
-                       - 登录/注册：居中品牌 + 表单，字段精简，主按钮整行，底部次要入口；不要展示后台功能介绍和复杂卡片。
+                       - 登录/注册：居中品牌 + 表单，字段精简，主按钮整行 48px，底部次要入口；不要展示后台功能介绍和复杂卡片。
                        - 首页/看板：顶部问候/标题 + 搜索/筛选 + 纵向卡片/统计卡；2 列小卡只用于简单指标。
-                       - 列表/管理：使用移动列表、卡片列表、筛选 Chips、滑动操作；不要生成 table/data-table/宽表格。每条数据用 cell/card 展示，操作按钮放在卡片底部或右侧。
-                       - 详情：标题区 + 信息分组 + 底部固定主操作；正文行高 1.5；信息卡片内部 padding 14~16px，禁止顶部大留白。
+                       - 列表/管理：使用 .mobile-cell 列表或 .mobile-card 卡片；不要生成 table/data-table/宽表格。每条数据用 cell/card 展示。
+                       - 详情：标题区 + 信息分组 .mobile-card + 底部固定主操作；正文行高 1.5；信息卡片内部 padding 14~16px，禁止顶部大留白。
                        - 表单流程：步骤用纵向 step 或顶部轻量步骤；表单单列；提交按钮固定底部或跟随表单底部；步骤卡片高度由内容决定，禁止撑高。
-                       - 个人中心/设置：头像/账号区 + cell 列表 + 分组标题，遵循 WeUI/Vant cell 模式。
-                    5. 视觉风格
-                       - 默认采用 OPPO / ColorOS 风格方向：轻盈、水生感、清透背景、柔和层次、圆润但不夸张、信息分组清楚。
-                       - 主色使用 OPPO/ColorOS 倾向的清爽蓝绿色：#0bb6c7，页面背景 #FAFAFA，卡片 #FFFFFF，正文 rgba(0,0,0,.90)，辅助文字 rgba(0,0,0,.60)。
-                       - 卡片使用低饱和浅色背景或白底细边框，阴影极轻：0 2px 10px rgba(0,0,0,.06)（普通卡片），0 6px 20px rgba(0,0,0,.08)（SnackBar/底部面板）。
-                       - 按钮使用圆润矩形或 32px 胶囊形，不使用大面积强渐变；主按钮使用 #0bb6c7，次按钮使用浅色填充或细边框。
-                       - 字体气质接近 OPPO Sans / 系统无衬线：标题清晰、正文舒展，避免过小过密。
-                       - 不要使用大量 emoji、小图标、复杂插画；移动端靠间距、分组、列表和底部操作形成秩序。
+                       - 个人中心/设置：头像/账号区 + .mobile-cell 列表 + 分组标题，遵循 WeUI/Vant cell 模式。
+
+                    5. 视觉与排版
+                       - 主色 #0bb6c7，背景 #FAFAFA，卡片 #FFFFFF，正文 rgba(0,0,0,.90)，辅助文字 rgba(0,0,0,.60)，弱提示 rgba(0,0,0,.40)。
+                       - 字号：顶部标题 17px，页面标题 20px，卡片标题 16px/500，正文 15px，辅助 13px，小提示 11px；禁止小于 11px。
+                       - 间距：以 4dp/8dp 栅格为基础；卡片间距 12px，列表项间距 0（靠 border-bottom 分隔），表单项间距 16px，区块间距 16~24px。
+                       - 圆角：按钮/输入框 12px，卡片 16px，列表项 0 或 12px（分组卡片时），底部面板顶部 16~20px。
+                       - 阴影：普通卡片 0 2px 10px rgba(0,0,0,.06)，底部面板/SnackBar 0 6px 20px rgba(0,0,0,.08)。
+                       - 字体：系统无衬线（-apple-system / Roboto / Noto Sans SC），标题清晰、正文舒展。
+                       - 图标：每页最多 4 个功能性图标；禁止 emoji、装饰性图标堆叠。
                        - 【关键】禁止为了“填满一屏”而故意加大 padding、margin、行高、卡片高度；内容少则页面直接紧凑结束，底部不留空白。
                     """;
             case MINI_PROGRAM -> """
                     【小程序专用设计规范 — 必须优先于通用 Web 规范】
-                    规范来源：WeUI、Vant Weapp、TDesign 小程序组件模式。
-                    1. 画布宽度 390px，高度由内容自然决定，禁止 min-height:100vh，内容少则紧凑结束；内容区 padding 16px，页面背景 #f7f8fa。
-                    2. 顶部使用小程序标题栏/导航栏，高度 44~56px；常用返回、首页、标题，触控区不小于 44px。
-                    3. 底部可用 TabBar 或固定操作栏，高度 56~64px，并使用 safe-area inset；无固定导航时底部不留多余空白。
-                    4. 信息承载优先使用 cell、card、form、popup、action-sheet、toast、empty、result；禁止 Web 后台侧边栏和桌面表格。
-                    5. 列表项 52~64px，按钮 44~48px，输入框 44~48px，卡片 padding 14~16px，间距 12~16px；禁止为了填满屏幕而加大 padding 或间距。
+                    参考设计系统：WeUI、Vant Weapp、TDesign 小程序组件模式，并兼容 APP 端 .mobile-* class 食谱。
+                    默认视觉气质：简洁、轻量、微信原生感。主色 #0bb6c7，背景 #f7f8fa，卡片 #fff。
+
+                    1. 画布与结构
+                       - 画布宽度 390px，高度由内容自然决定，禁止 min-height:100vh；内容少则紧凑结束，底部不留空白。
+                       - 页面背景 #f7f8fa；内容区 .mobile-content padding 16px。
+                       - 顶部导航栏 .mobile-header 高度 48~56px，标题 17px/600，返回按钮触控区 44x44。
+                       - 底部 TabBar/固定操作栏高度 56~64px，使用 safe-area inset；无固定导航时底部不留多余空白。
+                       - 禁止 Web 后台侧边栏、宽表格、桌面大工具栏。
+
+                    2. 小程序组件食谱（沿用 APP 端 mobile-* class）
+                       - 按钮：.mobile-btn 高度 44~48px，圆角 12px，主色 #0bb6c7，整行主按钮 width:100%。
+                       - 卡片：.mobile-card 背景 #fff，圆角 12~16px，padding 14~16px，间距 12px，阴影 0 2px 10px rgba(0,0,0,.06)。
+                       - 列表项：.mobile-cell 最小高度 52~56px，padding 13px 16px，border-bottom 1px solid #f1f5f9，左侧标题 15px，右侧值/箭头 13px。
+                       - 输入框：.mobile-input-item 输入框高度 44~48px，圆角 12px，border #e2e8f0，focus 时 border-color #0bb6c7。
+                       - 空状态：.mobile-empty padding 48px 24px，图标可选，文案 14px/13px 两层。
+
+                    3. 页面类型
+                       - 列表/管理：优先使用 .mobile-cell 列表或 .mobile-card 卡片；禁止 table/data-table。
+                       - 表单流程：单列，输入框 44~48px，提交按钮整行 48px，底部固定或跟随表单。
+                       - 个人中心/设置：头像区 + .mobile-cell 分组列表。
+
+                    4. 视觉与排版
+                       - 主色 #0bb6c7，背景 #f7f8fa，卡片 #fff，正文 rgba(0,0,0,.90)，辅助文字 rgba(0,0,0,.55)。
+                       - 字号：页面标题 18px，卡片标题 16px，正文 14~15px，辅助 12~13px，小提示 11px。
+                       - 间距：卡片间距 12px，表单项间距 16px，区块间距 16~20px。
+                       - 圆角：按钮/输入框/卡片统一 12~16px，头像/图标 8px。
+                       - 阴影：仅卡片使用极轻阴影；禁止大面积强阴影或渐变。
+                       - 图标：每页最多 4 个功能性图标；禁止 emoji、装饰性图标。
                     """;
             case PAD -> """
                     【PAD 端专用设计规范 — 必须优先于通用 Web 规范】
