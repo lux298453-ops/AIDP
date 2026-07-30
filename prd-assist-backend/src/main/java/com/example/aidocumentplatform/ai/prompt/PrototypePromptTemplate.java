@@ -642,17 +642,48 @@ public class PrototypePromptTemplate {
                     参考设计系统：OPPO / ColorOS 视觉方向 + Apple iOS HIG + Material Design 3 移动组件 + Ant Design Mobile / TDesign Mobile / Vant / WeUI 业务组件模式。
                     默认视觉气质：轻盈、水生感、清透背景、柔和层次、圆润但不夸张、信息分组清楚。主色 #0bb6c7，背景 #FAFAFA，卡片 #FFFFFF。
 
+                    0. 平台优先级与反 WEB 禁区（最容易导致 APP 生成成 WEB 页面）
+                       - 前端已明确选择 Platform=APP，所有样式和布局必须按手机 App 输出，绝对禁止再从“功能描述”里反推出 Web/Pad/小程序。
+                       - 无论用户描述里出现什么词（后台管理、配置平台、CRUD、文档管理、PRD审查、数据看板、表格、报表、审核），都必须翻译成移动端页面类型：列表页、卡片流、设置页、统计卡、消息流、个人中心，而不能直接生成 Web 后台。
+                       - APP 端绝对禁止：
+                         * sidebar / side-nav / nav-sidebar 侧边栏
+                         * .data-table / table-scroll / 宽表格（移动端用 .mobile-cell 或 .mobile-card 替代）
+                         * 100% 宽度的大按钮组横向排满（移动端主按钮单列或放底部固定栏）
+                         * 顶部大工具栏、面包屑、多列筛选面板、分页器（用下拉/上拉加载/切换 Tab 替代）
+                         * 桌面端才有的 260px 侧边栏、720px 详情正文区、4 列指标卡网格
+                         * 表单两列布局、横向步骤条、横向标签页
+                       - 若页面内容像 Web 后台，请先判断：这是“移动端管理页”还是“真正的 Web 后台”？用户没有明确说 Web 端，则必须按移动端输出。
+
                     1. 画布与安全区
                        - 使用 .mobile-shell / .phone-shell，宽度 390px，max-width:100%，高度由内容自然决定，禁止 min-height:100vh 强制撑高，居中展示。
-                       - body 背景 #FAFAFA，手机画布背景 #FAFAFA；内容区 padding 16px。
+                       - body 背景 #FAFAFA，手机画布背景 #FAFAFA；内容区 .mobile-content padding 16px。
                        - 顶部和底部使用 safe-area：padding-top: env(safe-area-inset-top)，padding-bottom: env(safe-area-inset-bottom)。
-                       - 禁止横向滚动；禁止出现 Web 后台侧边栏、宽表格、桌面大工具栏。
+                       - 禁止横向滚动；禁止出现 Web 后台侧边栏、宽表格、桌面大工具栏、多列复杂布局。
                        - App 端禁止使用 sidebar / side-nav / nav-sidebar 作为底部导航 class；底部导航只能使用 mobile-tabbar / bottom-tab / tabbar。
 
                     2. 导航结构（必须写固定尺寸）
                        - 顶部栏 .mobile-header / .app-navbar：高度 56px，左右 padding 16px，标题 17px/600，返回按钮触控区 44x44。
                        - 底部 TabBar .mobile-tabbar：高度 64px，固定底部，3~5 个 Tab，背景 #fff；图标可省略，若使用统一 20~22px。
                        - 页面主内容 .mobile-content：单列纵向内容流，padding 16px，底部距最后一个卡片/按钮 16px 即可结束；仅在存在底部 TabBar/固定操作栏时才留出 72px 空间，无固定导航时禁止留空。
+
+                    2.1. APP 图标与头像尺寸规范
+                       - 顶部栏图标：20~22px，触控区 44x44px
+                       - TabBar 图标：20~22px，标签文字 11px
+                       - 列表项左侧图标/头像：36x36px（大列表）/ 28x28px（紧凑列表），圆角 8px
+                       - 卡片内功能图标：20~24px
+                       - 空状态/状态图标：48~64px（只放一个）
+                       - 按钮内图标：16~18px，与文字间距 6px
+                       - 禁止在文字旁边堆叠多个装饰性小图标；图标必须有明确功能含义。
+
+                    2.2. APP 排版栅格与间距
+                       - 基础栅格：4px；所有尺寸尽量是 4 的倍数。
+                       - 页面内容区边距：16px（左右）。
+                       - 卡片内间距：14~16px；卡片外间距（margin-bottom）：12px。
+                       - 列表项高度：52~64px；cell 内标题与说明间距 4px。
+                       - 表单输入框间距：16px；标签与输入框间距 6~8px。
+                       - 按钮与内容间距：16px；底部固定操作栏与内容间距 0（直接贴底悬浮）。
+                       - 分组标题（section-title）与第一个内容间距 12px，分组之间间距 24px。
+                       - 2 列小卡布局：gap 12px，每张卡片 padding 14px，只用于简单指标/快捷入口。
 
                     3. 移动端组件食谱（必须按此写 CSS）
                        以下数值是 APP 端默认值，参考图只能覆盖颜色/圆角/阴影/字体气质，不要覆盖尺寸和间距。
@@ -760,15 +791,17 @@ public class PrototypePromptTemplate {
                            .mobile-empty .empty-hint { font-size: 13px; color: rgba(0,0,0,.40); }
                            ```
 
-                    4. 页面类型
-                       - 登录/注册：居中品牌 + 表单，字段精简，主按钮整行 48px，底部次要入口；不要展示后台功能介绍和复杂卡片。
-                       - 首页/看板：顶部问候/标题 + 搜索/筛选 + 纵向卡片/统计卡；2 列小卡只用于简单指标。
-                       - 列表/管理：使用 .mobile-cell 列表或 .mobile-card 卡片；不要生成 table/data-table/宽表格。每条数据用 cell/card 展示。
-                       - 详情：标题区 + 信息分组 .mobile-card + 底部固定主操作；正文行高 1.5；信息卡片内部 padding 14~16px，禁止顶部大留白。
-                       - 表单流程：步骤用纵向 step 或顶部轻量步骤；表单单列；提交按钮固定底部或跟随表单底部；步骤卡片高度由内容决定，禁止撑高。
-                       - 个人中心/设置：头像/账号区 + .mobile-cell 列表 + 分组标题，遵循 WeUI/Vant cell 模式。
+                     4. 页面类型（每个类型必须匹配 APP 移动端表达）
+                        - 登录/注册：居中品牌 + 表单，字段精简，主按钮整行 48px，底部次要入口；不要展示后台功能介绍和复杂卡片。
+                        - 首页/看板：顶部问候/标题 + 搜索/筛选 Chips + 纵向 .mobile-card 统计卡；2 列小卡只用于简单指标。
+                        - 列表/管理：使用 .mobile-cell 列表或 .mobile-card 卡片流；绝对禁止 table/data-table/宽表格/分页器。操作入口：点击进入详情、滑动删除、卡片右下角图标按钮。
+                        - 详情页：顶部标题区 + 信息分组 .mobile-card + 底部固定主操作；正文行高 1.5；信息卡片内部 padding 14~16px，禁止顶部大留白。
+                        - 表单流程：步骤用纵向 step 或顶部轻量步骤；表单单列；提交按钮固定底部或跟随表单底部；步骤卡片高度由内容决定，禁止撑高。
+                        - 个人中心/设置：头像/账号区 + .mobile-cell 分组列表，遵循 WeUI/Vant cell 模式。
+                        - 后台/管理/配置/CRUD/数据看板：必须翻译为移动端表达 → 列表流 + 筛选 chips + 卡片详情 + 底部/顶部操作栏；不能生成 Web 后台侧边栏和桌面表格。
 
                      5. 视觉与排版
+
                         - 主色 #0bb6c7，背景 #FAFAFA，卡片 #FFFFFF，正文 rgba(0,0,0,.90)，辅助文字 rgba(0,0,0,.60)，弱提示 rgba(0,0,0,.40)。
                         - 字号：顶部标题 17px，页面标题 20px，卡片标题 16px/500，正文 15px，辅助 13px，小提示 11px；禁止小于 11px。
                         - 间距：以 4dp/8dp 栅格为基础；卡片间距 12px，列表项间距 0（靠 border-bottom 分隔），表单项间距 16px，区块间距 16~24px。
@@ -851,6 +884,7 @@ public class PrototypePromptTemplate {
             case WEB -> """
                     【WEB 端专用设计规范】
                     Web 原型继续使用 StyleKit Corporate Clean / 企业简洁风规范；如上传参考图，仅覆盖视觉 token。
+                    前端已明确选择 Platform=WEB，请按桌面端输出，不要输出 390px 手机画布、TabBar、底部固定操作栏等移动端结构。
                     """;
         };
     }
