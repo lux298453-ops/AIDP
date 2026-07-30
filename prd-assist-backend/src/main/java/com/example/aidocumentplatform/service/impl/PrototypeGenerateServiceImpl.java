@@ -6,6 +6,7 @@ import com.example.aidocumentplatform.ai.prompt.PrototypePromptTemplate;
 import com.example.aidocumentplatform.model.dto.request.PrototypeGenerateRequest;
 import com.example.aidocumentplatform.model.entity.AsyncTask;
 import com.example.aidocumentplatform.model.entity.PrototypeResult;
+import com.example.aidocumentplatform.model.enums.Platform;
 import com.example.aidocumentplatform.model.enums.PrototypeType;
 import com.example.aidocumentplatform.model.enums.TaskStatus;
 import com.example.aidocumentplatform.model.enums.TaskType;
@@ -101,8 +102,8 @@ public class PrototypeGenerateServiceImpl implements PrototypeGenerateService {
 
             // 先清洗/落库再推 SSE，避免进度推送异常影响保存
             String content = request.getPrototypeType() == PrototypeType.MULTI_PAGE
-                    ? cleanJson(aiOutput)
-                    : cleanHtml(aiOutput);
+                    ? cleanJson(aiOutput, request.getPlatform())
+                    : cleanHtml(aiOutput, request.getPlatform());
 
             PrototypeResult proto = PrototypeResult.builder()
                     .userId(userId).taskId(taskId).prdDocumentId(request.getPrdDocumentId())
@@ -131,7 +132,7 @@ public class PrototypeGenerateServiceImpl implements PrototypeGenerateService {
      * Grok 等模型常夹带 markdown / 思考段落 / 不完整文档，这里尽量抽出完整 HTML，
      * 并对「只有 class、几乎没有 CSS」的结果注入基础样式，避免预览完全裸奔。
      */
-    private String cleanHtml(String raw) {
+    private String cleanHtml(String raw, Platform platform) {
         if (raw == null || raw.isBlank()) return "";
         String s = stripCodeFence(raw.trim());
 
@@ -147,6 +148,7 @@ public class PrototypeGenerateServiceImpl implements PrototypeGenerateService {
         int end = s.lastIndexOf('>');
         if (end > 0 && end < s.length() - 1) s = s.substring(0, end + 1);
         s = s.trim();
+        s = repairMalformedCssValues(s);
 
         // 模型只吐了片段时，包一层最小文档结构
         if (!looksLikeFullDocument(s)) {
@@ -158,14 +160,15 @@ public class PrototypeGenerateServiceImpl implements PrototypeGenerateService {
             s = injectBaseStyles(s);
             log.warn("原型 HTML 缺少有效 CSS，已注入基础样式兜底, len={}", s.length());
         }
-        return s;
+        s = addPlatformMarker(s, platform);
+        return injectPrototypeQualityStyles(s, platform);
     }
 
     /**
      * 多页 JSON：清洗数组，并对每个 page.html 再走 cleanHtml，
      * 避免多页场景下样式缺失 / 文档结构不完整。
      */
-    private String cleanJson(String raw) {
+    private String cleanJson(String raw, Platform platform) {
         if (raw == null) return "[]";
         String s = stripCodeFence(raw.trim());
         int start = s.indexOf('['), end = s.lastIndexOf(']');
@@ -185,7 +188,7 @@ public class PrototypeGenerateServiceImpl implements PrototypeGenerateService {
                 if (html.isBlank() && item.isTextual()) html = item.asText("");
                 page.put("title", title);
                 page.put("order", ord);
-                page.put("html", cleanHtml(html));
+                page.put("html", cleanHtml(html, platform));
                 out.add(page);
                 order++;
             }
@@ -244,6 +247,30 @@ public class PrototypeGenerateServiceImpl implements PrototypeGenerateService {
                 """.formatted(fragment);
     }
 
+    private static String addPlatformMarker(String html, Platform platform) {
+        if (html == null || html.isBlank() || platform == null) return html;
+        String lower = html.toLowerCase();
+        int bodyOpen = lower.indexOf("<body");
+        if (bodyOpen < 0) return html;
+        int bodyTagEnd = html.indexOf('>', bodyOpen);
+        if (bodyTagEnd < 0) return html;
+
+        String bodyTag = html.substring(bodyOpen, bodyTagEnd + 1);
+        String platformName = platform.name();
+        if (!bodyTag.toLowerCase().contains("data-proto-platform=")) {
+            bodyTag = bodyTag.substring(0, bodyTag.length() - 1)
+                    + " data-proto-platform=\"" + platformName + "\">";
+        }
+        if (bodyTag.toLowerCase().contains("class=")) {
+            bodyTag = bodyTag.replaceFirst("class\\s*=\\s*\"([^\"]*)\"",
+                    "class=\"$1 proto-platform-" + platformName.toLowerCase() + "\"");
+        } else {
+            bodyTag = bodyTag.substring(0, bodyTag.length() - 1)
+                    + " class=\"proto-platform-" + platformName.toLowerCase() + "\">";
+        }
+        return html.substring(0, bodyOpen) + bodyTag + html.substring(bodyTagEnd + 1);
+    }
+
     private static String injectBaseStyles(String html) {
         String base = """
                 <style data-proto-fallback>
@@ -275,6 +302,189 @@ public class PrototypeGenerateServiceImpl implements PrototypeGenerateService {
             }
         }
         return base + html;
+    }
+
+    private static String repairMalformedCssValues(String html) {
+        if (html == null || html.isBlank() || !html.toLowerCase().contains("<style")) return html;
+        java.util.regex.Pattern pattern = java.util.regex.Pattern.compile("(?is)<style([^>]*)>(.*?)</style>");
+        java.util.regex.Matcher matcher = pattern.matcher(html);
+        StringBuffer out = new StringBuffer();
+        while (matcher.find()) {
+            String css = matcher.group(2);
+            String fixed = repairCssBlock(css);
+            matcher.appendReplacement(out, java.util.regex.Matcher.quoteReplacement(
+                    "<style" + matcher.group(1) + ">" + fixed + "</style>"));
+        }
+        matcher.appendTail(out);
+        return out.toString();
+    }
+
+    private static String repairCssBlock(String css) {
+        if (css == null || css.isBlank()) return css;
+        String fixed = css;
+        // 部分模型会把 CSS 值里的必要空格吞掉，例如 padding:014px / 018px54px / #fff0%。
+        fixed = fixed.replaceAll("(?i)([:\\s,(]0)(\\d+(?:px|rpx|rem|em|vh|vw|%))", "$1 $2");
+        fixed = fixed.replaceAll("(?i)(\\d(?:px|rpx|rem|em|vh|vw|%))(\\d)", "$1 $2");
+        fixed = fixed.replaceAll("(?i)(#[0-9a-f]{3}|#[0-9a-f]{6})(\\d+%)", "$1 $2");
+        fixed = fixed.replaceAll("(?i)\\b(transparent|black|white|red|blue|green)(\\d+%)", "$1 $2");
+        fixed = fixed.replaceAll("(?i)\\bat(\\d)", "at $1");
+        fixed = fixed.replaceAll("(?i)\\b(background|border-color|border|box-shadow|color|opacity|transform|padding|margin|gap|width|height|min-width|min-height|max-width|max-height)(\\d)", "$1 $2");
+        return fixed;
+    }
+
+    private static String injectPrototypeQualityStyles(String html, Platform platform) {
+        if (html == null || html.isBlank() || html.contains("data-proto-quality-guard")) {
+            return html;
+        }
+        String guard = """
+                <style data-proto-quality-guard>
+                :root{--proto-primary:#2457d6;--proto-primary-dark:#1745ba;--proto-bg:#f4f7fb;--proto-panel:#fff;--proto-border:#dfe5ee;--proto-border-strong:#cdd6e3;--proto-text:#13213a;--proto-muted:#66738a;--proto-sidebar:#132947;--proto-sidebar-border:#203654;--proto-panel-shadow:0 5px 18px rgba(24,43,74,.04);--proto-control-shadow:0 2px 5px rgba(20,35,60,.06)}
+                html{font-size:16px!important}
+                body{min-width:0!important;overflow-x:hidden!important;text-rendering:optimizeLegibility;background:var(--proto-bg)!important;color:var(--proto-text)}
+                body,*{letter-spacing:0!important;box-sizing:border-box}
+                p,li,td,th,label,input,select,textarea,button,a,span,div{font-size:max(12px,1em)}
+                h1,.page-title{font-size:clamp(22px,1.5rem,24px)!important;line-height:1.3!important}
+                h2,.section-title{font-size:clamp(18px,1.25rem,20px)!important;line-height:1.35!important}
+                h3,.card-title{font-size:16px!important;line-height:1.4!important}
+                button,.btn,.btn-primary,.btn-secondary,.btn-text,[role="button"],input[type="button"],input[type="submit"]{min-height:40px!important;line-height:1.2!important;white-space:nowrap!important;border-radius:8px!important;font-weight:600!important;display:inline-flex;align-items:center;justify-content:center;gap:8px}
+                .btn,.btn-primary,.btn-secondary,.btn-text{padding:0 15px!important}
+                .btn-primary{border:1px solid var(--proto-primary)!important;background:var(--proto-primary)!important;color:#fff!important;box-shadow:0 2px 5px rgba(36,87,214,.2)}
+                .btn-secondary{border:1px solid var(--proto-border-strong)!important;background:var(--proto-panel)!important;color:var(--proto-text)!important}
+                .btn-text{border:0!important;background:transparent!important;color:var(--proto-primary)!important;padding-inline:6px!important}
+                .btn-primary:hover{background:var(--proto-primary-dark)!important}
+                button:active,.btn:active,.btn-primary:active,.btn-secondary:active{transform:scale(.98)}
+                input,select,textarea{min-height:38px!important;line-height:1.4!important;font-size:14px!important;border-radius:8px}
+                table{width:100%!important;border-collapse:collapse!important;table-layout:auto}
+                th,td{height:48px!important;min-height:48px!important;padding:12px 20px!important;vertical-align:middle!important;word-break:break-word!important;font-size:14px!important}
+                th{font-size:13px!important;font-weight:600!important;color:var(--proto-muted)}
+                td:first-child,th:first-child{min-width:56px!important;font-size:13px!important}
+                img,svg,canvas,video{max-width:100%;height:auto}
+                svg{max-width:28px!important;max-height:28px!important}
+                .app-shell,.page-shell,.workspace-shell,.layout-shell{display:flex;min-height:100vh;background:var(--proto-bg);color:var(--proto-text)}
+                .app-header,header,.header,.topbar,.top-bar{min-height:72px!important;padding-left:30px!important;padding-right:30px!important;display:flex;align-items:center;justify-content:space-between;gap:20px;border-bottom:1px solid var(--proto-border);background:rgba(255,255,255,.92)}
+                .header-title,.page-heading{display:flex;flex-direction:column;gap:4px}
+                .header-actions,.toolbar,.filter-bar,.action-bar,.form-actions,.button-row,.table-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+                .page-title{margin:0!important;font-size:24px!important}
+                .page-description,.muted,.description{color:var(--proto-muted)!important;font-size:13px!important;line-height:1.6!important}
+                .card,.panel,.section,section,main,aside,header,nav{min-width:0}
+                .card,.panel,.table-panel,.metric-card,.form-panel,.detail-panel,.summary-panel,.modal-card,.drawer-panel,[class*="card" i],[class*="panel" i]{border-radius:11px!important;box-shadow:var(--proto-panel-shadow)}
+                .card,.panel,.table-panel,.form-panel,.content-panel,.detail-panel,.side-panel,.summary-panel,.summary-card,.info-card,.upload-card,.upload-zone,.dropzone,.step-card,.flow-card,.process-card,.config-card,.setting-card,.feature-card{padding:20px!important}
+                [class*="card" i],[class*="panel" i],[class*="summary" i],[class*="notice" i],[class*="alert" i],[class*="upload" i],[class*="dropzone" i],[class*="config" i],[class*="setting" i],[class*="detail" i],[class*="feature" i],[class*="modal" i],[class*="drawer" i]{padding:20px!important}
+                .metric-card,.stat-card,.kpi-card{padding:18px!important}
+                [class*="metric" i],[class*="stat" i],[class*="kpi" i]{padding:18px!important}
+                .metric-grid,.stats-grid,.kpi-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px!important}
+                .step-card,.flow-card,.process-card,.wizard-step,.step-item,.process-item,.flow-item,.stage-card,.stage-item{padding:14px 16px!important}
+                [class*="step" i],[class*="phase" i],[class*="stage" i],[class*="process" i],[class*="flow" i],[class*="rule" i],[class*="wizard" i]{padding:14px 16px!important}
+                .steps,.step-list,.process-list,.flow-list,.stage-list,.wizard-list,[class*="steps" i],[class*="step-list" i],[class*="process-list" i]{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px!important}
+                .steps > *,.step-list > *,.process-list > *,.flow-list > *,.stage-list > *,.wizard-list > *{padding:14px 16px!important}
+                .step-card > * + *,.flow-card > * + *,.process-card > * + *,.wizard-step > * + *,.step-item > * + *,.process-item > * + *,.flow-item > * + *,.stage-card > * + *,.stage-item > * + *,[class*="step" i] > * + *,[class*="phase" i] > * + *,[class*="stage" i] > * + *,[class*="process" i] > * + *,[class*="flow" i] > * + *,[class*="rule" i] > * + *,[class*="wizard" i] > * + *{margin-top:6px!important}
+                .card > h1:first-child,.card > h2:first-child,.card > h3:first-child,.panel > h1:first-child,.panel > h2:first-child,.panel > h3:first-child,.table-panel > h1:first-child,.table-panel > h2:first-child,.table-panel > h3:first-child,[class*="card" i] > h1:first-child,[class*="card" i] > h2:first-child,[class*="card" i] > h3:first-child,[class*="panel" i] > h1:first-child,[class*="panel" i] > h2:first-child,[class*="panel" i] > h3:first-child{margin-top:0!important}
+                .card > p,.panel > p,.summary-card > p,.info-card > p,.step-card > p,.flow-card > p,.process-card > p,[class*="card" i] > p,[class*="panel" i] > p,[class*="summary" i] > p,[class*="notice" i] > p,[class*="step" i] > p,[class*="phase" i] > p,[class*="stage" i] > p,[class*="process" i] > p,[class*="flow" i] > p,[class*="rule" i] > p{line-height:1.6!important}
+                .form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px!important}
+                .form-group,.form-item,.field-group,.input-group{display:flex;flex-direction:column;gap:8px!important;margin-bottom:18px!important}
+                .toolbar,.filter-bar,.action-bar,.form-actions,.button-row{gap:10px!important}
+                .table-panel{padding:20px!important}
+                .table-scroll,.table-wrapper{overflow-x:auto;margin:16px -20px -20px}
+                .data-table{width:100%!important;min-width:720px;border-collapse:collapse!important}
+                .action-cell,.table-actions{display:flex!important;align-items:center!important;gap:8px!important;justify-content:flex-start!important}
+                table button,table .btn,table [role="button"],td button,td .btn,td [role="button"]{height:40px!important;min-height:40px!important;width:88px!important;min-width:88px!important;max-width:88px!important;padding:0 12px!important;display:inline-flex!important;align-items:center!important;justify-content:center!important;text-align:center!important}
+                td:last-child,th:last-child{white-space:nowrap}
+                .icon,.menu-icon,.status-icon{width:18px!important;height:18px!important;flex:0 0 auto!important}
+                .sidebar,.side-bar,.sidenav,.side-nav,.nav-sidebar,.menu-sidebar,.app-sidebar,.layout-sidebar{width:248px!important;max-width:248px!important;flex:0 0 248px!important;flex-shrink:0!important}
+                .sidebar:not(.light),.side-bar:not(.light),.sidenav:not(.light),.side-nav:not(.light),.nav-sidebar:not(.light),.menu-sidebar:not(.light),.app-sidebar:not(.light),.layout-sidebar:not(.light){background:var(--proto-sidebar);border-right:1px solid var(--proto-sidebar-border)}
+                .sidebar > nav,.side-bar > nav,.sidenav > nav,.side-nav > nav,.nav-sidebar > nav,.menu-sidebar > nav,.app-sidebar > nav,.layout-sidebar > nav,.nav-list,.navList,.menu-list,.sidebar-menu{padding:22px 12px!important}
+                .sidebar .brand,.side-bar .brand,.sidenav .brand,.side-nav .brand,.nav-sidebar .brand,.menu-sidebar .brand,.app-sidebar .brand,.layout-sidebar .brand,.sidebar-header,.brand-area,.logo-area{min-height:76px!important;padding-left:20px!important;padding-right:20px!important}
+                .sidebar p,.side-bar p,.sidenav p,.side-nav p,.nav-sidebar p,.menu-sidebar p,.app-sidebar p,.layout-sidebar p{margin-left:10px;margin-right:10px}
+                .sidebar a,.sidebar button,.side-bar a,.side-bar button,.sidenav a,.sidenav button,.side-nav a,.side-nav button,.nav-item,.menu-item{min-height:42px!important;font-size:14px!important;padding:11px 12px!important;border-radius:8px!important}
+                .main,.main-content,.page-main,.content,.workspace,.dashboard-main{flex:1 1 auto!important;min-width:0!important}
+                .content,.workspace,.dashboard-main,.main-content,.page-main{padding:26px 30px 40px}
+                .auth-shell{display:grid;grid-template-columns:minmax(0,1fr) minmax(360px,520px);min-height:100vh;background:var(--proto-bg)}
+                .auth-visual,.login-visual,.brand-panel,.intro-panel,.left-panel{padding:48px!important}
+                .auth-card,.login-card,.register-card,.signin-card{width:min(100%,420px)!important;max-width:420px!important;padding:32px!important}
+                .auth-card button,.login-card button,.register-card button,.signin-card button{min-height:40px!important}
+                .empty-state,.error-state,.loading-state,.center-state,.success-banner{padding:30px!important;text-align:center}
+                .tag,.badge,.status,.status-tag{min-height:24px!important;font-size:12px!important;padding:2px 9px!important;border-radius:999px!important;display:inline-flex;align-items:center;justify-content:center}
+                @media (max-width: 768px){
+                  body{overflow-x:hidden!important}
+                  .container,.page,.app,main{max-width:100%!important;min-width:0!important}
+                  button,.btn,[role="button"]{min-height:36px!important}
+                  .app-shell,.page-shell,.workspace-shell,.auth-shell{display:block!important}
+                  .sidebar,.side-bar,.sidenav,.side-nav,.nav-sidebar,.menu-sidebar,.app-sidebar,.layout-sidebar{width:100%!important;max-width:100%!important;flex-basis:auto!important}
+                  header,.header,.topbar,.top-bar,.app-header{min-height:64px!important;padding-left:16px!important;padding-right:16px!important}
+                  .content,.workspace,.dashboard-main,.main-content,.page-main{padding:16px!important}
+                  .form-grid,.metric-grid,.stats-grid,.kpi-grid{grid-template-columns:1fr!important}
+                  .auth-visual,.login-visual,.brand-panel,.intro-panel,.left-panel{padding:24px!important}
+                  .auth-card,.login-card,.register-card,.signin-card{padding:24px!important}
+                }
+                </style>
+                """;
+        String platformGuard = buildPlatformQualityGuard(platform);
+        String lower = html.toLowerCase();
+        int headClose = lower.indexOf("</head>");
+        if (headClose >= 0) {
+            return html.substring(0, headClose) + guard + platformGuard + html.substring(headClose);
+        }
+        int bodyOpen = lower.indexOf("<body");
+        if (bodyOpen >= 0) {
+            int bodyTagEnd = html.indexOf('>', bodyOpen);
+            if (bodyTagEnd > 0) {
+                return html.substring(0, bodyTagEnd + 1) + guard + platformGuard + html.substring(bodyTagEnd + 1);
+            }
+        }
+        return guard + platformGuard + html;
+    }
+
+    private static String buildPlatformQualityGuard(Platform platform) {
+        if (platform == null) return "";
+        return switch (platform) {
+            case APP, MINI_PROGRAM -> """
+                    <style data-proto-platform-guard>
+                    body[data-proto-platform="APP"],body[data-proto-platform="MINI_PROGRAM"]{background:#eef4f7!important;--proto-mobile-primary:#0bb6c7;--proto-mobile-bg:#f7f9fb;--proto-mobile-card:#fff;--proto-mobile-text:#111827;--proto-mobile-muted:#6b7280}
+                    body[data-proto-platform="APP"] .app-shell,body[data-proto-platform="APP"] .page-shell,body[data-proto-platform="APP"] .workspace-shell,
+                    body[data-proto-platform="MINI_PROGRAM"] .app-shell,body[data-proto-platform="MINI_PROGRAM"] .page-shell,body[data-proto-platform="MINI_PROGRAM"] .workspace-shell{display:block!important;width:min(390px,100vw)!important;max-width:390px!important;min-height:100vh!important;margin:0 auto!important;background:var(--proto-mobile-bg)!important;color:var(--proto-mobile-text)!important;overflow-x:hidden!important}
+                    body[data-proto-platform="APP"] .sidebar:not(.bottom-tab):not(.mobile-tabbar):not(.tabbar),body[data-proto-platform="APP"] .side-bar,body[data-proto-platform="APP"] .sidenav,body[data-proto-platform="APP"] .side-nav,body[data-proto-platform="APP"] .nav-sidebar,body[data-proto-platform="APP"] .menu-sidebar,
+                    body[data-proto-platform="MINI_PROGRAM"] .sidebar:not(.bottom-tab):not(.mobile-tabbar):not(.tabbar),body[data-proto-platform="MINI_PROGRAM"] .side-bar,body[data-proto-platform="MINI_PROGRAM"] .sidenav,body[data-proto-platform="MINI_PROGRAM"] .side-nav,body[data-proto-platform="MINI_PROGRAM"] .nav-sidebar,body[data-proto-platform="MINI_PROGRAM"] .menu-sidebar{display:none!important}
+                    body[data-proto-platform="APP"] header,body[data-proto-platform="APP"] .header,body[data-proto-platform="APP"] .app-header,body[data-proto-platform="APP"] .mobile-header,body[data-proto-platform="APP"] .app-navbar,
+                    body[data-proto-platform="MINI_PROGRAM"] header,body[data-proto-platform="MINI_PROGRAM"] .header,body[data-proto-platform="MINI_PROGRAM"] .app-header,body[data-proto-platform="MINI_PROGRAM"] .mobile-header,body[data-proto-platform="MINI_PROGRAM"] .app-navbar{min-height:52px!important;padding:env(safe-area-inset-top) 16px 0!important;display:flex!important;align-items:center!important;gap:10px!important}
+                    body[data-proto-platform="APP"] main,body[data-proto-platform="APP"] .main,body[data-proto-platform="APP"] .page-main,body[data-proto-platform="APP"] .content,body[data-proto-platform="APP"] .mobile-content,
+                    body[data-proto-platform="MINI_PROGRAM"] main,body[data-proto-platform="MINI_PROGRAM"] .main,body[data-proto-platform="MINI_PROGRAM"] .page-main,body[data-proto-platform="MINI_PROGRAM"] .content,body[data-proto-platform="MINI_PROGRAM"] .mobile-content{padding:16px 16px calc(88px + env(safe-area-inset-bottom))!important}
+                    body[data-proto-platform="APP"] .form-grid,body[data-proto-platform="APP"] .metric-grid,body[data-proto-platform="APP"] .stats-grid,body[data-proto-platform="APP"] .kpi-grid,
+                    body[data-proto-platform="MINI_PROGRAM"] .form-grid,body[data-proto-platform="MINI_PROGRAM"] .metric-grid,body[data-proto-platform="MINI_PROGRAM"] .stats-grid,body[data-proto-platform="MINI_PROGRAM"] .kpi-grid{grid-template-columns:1fr!important}
+                    body[data-proto-platform="APP"] button,body[data-proto-platform="APP"] .btn,body[data-proto-platform="APP"] [role="button"],body[data-proto-platform="APP"] input[type="button"],body[data-proto-platform="APP"] input[type="submit"],
+                    body[data-proto-platform="MINI_PROGRAM"] button,body[data-proto-platform="MINI_PROGRAM"] .btn,body[data-proto-platform="MINI_PROGRAM"] [role="button"],body[data-proto-platform="MINI_PROGRAM"] input[type="button"],body[data-proto-platform="MINI_PROGRAM"] input[type="submit"]{min-height:44px!important;border-radius:10px!important;font-size:15px!important}
+                    body[data-proto-platform="APP"] .btn-primary,body[data-proto-platform="APP"] button.primary,body[data-proto-platform="APP"] .primary-btn,
+                    body[data-proto-platform="MINI_PROGRAM"] .btn-primary,body[data-proto-platform="MINI_PROGRAM"] button.primary,body[data-proto-platform="MINI_PROGRAM"] .primary-btn{background:var(--proto-mobile-primary)!important;border-color:var(--proto-mobile-primary)!important;color:#fff!important;box-shadow:0 8px 20px rgba(11,182,199,.22)!important}
+                    body[data-proto-platform="APP"] input,body[data-proto-platform="APP"] select,body[data-proto-platform="APP"] textarea,
+                    body[data-proto-platform="MINI_PROGRAM"] input,body[data-proto-platform="MINI_PROGRAM"] select,body[data-proto-platform="MINI_PROGRAM"] textarea{min-height:44px!important;font-size:15px!important}
+                    body[data-proto-platform="APP"] .card,body[data-proto-platform="APP"] .panel,body[data-proto-platform="APP"] .list-item,body[data-proto-platform="APP"] .cell,
+                    body[data-proto-platform="MINI_PROGRAM"] .card,body[data-proto-platform="MINI_PROGRAM"] .panel,body[data-proto-platform="MINI_PROGRAM"] .list-item,body[data-proto-platform="MINI_PROGRAM"] .cell{padding:16px!important;border-radius:14px!important;background:var(--proto-mobile-card)!important;box-shadow:0 8px 24px rgba(15,35,55,.06)!important}
+                    body[data-proto-platform="APP"] .bottom-tab,body[data-proto-platform="APP"] .mobile-tabbar,body[data-proto-platform="APP"] .tabbar,
+                    body[data-proto-platform="MINI_PROGRAM"] .bottom-tab,body[data-proto-platform="MINI_PROGRAM"] .mobile-tabbar,body[data-proto-platform="MINI_PROGRAM"] .tabbar{display:grid!important;position:fixed!important;left:50%!important;right:auto!important;bottom:0!important;transform:translateX(-50%)!important;width:min(390px,100vw)!important;max-width:390px!important;height:calc(60px + env(safe-area-inset-bottom))!important;padding:6px 12px env(safe-area-inset-bottom)!important;background:rgba(255,255,255,.96)!important;border-top:1px solid rgba(17,24,39,.08)!important;box-shadow:0 -8px 24px rgba(15,35,55,.08)!important;border-radius:0!important;grid-template-columns:repeat(3,minmax(0,1fr))!important;z-index:20!important}
+                    body[data-proto-platform="APP"] .bottom-tab .nav-list,body[data-proto-platform="APP"] .mobile-tabbar .nav-list,body[data-proto-platform="APP"] .tabbar .nav-list,
+                    body[data-proto-platform="MINI_PROGRAM"] .bottom-tab .nav-list,body[data-proto-platform="MINI_PROGRAM"] .mobile-tabbar .nav-list,body[data-proto-platform="MINI_PROGRAM"] .tabbar .nav-list{display:contents!important;padding:0!important}
+                    body[data-proto-platform="APP"] .bottom-tab button,body[data-proto-platform="APP"] .mobile-tabbar button,body[data-proto-platform="APP"] .tabbar button,
+                    body[data-proto-platform="MINI_PROGRAM"] .bottom-tab button,body[data-proto-platform="MINI_PROGRAM"] .mobile-tabbar button,body[data-proto-platform="MINI_PROGRAM"] .tabbar button{min-width:0!important;width:auto!important;height:48px!important;min-height:48px!important;padding:4px!important;background:transparent!important;box-shadow:none!important;color:var(--proto-mobile-muted)!important}
+                    body[data-proto-platform="APP"] .bottom-tab button.active,body[data-proto-platform="APP"] .mobile-tabbar button.active,body[data-proto-platform="APP"] .tabbar button.active,
+                    body[data-proto-platform="MINI_PROGRAM"] .bottom-tab button.active,body[data-proto-platform="MINI_PROGRAM"] .mobile-tabbar button.active,body[data-proto-platform="MINI_PROGRAM"] .tabbar button.active{color:var(--proto-mobile-primary)!important}
+                    body[data-proto-platform="APP"] table,body[data-proto-platform="MINI_PROGRAM"] table{display:block!important;overflow-x:auto!important;min-width:0!important}
+                    </style>
+                    """;
+            case PAD -> """
+                    <style data-proto-platform-guard>
+                    body[data-proto-platform="PAD"]{background:#eef2f7!important}
+                    body[data-proto-platform="PAD"] .app-shell,body[data-proto-platform="PAD"] .page-shell,body[data-proto-platform="PAD"] .workspace-shell,body[data-proto-platform="PAD"] .tablet-shell,body[data-proto-platform="PAD"] .pad-shell{width:min(1024px,100vw)!important;max-width:1024px!important;min-height:100vh!important;margin:0 auto!important;background:#f4f7fb!important}
+                    body[data-proto-platform="PAD"] .sidebar,body[data-proto-platform="PAD"] .side-bar,body[data-proto-platform="PAD"] .sidenav,body[data-proto-platform="PAD"] .side-nav,body[data-proto-platform="PAD"] .nav-sidebar,body[data-proto-platform="PAD"] .menu-sidebar{width:260px!important;max-width:280px!important;flex-basis:260px!important}
+                    body[data-proto-platform="PAD"] header,body[data-proto-platform="PAD"] .header,body[data-proto-platform="PAD"] .app-header{min-height:68px!important;padding-left:24px!important;padding-right:24px!important}
+                    body[data-proto-platform="PAD"] main,body[data-proto-platform="PAD"] .main,body[data-proto-platform="PAD"] .page-main,body[data-proto-platform="PAD"] .content,body[data-proto-platform="PAD"] .workspace{padding:24px!important}
+                    body[data-proto-platform="PAD"] .card,body[data-proto-platform="PAD"] .panel,body[data-proto-platform="PAD"] .detail-panel,body[data-proto-platform="PAD"] .summary-panel{padding:22px!important;border-radius:12px!important}
+                    body[data-proto-platform="PAD"] button,body[data-proto-platform="PAD"] .btn,body[data-proto-platform="PAD"] [role="button"]{min-height:44px!important}
+                    body[data-proto-platform="PAD"] input,body[data-proto-platform="PAD"] select,body[data-proto-platform="PAD"] textarea{min-height:42px!important}
+                    body[data-proto-platform="PAD"] .master-detail,body[data-proto-platform="PAD"] .split-view,body[data-proto-platform="PAD"] .two-column{display:grid!important;grid-template-columns:minmax(280px,340px) minmax(0,1fr)!important;gap:24px!important}
+                    @media (max-width: 700px){body[data-proto-platform="PAD"] .master-detail,body[data-proto-platform="PAD"] .split-view,body[data-proto-platform="PAD"] .two-column{grid-template-columns:1fr!important}}
+                    </style>
+                    """;
+            case WEB -> "";
+        };
     }
 
     private static int indexOfIgnoreCase(String text, String needle) {

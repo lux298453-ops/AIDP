@@ -1,6 +1,7 @@
 package com.example.aidocumentplatform.service;
 
 import com.example.aidocumentplatform.model.dto.request.PrototypeAiEditRequest;
+import com.example.aidocumentplatform.model.dto.request.PrototypeAiEditSnapshotRequest;
 import com.example.aidocumentplatform.model.dto.response.PrototypeAiEditResponse;
 
 /**
@@ -18,4 +19,16 @@ public interface PrototypeAiEditService {
      * @return 修改后的 HTML 与改动说明
      */
     PrototypeAiEditResponse edit(Long prototypeId, Long userId, PrototypeAiEditRequest request);
+
+    /**
+     * 提交流式 AI 局部修改任务。
+     *
+     * @return async_task.id，前端用 SSE 接收 prototype-patch 事件
+     */
+    Long submitStreamEdit(Long prototypeId, Long userId, PrototypeAiEditRequest request);
+
+    /**
+     * 保存前端已应用 patch 后的最终 HTML，不再调用 AI。
+     */
+    PrototypeAiEditResponse saveSnapshot(Long prototypeId, Long userId, PrototypeAiEditSnapshotRequest request);
 }

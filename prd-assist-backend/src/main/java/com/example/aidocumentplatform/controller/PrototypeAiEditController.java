@@ -1,6 +1,7 @@
 package com.example.aidocumentplatform.controller;
 
 import com.example.aidocumentplatform.model.dto.request.PrototypeAiEditRequest;
+import com.example.aidocumentplatform.model.dto.request.PrototypeAiEditSnapshotRequest;
 import com.example.aidocumentplatform.model.dto.response.ApiResponse;
 import com.example.aidocumentplatform.model.dto.response.PrototypeAiEditResponse;
 import com.example.aidocumentplatform.security.SecurityUser;
@@ -26,6 +27,21 @@ public class PrototypeAiEditController {
     public ApiResponse<PrototypeAiEditResponse> aiEdit(@PathVariable Long id,
                                                        @Valid @RequestBody PrototypeAiEditRequest request) {
         PrototypeAiEditResponse data = prototypeAiEditService.edit(id, getCurrentUserId(), request);
+        return ApiResponse.success(data);
+    }
+
+    @PostMapping("/{id}/ai-edit/stream")
+    public ApiResponse<Long> aiEditStream(@PathVariable Long id,
+                                          @Valid @RequestBody PrototypeAiEditRequest request) {
+        Long taskId = prototypeAiEditService.submitStreamEdit(id, getCurrentUserId(), request);
+        return ApiResponse.success(taskId);
+    }
+
+    @PostMapping("/{id}/ai-edit/snapshot")
+    public ApiResponse<PrototypeAiEditResponse> saveAiEditSnapshot(
+            @PathVariable Long id,
+            @Valid @RequestBody PrototypeAiEditSnapshotRequest request) {
+        PrototypeAiEditResponse data = prototypeAiEditService.saveSnapshot(id, getCurrentUserId(), request);
         return ApiResponse.success(data);
     }
 

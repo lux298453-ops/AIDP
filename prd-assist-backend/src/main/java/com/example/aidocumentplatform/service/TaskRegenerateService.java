@@ -97,6 +97,7 @@ public class TaskRegenerateService {
                 Long reportId = Long.parseLong(reportIdStr);
                 yield prdReviewService.submitFix(reportId, new PrdReviewFixRequest(), userId);
             }
+            case PROTOTYPE_AI_EDIT -> throw new RuntimeException("原型局部 AI 修改任务不支持重新执行，请在原型预览页重新输入修改描述");
         };
     }
 

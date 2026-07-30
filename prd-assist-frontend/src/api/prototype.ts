@@ -20,6 +20,12 @@ export interface PrototypeAiEditResult {
   changeSummary: string
 }
 
+export interface PrototypeAiEditSnapshotRequest {
+  currentHtml: string
+  pageIndex?: number
+  changeSummary?: string
+}
+
 export interface PrototypeResultData {
   id: number
   content: string
@@ -36,6 +42,22 @@ export function aiEditPrototype(id: number, data: PrototypeAiEditRequest) {
     `/prototype/${id}/ai-edit`,
     data,
     { timeout: 300000, silentError: true } as any,
+  )
+}
+
+export function startPrototypeAiEditStream(id: number, data: PrototypeAiEditRequest) {
+  return client.post<Result<number>>(
+    `/prototype/${id}/ai-edit/stream`,
+    data,
+    { timeout: 60000, silentError: true } as any,
+  )
+}
+
+export function savePrototypeAiEditSnapshot(id: number, data: PrototypeAiEditSnapshotRequest) {
+  return client.post<Result<PrototypeAiEditResult>>(
+    `/prototype/${id}/ai-edit/snapshot`,
+    data,
+    { timeout: 60000, silentError: true } as any,
   )
 }
 

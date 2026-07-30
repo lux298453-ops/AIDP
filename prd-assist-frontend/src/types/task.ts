@@ -1,4 +1,4 @@
-export type TaskType = 'PRD_GENERATE' | 'PRD_ENHANCE' | 'PRD_REVIEW' | 'PRD_REVIEW_FIX' | 'PROTOTYPE'
+export type TaskType = 'PRD_GENERATE' | 'PRD_ENHANCE' | 'PRD_REVIEW' | 'PRD_REVIEW_FIX' | 'PROTOTYPE' | 'PROTOTYPE_AI_EDIT'
 export type TaskStatus = 'PENDING' | 'RUNNING' | 'SUCCESS' | 'FAILED'
 
 export interface TaskCreateRequest {

@@ -224,3 +224,9 @@ ALTER TABLE prd_document ADD CONSTRAINT prd_document_template_check
 ALTER TABLE async_task DROP CONSTRAINT IF EXISTS async_task_task_type_check;
 ALTER TABLE async_task ADD CONSTRAINT async_task_task_type_check
   CHECK (task_type IN ('PRD_GENERATE','PRD_ENHANCE','PROTOTYPE','PRD_REVIEW','PRD_REVIEW_FIX'));
+
+-- 2026-07-29: async_task.task_type 允许 PROTOTYPE_AI_EDIT
+-- 原因：原型图 AI 局部修改改为结构化 patch 流式任务
+ALTER TABLE async_task DROP CONSTRAINT IF EXISTS async_task_task_type_check;
+ALTER TABLE async_task ADD CONSTRAINT async_task_task_type_check
+  CHECK (task_type IN ('PRD_GENERATE','PRD_ENHANCE','PROTOTYPE','PRD_REVIEW','PRD_REVIEW_FIX','PROTOTYPE_AI_EDIT'));

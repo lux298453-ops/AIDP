@@ -56,7 +56,7 @@ CREATE TABLE IF NOT EXISTS async_task (
 CREATE INDEX IF NOT EXISTS idx_task_user_status ON async_task (user_id, status);
 
 COMMENT ON TABLE async_task IS '异步任务状态表';
-COMMENT ON COLUMN async_task.task_type IS 'PRD_GENERATE/PRD_ENHANCE/PROTOTYPE/PRD_REVIEW/PRD_REVIEW_FIX';
+COMMENT ON COLUMN async_task.task_type IS 'PRD_GENERATE/PRD_ENHANCE/PROTOTYPE/PRD_REVIEW/PRD_REVIEW_FIX/PROTOTYPE_AI_EDIT';
 COMMENT ON COLUMN async_task.status IS 'PENDING/RUNNING/SUCCESS/FAILED';
 COMMENT ON COLUMN async_task.input_params IS '提交任务时的输入参数快照';
 COMMENT ON COLUMN async_task.result_ref_id IS '成功后指向对应结果表的ID';

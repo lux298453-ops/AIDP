@@ -12,6 +12,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -24,6 +26,7 @@ public class TaskServiceImpl implements TaskService {
     private final AsyncTaskRepository asyncTaskRepository;
     private final Map<Long, SseEmitter> sseRegistry = new ConcurrentHashMap<>();
     private final Map<Long, StringBuilder> contentBuffers = new ConcurrentHashMap<>();
+    private final Map<Long, List<BufferedSseEvent>> customEventBuffers = new ConcurrentHashMap<>();
 
     @Override
     public AsyncTask createTask(TaskCreateRequest request, Long userId) {
@@ -60,10 +63,13 @@ public class TaskServiceImpl implements TaskService {
         SseEmitter emitter = new SseEmitter(30 * 60 * 1000L);
 
         if (task.getStatus() == TaskStatus.SUCCESS) {
+            replayCustomEvents(emitter, taskId);
+            customEventBuffers.remove(taskId);
             safeSendAndComplete(emitter, taskId, 100, "任务已完成");
             return emitter;
         }
         if (task.getStatus() == TaskStatus.FAILED) {
+            customEventBuffers.remove(taskId);
             String failMessage = "任务失败: " + (task.getErrorMessage() != null ? task.getErrorMessage() : "未知错误");
             safeSendAndComplete(emitter, taskId, 0, failMessage);
             return emitter;
@@ -84,6 +90,7 @@ public class TaskServiceImpl implements TaskService {
         if (buffered != null && !buffered.isEmpty()) {
             sendContentEvent(taskId, buffered.toString(), true);
         }
+        replayCustomEvents(taskId);
 
         return emitter;
     }
@@ -93,6 +100,7 @@ public class TaskServiceImpl implements TaskService {
         if (emitter == null) {
             log.debug("SSE emitter missing, taskId={}, progress={}", taskId, progress);
             if (progress >= 100 || progress <= 0) contentBuffers.remove(taskId);
+            if (progress <= 0) customEventBuffers.remove(taskId);
             return;
         }
 
@@ -114,6 +122,7 @@ public class TaskServiceImpl implements TaskService {
             }
             sseRegistry.remove(taskId);
             contentBuffers.remove(taskId);
+            customEventBuffers.remove(taskId);
         }
     }
 
@@ -143,6 +152,53 @@ public class TaskServiceImpl implements TaskService {
         }
     }
 
+    public void pushCustomEvent(Long taskId, String eventName, Object data) {
+        if (taskId == null || eventName == null || eventName.isBlank() || data == null) return;
+        customEventBuffers
+                .computeIfAbsent(taskId, id -> Collections.synchronizedList(new ArrayList<>()))
+                .add(new BufferedSseEvent(eventName, data));
+        sendCustomEvent(taskId, eventName, data);
+    }
+
+    private void sendCustomEvent(Long taskId, String eventName, Object data) {
+        SseEmitter emitter = sseRegistry.get(taskId);
+        if (emitter == null) {
+            log.debug("SSE emitter missing, taskId={}, event={}", taskId, eventName);
+            return;
+        }
+        sendCustomEvent(emitter, taskId, eventName, data);
+    }
+
+    private void sendCustomEvent(SseEmitter emitter, Long taskId, String eventName, Object data) {
+        try {
+            emitter.send(SseEmitter.event().name(eventName).data(data));
+        } catch (Exception e) {
+            sseRegistry.remove(taskId);
+            log.warn("SSE custom event push failed and ignored, taskId={}, event={}, cause={}",
+                    taskId, eventName, e.toString());
+        }
+    }
+
+    private void replayCustomEvents(Long taskId) {
+        List<BufferedSseEvent> customEvents = customEventBuffers.get(taskId);
+        if (customEvents == null || customEvents.isEmpty()) return;
+        synchronized (customEvents) {
+            for (BufferedSseEvent event : customEvents) {
+                sendCustomEvent(taskId, event.name(), event.data());
+            }
+        }
+    }
+
+    private void replayCustomEvents(SseEmitter emitter, Long taskId) {
+        List<BufferedSseEvent> customEvents = customEventBuffers.get(taskId);
+        if (customEvents == null || customEvents.isEmpty()) return;
+        synchronized (customEvents) {
+            for (BufferedSseEvent event : customEvents) {
+                sendCustomEvent(emitter, taskId, event.name(), event.data());
+            }
+        }
+    }
+
     private void safeSendAndComplete(SseEmitter emitter, Long taskId, int progress, String message) {
         try {
             emitter.send(SseEmitter.event().name("progress")
@@ -155,5 +211,8 @@ public class TaskServiceImpl implements TaskService {
             } catch (Exception ignored) {
             }
         }
+    }
+
+    private record BufferedSseEvent(String name, Object data) {
     }
 }
