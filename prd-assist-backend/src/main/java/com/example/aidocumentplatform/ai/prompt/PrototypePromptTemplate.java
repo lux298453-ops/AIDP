@@ -37,7 +37,17 @@ public class PrototypePromptTemplate {
                - 主色/强调色背景（#0bb6c7、#1e40af、#6200ee）上，文字只能用 #fff 或接近纯白的浅色。
                - 生成完成后必须逐层自检：每个有 background 的元素，检查其直接子元素或内部主要文字 color，确保二者不相同或接近。
                - 若发现文字颜色与背景色亮度接近，必须自动替换为对比色，禁止输出“看不见文字”的页面。
-            10. 一次性输出要求：
+            10. 溢出与边界隔离铁律 —— 禁止任何元素超出父容器：
+                - 所有组件及其子元素必须严格位于父容器的边界内。任何文字、图标或按钮若总宽度超出父容器，应通过缩小字号、换行、使用省略号或截断来处理，绝对禁止任何元素视觉上超出父容器的左右或上下边缘。
+                - 所有父容器必须设置 overflow: hidden（或合理的 overflow 裁剪），所有子元素必须在父容器的裁剪范围内活动；禁止任何子元素（文字、图标、装饰线）视觉上溢出父容器边界。
+                - 所有列表/卡片/网格区域必须使用 Flexbox 或 Grid 布局；固定宽度项必须设置 flex-shrink: 0；单行内容禁止折行挤压（flex-wrap: nowrap）；禁止使用 float 或纯 display: block 的自然文档流排列多列内容。
+                - 所有动态文本（标题、描述、数值、卡组名）必须设置 white-space: nowrap; text-overflow: ellipsis; overflow: hidden; 或 overflow-wrap: break-word; 禁止因文字过长撑大父容器或与相邻图标/按钮重叠。
+                - “数值+图标/按钮”组合（如 128K +）必须使用 Flex 行布局，gap: 4px，整体宽度不得超过父容器右侧边距；父容器使用 display: flex; align-items: center; justify-content: space-between; 禁止使用绝对定位把加号钉在角落。
+                - 特别是资源数值旁的加号按钮，必须与数字保持合适间距，并完全包含在父容器内；加号按钮尺寸 16~18px，外层容器 36px，禁止加号比容器大。
+            11. 生成前自检：
+                - 输出代码前，必须在脑中逐区域验证：顶部栏、活动区、卡组区、列表区、卡片区、底部操作区的父容器是否都定义了固定高度或最小高度？内部元素是否都有明确的水平对齐方式（左/中/右）？overflow 是否已设置？
+                - 只要有一个“否”，立即修正布局后再输出，禁止输出带有溢出、重叠、元素超出边界的页面。
+            12. 一次性输出要求：
                 - 不要等前端反馈再补样式，必须在第一次响应中就给出可直接查看的完整原型。
                 - 所有容器必须有明确宽度/高度或 flex 自适应规则，禁止出现“无尺寸盒子导致内容溢出或塌陷”。
                 - 所有文字必须包裹在有 padding 的容器内，禁止文字直接贴边或与其他文字重叠。
@@ -698,6 +708,7 @@ public class PrototypePromptTemplate {
                              font-size: 15px; font-weight: 500; line-height: 1;
                              white-space: nowrap; cursor: pointer; border: none;
                              transition: all 150ms ease-out; min-width: 64px;
+                             overflow: hidden; /* 防止子元素溢出 */
                            }
                            .mobile-btn-primary { background: #0bb6c7; color: #fff; }
                            .mobile-btn-primary:active { background: #09a3b2; transform: scale(0.98); }
@@ -705,13 +716,13 @@ public class PrototypePromptTemplate {
                            .mobile-btn-small { height: 36px; padding: 0 12px; font-size: 13px; border-radius: 8px; }
                            .mobile-btn-large { height: 48px; padding: 0 20px; font-size: 16px; border-radius: 12px; }
                            .mobile-btn-block { width: 100%; }
-                           .btn-icon { width: 18px; height: 18px; display: inline-flex; align-items: center; justify-content: center; margin-right: 6px; font-size: 16px; }
+                           .btn-icon { width: 18px; height: 18px; display: inline-flex; align-items: center; justify-content: center; margin-right: 6px; font-size: 16px; flex-shrink: 0; }
                            ```
                            规则：
                            - 所有按钮点击目标不小于 44x44px；整行主按钮可用 .mobile-btn-block。
                            - 每屏最多 1 个强主按钮（48px 高）；辅助按钮用 36px 或 32px Chips，禁止和主按钮一样大。
-                           - 按钮内图标必须用 .btn-icon 容器，尺寸固定 16~18px，禁止裸写 <span style="font-size:24px">+</span> 或 <svg width="32">。
-                           - 充值入口的“+”按钮：外层 48px，内部加号 18px，禁止内部图标比按钮大。
+                           - 按钮内图标必须用 .btn-icon 容器，尺寸固定 16~18px，flex-shrink:0，禁止裸写 <span style="font-size:24px">+</span> 或 <svg width="32">。
+                           - 充值入口的“+”按钮：外层 48px，内部加号 18px，禁止内部图标比按钮大；该组合必须整体位于父容器内，不得溢出右边界。
 
                        M2. 单元格/列表项 .mobile-cell（参考 Vant Cell + WeUI Cell）
                            ```css
