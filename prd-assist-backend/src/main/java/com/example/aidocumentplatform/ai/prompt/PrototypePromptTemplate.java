@@ -798,19 +798,26 @@ public class PrototypePromptTemplate {
                            .nav-back, .nav-action { width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; color: #0f172a; }
                            ```
 
-                       M6. 底部 TabBar .mobile-tabbar（参考 iOS TabBar + Vant Tabbar）
-                           ```css
-                           .mobile-tabbar {
-                             height: 50px; flex-shrink: 0; padding-bottom: env(safe-area-inset-bottom);
-                             display: flex; align-items: center; justify-content: space-around;
-                             background: #fff; border-top: 1px solid #f1f5f9;
-                           }
-                           .tab-item { flex: 1; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; }
-                           .tab-icon { width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; font-size: 20px; color: #64748b; }
-                           .tab-item.active .tab-icon { color: #0bb6c7; }
-                           .tab-label { font-size: 10px; color: #64748b; }
-                           .tab-item.active .tab-label { color: #0bb6c7; }
-                           ```
+                        M6. 底部 TabBar .mobile-tabbar（参考 iOS TabBar + Vant Tabbar）
+                            ```css
+                            .mobile-tabbar {
+                              height: 50px; flex-shrink: 0; padding-bottom: env(safe-area-inset-bottom);
+                              display: flex; align-items: center; justify-content: space-around;
+                              background: #fff; border-top: 1px solid #f1f5f9;
+                            }
+                            .tab-item { flex: 1; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; overflow: hidden; }
+                            .tab-icon { width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; font-size: 20px; color: #64748b; flex-shrink: 0; }
+                            .tab-item.active .tab-icon { color: #0bb6c7; }
+                            .tab-label { font-size: 10px; color: #64748b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+                            .tab-item.active .tab-label { color: #0bb6c7; }
+                            ```
+                            需求强制绑定：
+                            - Tab 数量必须严格按照需求文档确认，禁止 AI 自作主张增减、合并或省略任何 Tab。
+                            - 即使屏幕空间有限，Tab 也必须完整显示，且等宽均分父容器宽度（每个 .tab-item 设置 flex: 1; min-width: 0;）。
+                            - 禁止把多个 Tab 折叠成“更多”，禁止隐藏文字只显示图标，禁止把 5 个 Tab 合并成 4 个。
+                            - 底部 TabBar 必须置于页面最底部，position: fixed 或作为 flex 父容器的 flex-shrink:0 底部元素；高度固定（50px，安全区额外 padding-bottom），与上方内容区互不挤压。
+                            - 内容区 .mobile-content 必须设置 padding-bottom: calc(50px + env(safe-area-inset-bottom)) 或等效机制，确保内容不会被 TabBar 遮挡。
+
 
                        M7. 标签/徽章/状态 .mobile-tag（参考 Vant Tag）
                            ```css
