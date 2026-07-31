@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { useRouter } from 'vue-router'
 import { useUserStore } from '@/store/modules/user'
+import { Upload, Document, PictureFilled } from '@element-plus/icons-vue'
 
 const router = useRouter()
 const user = useUserStore()
@@ -234,12 +235,11 @@ const flowSteps = [
 }
 
 .quick-btn {
-  display: inline-flex;
+  display: flex;
   align-items: center;
   justify-content: center;
   gap: 8px;
   height: 52px;
-  min-width: 140px;
   border: 1px solid rgba(38, 37, 30, 0.1);
   border-radius: 8px;
   background: #f7f7f4;
@@ -249,13 +249,14 @@ const flowSteps = [
   cursor: pointer;
   transition: all 0.15s;
   text-align: center;
-  line-height: normal;
-  padding: 0 16px;
-  box-sizing: border-box;
+  line-height: 1;
+  padding: 0 12px;
 }
-.quick-btn span {
-  display: inline-block;
-  line-height: 1.2;
+.quick-btn :deep(.el-icon) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
 }
 .quick-btn:hover {
   background: #ebeae5;
