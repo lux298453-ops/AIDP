@@ -13,6 +13,8 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.time.Duration;
 import java.util.Base64;
@@ -161,9 +163,11 @@ public class MermaidImageRenderer {
         String hq = ensureHqInit(code);
         byte[] png = renderViaKroki(hq);
         if (png == null) png = renderViaMermaidInk(hq);
+        if (png == null) png = renderViaLocalCli(hq);
         if (png == null && !hq.equals(code)) {
             png = renderViaKroki(code);
             if (png == null) png = renderViaMermaidInk(code);
+            if (png == null) png = renderViaLocalCli(code);
         }
         if (png == null) {
             log.warn("Mermaid remote rendering failed, using local fallback image. sourceLen={}, source={}",
@@ -275,6 +279,9 @@ public class MermaidImageRenderer {
                 .replace('；', ';')
                 .replace('，', ',');
 
+        c = normalizeFlowchartStatements(c);
+        c = quoteFlowchartLabels(c);
+
         List<String> lines = new ArrayList<>();
         for (String line : c.split("\n")) {
             String t = line.stripTrailing();
@@ -283,6 +290,97 @@ public class MermaidImageRenderer {
             lines.add(t);
         }
         return String.join("\n", lines).trim();
+    }
+
+    private String normalizeFlowchartStatements(String code) {
+        if (code == null || code.isBlank()) return "";
+        String c = code.trim();
+        if (!c.matches("(?is)^(flowchart|graph)\\b[\\s\\S]*")) return c;
+
+        c = c.replaceAll("(?im)^(flowchart|graph)\\s+(TD|TB|BT|LR|RL)\\s+(?=\\S)", "$1 $2\n");
+        c = c.replaceAll("(?<=[\\]\\)\\}])\\s+(?=[A-Za-z][\\w-]*\\s*(?:-->|---|==>|-.->|--|==))", "\n");
+        c = c.replaceAll("(?<=[\\]\\)\\}])\\s+(?=(?:style|classDef|class|subgraph)\\b)", "\n");
+        c = c.replaceAll(";\\s*(?=(?:[A-Za-z][\\w-]*|style|classDef|class|subgraph|end)\\b)", "\n");
+        return c;
+    }
+
+    private String quoteFlowchartLabels(String code) {
+        if (code == null || code.isBlank()) return "";
+        String c = code.trim();
+        if (!c.matches("(?is)^(flowchart|graph)\\b[\\s\\S]*")) return c;
+
+        Pattern nodeLabel = Pattern.compile("(?<![\\w-])([A-Za-z][\\w-]*)\\[([^\\]\\n]{1,160})\\]");
+        Matcher matcher = nodeLabel.matcher(c);
+        StringBuffer out = new StringBuffer();
+        while (matcher.find()) {
+            String label = matcher.group(2).trim();
+            if (label.startsWith("\"") && label.endsWith("\"")) {
+                matcher.appendReplacement(out, Matcher.quoteReplacement(matcher.group(0)));
+                continue;
+            }
+            String escaped = label.replace("\\", "\\\\").replace("\"", "\\\"");
+            matcher.appendReplacement(out, Matcher.quoteReplacement(matcher.group(1) + "[\"" + escaped + "\"]"));
+        }
+        matcher.appendTail(out);
+        return out.toString();
+    }
+
+    private byte[] renderViaLocalCli(String code) {
+        Path tmpInput = null;
+        Path tmpOutput = null;
+        Path puppeteerCfg = null;
+        try {
+            tmpInput = Files.createTempFile("mermaid_", ".mmd");
+            tmpOutput = Files.createTempFile("mermaid_", ".png");
+            puppeteerCfg = createPuppeteerConfig();
+            Files.writeString(tmpInput, code, StandardCharsets.UTF_8);
+
+            ProcessBuilder pb = new ProcessBuilder(
+                    "mmdc",
+                    "-i", tmpInput.toString(),
+                    "-o", tmpOutput.toString(),
+                    "-w", "1200",
+                    "-H", "800",
+                    "-b", "white",
+                    "--puppeteerConfigFile", puppeteerCfg.toString()
+            );
+            pb.redirectErrorStream(true);
+            Process process = pb.start();
+            boolean finished = process.waitFor(60, java.util.concurrent.TimeUnit.SECONDS);
+            if (!finished) {
+                process.destroyForcibly();
+                log.warn("本地 mmdc 渲染超时 (60s)");
+                return null;
+            }
+            if (process.exitValue() != 0) {
+                String err = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+                log.warn("本地 mmdc 渲染失败 (exit={}): {}", process.exitValue(), err.substring(0, Math.min(200, err.length())));
+                return null;
+            }
+
+            byte[] png = Files.readAllBytes(tmpOutput);
+            if (isPng(png)) {
+                log.info("本地 mmdc 渲染成功: bytes={}", png.length);
+                return png;
+            }
+        } catch (Exception e) {
+            log.warn("本地 mmdc 渲染异常: {}", e.getMessage());
+        } finally {
+            try { if (tmpInput != null) Files.deleteIfExists(tmpInput); } catch (Exception ignored) {}
+            try { if (tmpOutput != null) Files.deleteIfExists(tmpOutput); } catch (Exception ignored) {}
+            try { if (puppeteerCfg != null) Files.deleteIfExists(puppeteerCfg); } catch (Exception ignored) {}
+        }
+        return null;
+    }
+
+    private Path createPuppeteerConfig() throws Exception {
+        Path cfg = Files.createTempFile("puppeteer_", ".json");
+        String json = """
+                {
+                  "args": ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"]
+                }""";
+        Files.writeString(cfg, json, StandardCharsets.UTF_8);
+        return cfg;
     }
 
     private byte[] createFallbackImage(String code) {
