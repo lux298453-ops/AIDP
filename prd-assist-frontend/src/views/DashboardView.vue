@@ -57,15 +57,15 @@ const flowSteps = [
         <div class="quick-card-header">开始工作</div>
         <div class="quick-actions">
           <button class="quick-btn" @click="router.push('/documents')">
-            <el-icon size="18"><Upload /></el-icon>
+            <el-icon :size="18"><Upload /></el-icon>
             <span>我的文档</span>
           </button>
           <button class="quick-btn" @click="router.push('/prd/generate')">
-            <el-icon size="18"><Document /></el-icon>
+            <el-icon :size="18"><Document /></el-icon>
             <span>PRD 生成</span>
           </button>
           <button class="quick-btn" @click="router.push('/prototype')">
-            <el-icon size="18"><PictureFilled /></el-icon>
+            <el-icon :size="18"><PictureFilled /></el-icon>
             <span>原型生成</span>
           </button>
         </div>
@@ -234,10 +234,12 @@ const flowSteps = [
 }
 
 .quick-btn {
+  all: unset;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 8px;
+  width: 100%;
   height: 52px;
   border: 1px solid rgba(38, 37, 30, 0.1);
   border-radius: 8px;
@@ -247,15 +249,26 @@ const flowSteps = [
   font-family: inherit;
   cursor: pointer;
   transition: all 0.15s;
-  text-align: center;
+  box-sizing: border-box;
   line-height: 1;
-  padding: 0 12px;
 }
 .quick-btn :deep(.el-icon) {
-  display: inline-flex;
+  display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  font-size: 18px;
+  line-height: 1;
+}
+.quick-btn :deep(.el-icon svg) {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.quick-btn span {
+  line-height: 1;
 }
 .quick-btn:hover {
   background: #ebeae5;
