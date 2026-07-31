@@ -49,7 +49,13 @@ public class PrototypePromptTemplate {
                 - 生成前：逐区域验证顶部栏、活动区、卡组区、列表区、卡片区、底部操作区的父容器是否都定义了固定高度或最小高度？内部元素是否都有明确的水平对齐方式（左/中/右）？overflow 是否已设置？
                 - 生成后：再次遍历 <style> 中所有带 background 的规则，检查其默认态 + .active + .selected + .disabled 状态下的文字 color；只要发现白底白字、浅底浅字、主色底主色字，立即修正为对比色。
                 - 只要有一个“否”，立即修正布局后再输出，禁止输出带有溢出、重叠、元素超出边界、看不见文字的页面。
-            12. 一次性输出要求：
+            13. 底部 TabBar 数量强制规则（若需求涉及 TabBar）：
+                - 如果用户明确说了“底部导航栏 N 个 tab”或类似表达，N 是硬性数字，AI 必须生成恰好 N 个 .tab-item，禁止以任何理由（常见 App 做法、美观、空间）增减。
+                - 生成 HTML 前，AI 必须先在脑中“提取 Tab 数量”：把需求中提到的数字记下来，并在 HTML 中以 data-tab-count="N" 属性标注在 .mobile-tabbar 上，方便校验。
+                - 输出前必须数 .tab-item 的实际数量，若与 data-tab-count 不一致，立即修正。
+                - 所有 Tab 必须单行显示：.mobile-tabbar 必须 flex-wrap: nowrap; overflow: hidden; .tab-item 必须 flex: 1 1 0%; min-width: 0; overflow: hidden; .tab-label 必须 white-space: nowrap; text-overflow: ellipsis; overflow: hidden; 必要时启用 .dense 类缩小字号到 9px。
+                - 禁止出现“3 个 Tab 排第一行，剩下 2 个被挤到第二行”的情况；生成后必须自检 .mobile-tabbar 是否只有一行。
+            14. 一次性输出要求：
                 - 不要等前端反馈再补样式，必须在第一次响应中就给出可直接查看的完整原型。
                 - 所有容器必须有明确宽度/高度或 flex 自适应规则，禁止出现“无尺寸盒子导致内容溢出或塌陷”。
                 - 所有文字必须包裹在有 padding 的容器内，禁止文字直接贴边或与其他文字重叠。
@@ -816,9 +822,10 @@ public class PrototypePromptTemplate {
                             防换行强制规则：
                             - 父容器宽度 = 屏幕全宽（100%），高度固定 50px（不含安全区 padding-bottom）。
                             - 父容器必须：display: flex; flex-direction: row; flex-wrap: nowrap; overflow: hidden; 绝对禁止换行。
-                            - 每个子项 .tab-item 使用 flex: 1（flex-grow:1 flex-shrink:1 flex-basis:0%）等分父容器剩余空间；min-width: 44px 仅作触控保底，实际宽度由 flex:1 自动计算。
+                            - 每个子项 .tab-item 使用 flex: 1 1 0% 等分父容器剩余空间；min-width: 0（不是 44px），让 flex 可以压缩到任意小，实际宽度由 flex:1 自动计算。
+                            - 触控目标由 .tab-item 整体高度 50px 和等分宽度共同保证，每个 Tab 都是 >=44px 的矩形点击区。
                             - .tab-item 内部图标与文字垂直居中排列：flex-direction: column; align-items: center; justify-content: center。
-                            - 文字过长时禁止撑大该 Tab：.tab-label 必须 white-space: nowrap; overflow: hidden; text-overflow: ellipsis; 必要时可缩小字号到 9px，但绝不允许换行或溢出父容器。
+                            - 文字过长时禁止撑大该 Tab：.tab-label 必须 display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; 必要时启用 .mobile-tabbar.dense 将字号缩小到 9px，但绝不允许换行或溢出父容器。
                             - 自检逻辑：5 个 Tab 时每个宽度 = 父容器宽度 ÷ 5；所有 Tab 必须始终在同一行显示，绝不换行。
 
                             ```css
@@ -834,8 +841,8 @@ public class PrototypePromptTemplate {
                               background: #fff; border-top: 1px solid #f1f5f9;
                             }
                             .tab-item {
-                              flex: 1 1 0%;       /* 等分剩余空间，允许压缩但不允许换行 */
-                              min-width: 44px;    /* 触控区域下限 */
+                              flex: 1 1 0%;       /* 等分剩余空间，允许压缩 */
+                              min-width: 0;       /* 关键：让 flex 可以压缩到小于内容宽度 */
                               height: 100%;
                               display: flex; flex-direction: column;
                               align-items: center; justify-content: center;
@@ -845,6 +852,7 @@ public class PrototypePromptTemplate {
                             .tab-icon { width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; font-size: 20px; color: #64748b; flex-shrink: 0; }
                             .tab-item.active .tab-icon { color: #0bb6c7; }
                             .tab-label {
+                              display: block;
                               font-size: 10px; color: #64748b;
                               white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
                               max-width: 100%;
@@ -858,7 +866,7 @@ public class PrototypePromptTemplate {
                             - Tab 数量没有默认值；需求没指定时才允许按页面类型推断最少数量的合理 Tab，但一旦需求明确指定，必须严格遵循。
                             - 无论 Tab 数量多少，统一采用 flex:1 等分布局；禁止把 4 个及以上 Tab 改成横向滚动，禁止固定宽度子项，禁止换行。
                             - .mobile-tabbar 高度必须固定 50px（不含安全区），严禁因 Tab 过多或文字过长而被撑成两行；如果 AI 发现高度超过 50px，说明换行了，必须立即修正为 flex:1 等分 + 文字省略。
-                            - 所有 Tab 标签必须 white-space: nowrap + overflow: hidden + text-overflow: ellipsis，必要时启用 .dense 缩小字号；图标与文字垂直居中，禁止文字换行或溢出容器。
+                            - 所有 Tab 标签必须 display:block + white-space: nowrap + overflow: hidden + text-overflow: ellipsis，必要时启用 .dense 缩小字号；图标与文字垂直居中，禁止文字换行或溢出容器。
                             - 底部 TabBar 必须置于页面最底部，与上方内容区互不挤压；内容区 .mobile-content 必须设置 padding-bottom: calc(50px + env(safe-area-inset-bottom)) 或等效机制。
                             - 禁止隐藏文字只显示图标；每个 Tab 必须同时保留图标+文字或按需求保留文字。
                             - 生成后校验：输出 HTML 前，必须数一遍 .mobile-tabbar 内 .tab-item 数量是否与需求一致；必须检查 .mobile-tabbar 高度是否仍为 50px 且所有 Tab 仍在同一行；只要任一检查失败，立即修正后再输出。
