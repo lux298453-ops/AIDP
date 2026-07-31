@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useRouter } from 'vue-router'
 import { useUserStore } from '@/store/modules/user'
-import { Upload, Document, PictureFilled } from '@element-plus/icons-vue'
+import { Upload, Document, PictureFilled, Edit, Checked } from '@element-plus/icons-vue'
 
 const router = useRouter()
 const user = useUserStore()
