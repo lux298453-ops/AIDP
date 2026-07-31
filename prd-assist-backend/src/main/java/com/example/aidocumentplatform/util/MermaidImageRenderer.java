@@ -49,17 +49,29 @@ public class MermaidImageRenderer {
             %%{init: {
               'theme': 'base',
               'themeVariables': {
-                'fontSize': '18px',
-                'fontFamily': 'Microsoft YaHei, Arial, sans-serif',
+                'fontSize': '20px',
+                'fontFamily': 'Microsoft YaHei, PingFang SC, Noto Sans SC, Arial, sans-serif',
                 'primaryColor': '#e8f0fe',
                 'primaryTextColor': '#1a1a1a',
                 'primaryBorderColor': '#5b7cfa',
-                'lineColor': '#555555',
+                'lineColor': '#333333',
                 'secondaryColor': '#f5f5f5',
                 'tertiaryColor': '#ffffff'
               },
-              'flowchart': { 'htmlLabels': false, 'curve': 'basis', 'nodeSpacing': 40, 'rankSpacing': 50, 'padding': 16 },
-              'sequence': { 'actorMargin': 50, 'messageMargin': 40 }
+              'flowchart': {
+                'htmlLabels': false,
+                'curve': 'linear',
+                'nodeSpacing': 60,
+                'rankSpacing': 70,
+                'padding': 20,
+                'diagramPadding': 30
+              },
+              'sequence': {
+                'actorMargin': 60,
+                'messageMargin': 50,
+                'mirrorActors': false,
+                'boxMargin': 12
+              }
             }}%%
             """;
 
