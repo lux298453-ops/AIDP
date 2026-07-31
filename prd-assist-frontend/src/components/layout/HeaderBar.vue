@@ -89,7 +89,7 @@ function handleLogout() {
   height: 52px;
   display: flex;
   align-items: center;
-  padding: 0 20px;
+  padding: 0 28px;
   background: rgba(242, 241, 237, 0.85);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
@@ -102,12 +102,12 @@ function handleLogout() {
 .header-left {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   cursor: pointer;
   flex-shrink: 0;
 }
 .logo-text {
-  font-size: 15px;
+  font-size: 17px;
   font-weight: 600;
   color: #26251e;
   letter-spacing: -0.28px;
