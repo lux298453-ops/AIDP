@@ -247,6 +247,15 @@ const flowSteps = [
   font-family: inherit;
   cursor: pointer;
   transition: all 0.15s;
+  text-align: center;
+  line-height: 1;
+  padding: 0 12px;
+}
+.quick-btn :deep(.el-icon) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
 }
 .quick-btn:hover {
   background: #ebeae5;
