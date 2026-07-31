@@ -2,9 +2,7 @@ package com.example.aidocumentplatform.util;
 
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
-import org.springframework.web.reactive.function.client.WebClient;
 
 import javax.imageio.ImageIO;
 import java.awt.*;
@@ -16,21 +14,18 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.MessageDigest;
-import java.time.Duration;
-import java.util.Base64;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import java.util.zip.Deflater;
 
 /**
  * Mermaid / 图片 URL → 高清 PNG。
  *
  * <ul>
- *   <li>Kroki 优先，mermaid.ink 兜底</li>
+ *   <li>本地 mmdc 渲染，不依赖外部服务</li>
  *   <li>渲染前注入较大字号/间距，保证像素宽度 ≥ 1200</li>
  *   <li>内存缓存（按源码 hash），避免同文档多章节重复渲染</li>
  * </ul>
@@ -68,23 +63,13 @@ public class MermaidImageRenderer {
             }}%%
             """;
 
-    private final WebClient webClient;
-    private final String krokiBaseUrl;
     private final boolean enabled;
     /** mermaid 源码 hash → PNG */
     private final Map<String, byte[]> cache = new ConcurrentHashMap<>();
     private static final int CACHE_MAX = 64;
 
     public MermaidImageRenderer(
-            WebClient webClient,
-            @Value("${app.mermaid.kroki-url:https://kroki.io}") String krokiBaseUrl,
             @Value("${app.mermaid.enabled:true}") boolean enabled) {
-        this.webClient = webClient.mutate()
-                .codecs(c -> c.defaultCodecs().maxInMemorySize(12 * 1024 * 1024))
-                .build();
-        this.krokiBaseUrl = krokiBaseUrl.endsWith("/")
-                ? krokiBaseUrl.substring(0, krokiBaseUrl.length() - 1)
-                : krokiBaseUrl;
         this.enabled = enabled;
     }
 
@@ -161,16 +146,10 @@ public class MermaidImageRenderer {
         if (cached != null) return cached;
 
         String hq = ensureHqInit(code);
-        byte[] png = renderViaKroki(hq);
-        if (png == null) png = renderViaMermaidInk(hq);
-        if (png == null) png = renderViaLocalCli(hq);
-        if (png == null && !hq.equals(code)) {
-            png = renderViaKroki(code);
-            if (png == null) png = renderViaMermaidInk(code);
-            if (png == null) png = renderViaLocalCli(code);
-        }
+        byte[] png = renderViaLocalCli(hq);
+        if (png == null && !hq.equals(code)) png = renderViaLocalCli(code);
         if (png == null) {
-            log.warn("Mermaid remote rendering failed, using local fallback image. sourceLen={}, source={}",
+            log.warn("Mermaid 本地渲染失败，使用占位图。sourceLen={}, source={}",
                     code.length(), code.substring(0, Math.min(300, code.length())).replace('\n', ' '));
             png = createFallbackImage(code);
         }
@@ -181,42 +160,12 @@ public class MermaidImageRenderer {
         return png;
     }
 
-    public byte[] downloadImage(String url) {
-        if (!enabled || url == null || url.isBlank()) return null;
-        try {
-            URI uri = URI.create(url.trim());
-            String scheme = uri.getScheme();
-            if (scheme == null || (!scheme.equalsIgnoreCase("http") && !scheme.equalsIgnoreCase("https"))) {
-                log.warn("拒绝非 HTTP 图片 URL: {}", url);
-                return null;
-            }
-            byte[] bytes = webClient.get()
-                    .uri(uri)
-                    .accept(MediaType.APPLICATION_OCTET_STREAM, MediaType.IMAGE_PNG, MediaType.IMAGE_JPEG, MediaType.ALL)
-                    .retrieve()
-                    .bodyToMono(byte[].class)
-                    .timeout(Duration.ofSeconds(20))
-                    .block();
-            if (bytes == null || bytes.length < 32) return null;
-            if (bytes.length > 8 * 1024 * 1024) {
-                log.warn("图片过大，跳过: url={}, size={}", url, bytes.length);
-                return null;
-            }
-            return ensureMinWidth(bytes, MIN_EXPORT_WIDTH);
-        } catch (Exception e) {
-            log.warn("图片下载失败: {} — {}", url, e.getMessage());
-            return null;
-        }
-    }
-
     public byte[] resolveChartPng(String content) {
         String mermaid = extractMermaid(content);
         if (mermaid != null) {
             byte[] png = renderMermaidToPng(mermaid);
             if (png != null) return png;
         }
-        String imgUrl = extractFirstImageUrl(content);
-        if (imgUrl != null) return downloadImage(imgUrl);
         return null;
     }
 
@@ -280,6 +229,8 @@ public class MermaidImageRenderer {
                 .replace('，', ',');
 
         c = normalizeFlowchartStatements(c);
+        c = normalizeFlowchartEdgeLabels(c);
+        c = repairMalformedQuotedFlowchartLabels(c);
         c = quoteFlowchartLabels(c);
 
         List<String> lines = new ArrayList<>();
@@ -323,6 +274,31 @@ public class MermaidImageRenderer {
         }
         matcher.appendTail(out);
         return out.toString();
+    }
+
+    private String normalizeFlowchartEdgeLabels(String code) {
+        if (code == null || code.isBlank()) return "";
+        String c = code.trim();
+        if (!c.matches("(?is)^(flowchart|graph)\\b[\\s\\S]*")) return c;
+
+        Pattern edgeLabel = Pattern.compile("(?m)(\\S+)\\s+--\\s+([^|\\-\\n]{1,80})\\s+-->\\s+(\\S+)");
+        Matcher matcher = edgeLabel.matcher(c);
+        StringBuffer out = new StringBuffer();
+        while (matcher.find()) {
+            String label = matcher.group(2).trim().replace("|", "/");
+            matcher.appendReplacement(out, Matcher.quoteReplacement(
+                    matcher.group(1) + " -->|" + label + "| " + matcher.group(3)));
+        }
+        matcher.appendTail(out);
+        return out.toString();
+    }
+
+    private String repairMalformedQuotedFlowchartLabels(String code) {
+        if (code == null || code.isBlank()) return "";
+        String c = code.trim();
+        if (!c.matches("(?is)^(flowchart|graph)\\b[\\s\\S]*")) return c;
+
+        return c.replaceAll("(?<![\\w-])([A-Za-z][\\w-]*)\\[\"([^\"\\]\\n]{1,160})\\]", "$1[\"$2\"]");
     }
 
     private byte[] renderViaLocalCli(String code) {
@@ -574,78 +550,6 @@ public class MermaidImageRenderer {
         } catch (Exception e) {
             return Integer.toHexString(s.hashCode());
         }
-    }
-
-    private byte[] renderViaKroki(String code) {
-        try {
-            String url = krokiBaseUrl + "/mermaid/png";
-            byte[] png = webClient.post()
-                    .uri(url)
-                    .contentType(MediaType.TEXT_PLAIN)
-                    .accept(MediaType.IMAGE_PNG)
-                    .bodyValue(code)
-                    .retrieve()
-                    .bodyToMono(byte[].class)
-                    .timeout(Duration.ofSeconds(45))
-                    .block();
-            if (isPng(png)) {
-                log.info("Kroki Mermaid 渲染成功: bytes={}, sourceLen={}", png.length, code.length());
-                return png;
-            }
-            log.warn("Kroki 返回非 PNG: bytes={}", png == null ? 0 : png.length);
-        } catch (Exception e) {
-            log.warn("Kroki Mermaid 渲染失败: {}", e.getMessage());
-        }
-        return null;
-    }
-
-    private byte[] renderViaMermaidInk(String code) {
-        try {
-            String encoded = deflateBase64Url(code.getBytes(StandardCharsets.UTF_8));
-            String url = "https://mermaid.ink/img/pako:" + encoded + "?bgColor=!white&theme=default";
-            byte[] png = webClient.get()
-                    .uri(url)
-                    .accept(MediaType.IMAGE_PNG, MediaType.ALL)
-                    .retrieve()
-                    .bodyToMono(byte[].class)
-                    .timeout(Duration.ofSeconds(45))
-                    .block();
-            if (isPng(png) || (png != null && png.length > 100)) {
-                log.info("mermaid.ink 渲染成功: bytes={}", png.length);
-                return png;
-            }
-            String plain = Base64.getUrlEncoder().withoutPadding()
-                    .encodeToString(code.getBytes(StandardCharsets.UTF_8));
-            png = webClient.get()
-                    .uri("https://mermaid.ink/img/" + plain + "?bgColor=!white")
-                    .accept(MediaType.IMAGE_PNG, MediaType.ALL)
-                    .retrieve()
-                    .bodyToMono(byte[].class)
-                    .timeout(Duration.ofSeconds(45))
-                    .block();
-            if (isPng(png) || (png != null && png.length > 100)) {
-                log.info("mermaid.ink(plain) 渲染成功: bytes={}", png.length);
-                return png;
-            }
-        } catch (Exception e) {
-            log.warn("mermaid.ink 渲染失败: {}", e.getMessage());
-        }
-        return null;
-    }
-
-    private static String deflateBase64Url(byte[] raw) {
-        Deflater deflater = new Deflater(9, true);
-        deflater.setInput(raw);
-        deflater.finish();
-        ByteArrayOutputStream bos = new ByteArrayOutputStream(raw.length);
-        byte[] buf = new byte[1024];
-        while (!deflater.finished()) {
-            int n = deflater.deflate(buf);
-            if (n > 0) bos.write(buf, 0, n);
-            else break;
-        }
-        deflater.end();
-        return Base64.getUrlEncoder().withoutPadding().encodeToString(bos.toByteArray());
     }
 
     private static boolean isPng(byte[] bytes) {

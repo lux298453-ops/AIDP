@@ -58,7 +58,6 @@ app:
     api-url: ${AI_API_URL:https://api.anthropic.com/v1/messages}
     api-key: ${AI_API_KEY:请替换为你的AI_API_KEY}
     model: ${AI_MODEL:claude-sonnet-4-20250514}
-  # Mermaid → PNG（Word 导出兜底；前端失败或文档列表直接 GET 导出时使用）
+  # Mermaid → PNG（本地 mmdc 渲染）
   mermaid:
     enabled: ${MERMAID_ENABLED:true}
-    kroki-url: ${MERMAID_KROKI_URL:https://kroki.io}
