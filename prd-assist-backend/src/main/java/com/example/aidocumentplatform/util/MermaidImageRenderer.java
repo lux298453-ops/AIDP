@@ -34,7 +34,7 @@ import java.util.regex.Pattern;
 @Component
 public class MermaidImageRenderer {
 
-    public static final int MIN_EXPORT_WIDTH = 1200;
+    public static final int MIN_EXPORT_WIDTH = 2400;
 
     private static final Pattern MERMAID_FENCE = Pattern.compile(
             "```mermaid[ \\t]*\\n([\\s\\S]*?)```", Pattern.CASE_INSENSITIVE);
@@ -321,8 +321,8 @@ public class MermaidImageRenderer {
                     mmdcCmd,
                     "-i", tmpInput.toString(),
                     "-o", tmpOutput.toString(),
-                    "-w", "1200",
-                    "-H", "800",
+                    "-w", "2400",
+                    "-H", "1600",
                     "-b", "white",
                     "--puppeteerConfigFile", puppeteerCfg.toString()
             );
