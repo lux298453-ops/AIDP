@@ -419,12 +419,43 @@ public class MermaidImageRenderer {
 
     private Path createPuppeteerConfig() throws Exception {
         Path cfg = Files.createTempFile("puppeteer_", ".json");
-        String json = """
-                {
-                  "args": ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"]
-                }""";
+        String chromePath = findChromePath();
+        String json;
+        if (chromePath != null) {
+            json = """
+                    {
+                      "executablePath": "%s",
+                      "args": ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"]
+                    }""".formatted(chromePath.replace("\\", "\\\\"));
+        } else {
+            json = """
+                    {
+                      "args": ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"]
+                    }""";
+        }
         Files.writeString(cfg, json, StandardCharsets.UTF_8);
         return cfg;
+    }
+
+    private String findChromePath() {
+        boolean isWindows = System.getProperty("os.name", "").toLowerCase().contains("win");
+        String[] candidates = isWindows
+                ? new String[]{
+                    "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+                    "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
+                    "C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe",
+                    "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
+                }
+                : new String[]{
+                    "/usr/bin/google-chrome",
+                    "/usr/bin/chromium-browser",
+                    "/usr/bin/chromium",
+                    "/snap/bin/chromium",
+                };
+        for (String path : candidates) {
+            if (Files.exists(Path.of(path))) return path;
+        }
+        return null;
     }
 
     private byte[] createFallbackImage(String code) {
