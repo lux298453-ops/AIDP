@@ -33,7 +33,9 @@ import org.springframework.stereotype.Service;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 @Slf4j
@@ -165,9 +167,11 @@ public class PrdReviewServiceImpl implements PrdReviewService {
         }
 
         String issuesJson = toJson(selectedIssues);
+        boolean localChapterFix = canUseLocalChapterFix(source.getContent(), selectedIssues);
         String inputParams = "{\"reportId\":" + reportId
                 + ",\"sourcePrdId\":" + source.getId()
-                + ",\"issueCount\":" + selectedIssues.size() + "}";
+                + ",\"issueCount\":" + selectedIssues.size()
+                + ",\"fixMode\":\"" + (localChapterFix ? "LOCAL_CHAPTER" : "FULL_DOCUMENT") + "\"}";
 
         AsyncTask task = AsyncTask.builder()
                 .userId(userId)
@@ -176,74 +180,48 @@ public class PrdReviewServiceImpl implements PrdReviewService {
                 .inputParams(inputParams)
                 .build();
         task = asyncTaskRepository.save(task);
-        log.info("PRD审查修复任务已创建: taskId={}, reportId={}, issues={}",
-                task.getId(), reportId, selectedIssues.size());
+        log.info("PRD审查修复任务已创建: taskId={}, reportId={}, issues={}, mode={}",
+                task.getId(), reportId, selectedIssues.size(), localChapterFix ? "LOCAL_CHAPTER" : "FULL_DOCUMENT");
 
         applicationContext.getBean(PrdReviewServiceImpl.class)
-                .executeFix(task.getId(), source, issuesJson, userId);
+                .executeFix(task.getId(), source, issuesJson, userId, localChapterFix);
         return task.getId();
     }
 
     @Async("asyncTaskExecutor")
-    public void executeFix(Long taskId, PrdDocument source, String issuesJson, Long userId) {
+    public void executeFix(Long taskId, PrdDocument source, String issuesJson, Long userId, boolean localChapterFix) {
         AsyncTask task = asyncTaskRepository.findById(taskId).orElse(null);
         if (task == null) return;
         try {
             task.setStatus(TaskStatus.RUNNING);
             asyncTaskRepository.save(task);
-            taskService.pushProgress(taskId, 10, "AI 正在根据审查意见修订 PRD...");
+            taskService.pushProgress(taskId, 10,
+                    localChapterFix ? "AI 正在修复该问题对应章节..." : "AI 正在根据审查意见修订 PRD...");
 
-            String systemPrompt = fixPromptTemplate.getSystemPrompt();
-            String userPrompt = fixPromptTemplate.buildUserPrompt(source.getContent(), issuesJson);
-            String aiResponse;
-            AiRequestContext.setUserId(userId);
-            try {
-                aiResponse = aiClient.generateStream(systemPrompt, userPrompt,
-                        delta -> taskService.pushContentDelta(taskId, delta));
-            } finally {
-                AiRequestContext.clear();
-            }
-
-            // 先落库再推 SSE，避免进度推送异常影响保存
-            String jsonContent = prdContentParser.normalizeToJson(aiResponse);
-
-            // 解析新标题（可选）
-            String newTitle = source.getTitle();
-            try {
-                JsonNode root = objectMapper.readTree(jsonContent);
-                String t = root.path("title").asText("");
-                if (!t.isBlank()) {
-                    newTitle = t.length() > 50 ? t.substring(0, 50) : t;
+            String jsonContent;
+            if (localChapterFix) {
+                try {
+                    jsonContent = executeLocalChapterFix(taskId, source, issuesJson, userId);
+                } catch (Exception localError) {
+                    log.warn("章节级修复失败，回退为整篇修复: taskId={}, reason={}",
+                            taskId, localError.getMessage());
+                    taskService.pushProgress(taskId, 35, "章节级修复失败，正在回退为整篇修复...");
+                    jsonContent = executeFullDocumentFix(taskId, source, issuesJson, userId);
+                    localChapterFix = false;
                 }
-            } catch (Exception ignored) { /* keep original title */ }
-
-            // 新版本，不覆盖原文档
-            String versionSuffix = "（审查修订 " + LocalDateTime.now().format(DateTimeFormatter.ofPattern("MM-dd HH:mm")) + "）";
-            String titleWithVersion = newTitle;
-            if (!titleWithVersion.contains("审查修订")) {
-                String base = titleWithVersion.length() > 30 ? titleWithVersion.substring(0, 30) : titleWithVersion;
-                titleWithVersion = base + versionSuffix;
-                if (titleWithVersion.length() > 50) titleWithVersion = titleWithVersion.substring(0, 50);
+            } else {
+                jsonContent = executeFullDocumentFix(taskId, source, issuesJson, userId);
             }
 
-            PrdDocument fixed = PrdDocument.builder()
-                    .userId(userId)
-                    .taskId(taskId)
-                    .title(titleWithVersion)
-                    .description(source.getDescription())
-                    .content(jsonContent)
-                    .sourceType(source.getSourceType() != null ? source.getSourceType() : DocumentSourceType.MANUAL)
-                    .template(source.getTemplate() != null ? source.getTemplate() : TemplateType.STANDARD)
-                    .detailLevel(source.getDetailLevel() != null ? source.getDetailLevel() : DetailLevel.DETAILED)
-                    .build();
+            PrdDocument fixed = buildFixedPrdDocument(source, taskId, userId, jsonContent);
             fixed = prdDocumentRepository.save(fixed);
 
             task.setResultRefId(fixed.getId());
             task.setStatus(TaskStatus.SUCCESS);
             asyncTaskRepository.save(task);
-            taskService.pushProgress(taskId, 100, "修订完成");
-            log.info("PRD审查修复成功: taskId={}, newPrdId={}, sourcePrdId={}",
-                    taskId, fixed.getId(), source.getId());
+            taskService.pushProgress(taskId, 100, localChapterFix ? "该问题对应章节修复完成" : "修订完成");
+            log.info("PRD审查修复成功: taskId={}, newPrdId={}, sourcePrdId={}, mode={}",
+                    taskId, fixed.getId(), source.getId(), localChapterFix ? "LOCAL_CHAPTER" : "FULL_DOCUMENT");
         } catch (Exception e) {
             log.error("PRD审查修复失败: taskId={}", taskId, e);
             task.setStatus(TaskStatus.FAILED);
@@ -251,6 +229,148 @@ public class PrdReviewServiceImpl implements PrdReviewService {
             asyncTaskRepository.save(task);
             taskService.pushProgress(taskId, 0, "修复失败: " + e.getMessage());
         }
+    }
+
+    private String executeFullDocumentFix(Long taskId, PrdDocument source, String issuesJson, Long userId) {
+        String systemPrompt = fixPromptTemplate.getSystemPrompt();
+        String userPrompt = fixPromptTemplate.buildUserPrompt(source.getContent(), issuesJson);
+        String aiResponse;
+        AiRequestContext.setUserId(userId);
+        try {
+            aiResponse = aiClient.generateStream(systemPrompt, userPrompt,
+                    delta -> taskService.pushContentDelta(taskId, delta));
+        } finally {
+            AiRequestContext.clear();
+        }
+        return prdContentParser.normalizeToJson(aiResponse);
+    }
+
+    private boolean canUseLocalChapterFix(String prdContent, List<JsonNode> selectedIssues) {
+        if (selectedIssues == null || selectedIssues.size() != 1) return false;
+        int chapterIndex = selectedIssues.get(0).path("chapterIndex").asInt(-1);
+        if (chapterIndex < 0) return false;
+        try {
+            JsonNode root = prdContentParser.normalize(prdContent);
+            JsonNode chapters = root.path("chapters");
+            return chapters.isArray()
+                    && chapterIndex < chapters.size()
+                    && chapters.get(chapterIndex).isObject();
+        } catch (Exception e) {
+            log.warn("判断章节级修复失败，将使用整篇修复: {}", e.getMessage());
+            return false;
+        }
+    }
+
+    private String executeLocalChapterFix(Long taskId, PrdDocument source, String issuesJson, Long userId) throws Exception {
+        JsonNode issue = firstIssue(issuesJson);
+        JsonNode prdRoot = prdContentParser.normalize(source.getContent());
+        JsonNode chapters = prdRoot.path("chapters");
+        int chapterIndex = issue.path("chapterIndex").asInt(-1);
+        if (!chapters.isArray() || chapterIndex < 0 || chapterIndex >= chapters.size()) {
+            throw new IllegalArgumentException("问题未能定位到有效章节");
+        }
+
+        JsonNode target = chapters.get(chapterIndex);
+        String chapterTitle = target.path("title").asText("未命名章节");
+        String chapterContent = target.path("content").asText("");
+        String prompt = fixPromptTemplate.buildSingleChapterPatchPrompt(
+                prdRoot.path("title").asText(source.getTitle()),
+                prdRoot.path("summary").asText(source.getDescription()),
+                buildChapterOutline(extractChapterAnchors(prdRoot.toString())),
+                chapterIndex,
+                chapterTitle,
+                chapterContent,
+                issue.toString());
+
+        taskService.pushProgress(taskId, 20, "AI 正在局部修复章节：" + chapterTitle);
+        String aiResponse;
+        AiRequestContext.setUserId(userId);
+        try {
+            aiResponse = aiClient.generateStream(fixPromptTemplate.getSystemPrompt(), prompt,
+                    delta -> taskService.pushContentDelta(taskId, delta));
+        } finally {
+            AiRequestContext.clear();
+        }
+
+        JsonNode patch = prdContentParser.parseObject(aiResponse);
+        String patchedContent = extractPatchedChapterContent(patch, chapterIndex);
+        if (patchedContent.isBlank()) {
+            throw new IllegalArgumentException("AI 未返回有效章节内容");
+        }
+
+        ObjectNode merged = prdRoot.deepCopy();
+        JsonNode mergedChapters = merged.path("chapters");
+        if (!mergedChapters.isArray() || chapterIndex >= mergedChapters.size()) {
+            throw new IllegalArgumentException("PRD 章节结构异常，无法合并局部修复");
+        }
+        if (!mergedChapters.get(chapterIndex).isObject()) {
+            throw new IllegalArgumentException("目标章节不是对象结构");
+        }
+        ObjectNode targetChapter = ((ObjectNode) mergedChapters.get(chapterIndex));
+        targetChapter.put("content", patchedContent);
+        if (targetChapter.path("title").asText("").isBlank()) {
+            targetChapter.put("title", chapterTitle);
+        }
+        if (patch.hasNonNull("changeSummary")) {
+            taskService.pushProgress(taskId, 70, "已完成局部修复：" + truncate(patch.path("changeSummary").asText(), 80));
+        }
+        return merged.toString();
+    }
+
+    private JsonNode firstIssue(String issuesJson) throws Exception {
+        JsonNode root = objectMapper.readTree(issuesJson == null || issuesJson.isBlank() ? "[]" : issuesJson);
+        if (root.isArray() && root.size() > 0) return root.get(0);
+        if (root.isObject()) return root;
+        throw new IllegalArgumentException("待修复问题为空");
+    }
+
+    private String extractPatchedChapterContent(JsonNode patch, int chapterIndex) {
+        if (patch == null || patch.isMissingNode() || patch.isNull()) return "";
+        if (patch.hasNonNull("content")) return patch.path("content").asText("");
+        JsonNode chapters = patch.path("chapters");
+        if (chapters.isArray()) {
+            if (chapterIndex >= 0 && chapterIndex < chapters.size()) {
+                String content = chapters.get(chapterIndex).path("content").asText("");
+                if (!content.isBlank()) return content;
+            }
+            for (JsonNode chapter : chapters) {
+                String content = chapter.path("content").asText("");
+                if (!content.isBlank()) return content;
+            }
+        }
+        return "";
+    }
+
+    private PrdDocument buildFixedPrdDocument(PrdDocument source, Long taskId, Long userId, String jsonContent) {
+        String newTitle = source.getTitle();
+        try {
+            JsonNode root = objectMapper.readTree(jsonContent);
+            String t = root.path("title").asText("");
+            if (!t.isBlank()) {
+                newTitle = t.length() > 50 ? t.substring(0, 50) : t;
+            }
+        } catch (Exception ignored) { /* keep original title */ }
+
+        String titleWithVersion = buildRevisionTitle(newTitle);
+        return PrdDocument.builder()
+                .userId(userId)
+                .taskId(taskId)
+                .title(titleWithVersion)
+                .description(source.getDescription())
+                .content(jsonContent)
+                .sourceType(source.getSourceType() != null ? source.getSourceType() : DocumentSourceType.MANUAL)
+                .template(source.getTemplate() != null ? source.getTemplate() : TemplateType.STANDARD)
+                .detailLevel(source.getDetailLevel() != null ? source.getDetailLevel() : DetailLevel.DETAILED)
+                .build();
+    }
+
+    private String buildRevisionTitle(String title) {
+        String safeTitle = title == null || title.isBlank() ? "PRD 文档" : title;
+        if (safeTitle.contains("审查修订")) return safeTitle.length() > 50 ? safeTitle.substring(0, 50) : safeTitle;
+        String versionSuffix = "（审查修订 " + LocalDateTime.now().format(DateTimeFormatter.ofPattern("MM-dd HH:mm")) + "）";
+        String base = safeTitle.length() > 30 ? safeTitle.substring(0, 30) : safeTitle;
+        String titleWithVersion = base + versionSuffix;
+        return titleWithVersion.length() > 50 ? titleWithVersion.substring(0, 50) : titleWithVersion;
     }
 
     // ======================== 解析 / 落库 ========================
@@ -505,5 +625,153 @@ public class PrdReviewServiceImpl implements PrdReviewService {
 
     private String truncate(String s, int max) {
         return s != null && s.length() > max ? s.substring(0, max) : s;
+    }
+
+    private List<JsonNode> parseIssuesArray(String issuesRaw) {
+        List<JsonNode> all = new ArrayList<>();
+        try {
+            JsonNode root = objectMapper.readTree(issuesRaw);
+            JsonNode arr = root.path("issues");
+            if (!arr.isArray()) {
+                if (root.isArray()) arr = root;
+                else return all;
+            }
+            for (JsonNode n : arr) all.add(n);
+        } catch (Exception e) {
+            log.warn("解析审查 issues 失败", e);
+        }
+        return all;
+    }
+
+    // ======================== 内联精准修复 ========================
+
+    @Override
+    public Map<String, Object> submitInlineFix(Long reportId, int issueIndex, Long sourcePrdDocumentId, Long userId) {
+        ReviewReport report = reviewReportRepository.findById(reportId)
+                .orElseThrow(() -> new IllegalArgumentException("审查报告不存在"));
+        if (!report.getUserId().equals(userId)) {
+            throw new IllegalArgumentException("无权操作该审查报告");
+        }
+
+        Long sourcePrdId = sourcePrdDocumentId != null ? sourcePrdDocumentId : report.getPrdDocumentId();
+        if (sourcePrdId == null || sourcePrdId <= 0) {
+            throw new IllegalArgumentException("该报告未关联 PRD 文档，无法修复");
+        }
+        PrdDocument source = prdDocumentRepository.findById(sourcePrdId)
+                .orElseThrow(() -> new IllegalArgumentException("关联的 PRD 不存在"));
+        if (!source.getUserId().equals(userId)) {
+            throw new IllegalArgumentException("无权访问该 PRD");
+        }
+
+        List<JsonNode> allIssues = parseIssuesArray(report.getIssues());
+        if (issueIndex < 0 || issueIndex >= allIssues.size()) {
+            throw new IllegalArgumentException("问题索引无效: " + issueIndex);
+        }
+        JsonNode issue = allIssues.get(issueIndex);
+
+        int chapterIndex = issue.path("chapterIndex").asInt(-1);
+        String chapterTitle = issue.path("chapterTitle").asText("");
+        String chapterContent = "";
+        if (chapterIndex >= 0) {
+            try {
+                JsonNode prdRoot = prdContentParser.normalize(source.getContent());
+                JsonNode chapters = prdRoot.path("chapters");
+                if (chapters.isArray() && chapterIndex < chapters.size()) {
+                    chapterContent = chapters.get(chapterIndex).path("content").asText("");
+                    if (chapterTitle.isBlank()) {
+                        chapterTitle = chapters.get(chapterIndex).path("title").asText("");
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("内联修复：无法解析章节内容，将使用空内容: {}", e.getMessage());
+            }
+        }
+
+        String prompt = fixPromptTemplate.buildInlineFixPrompt(chapterTitle, chapterContent, issue.toString());
+        String aiResponse;
+        AiRequestContext.setUserId(userId);
+        try {
+            aiResponse = aiClient.generate(fixPromptTemplate.getSystemPrompt(), prompt);
+        } finally {
+            AiRequestContext.clear();
+        }
+
+        JsonNode patch;
+        try {
+            patch = prdContentParser.parseObject(aiResponse);
+        } catch (Exception e) {
+            log.error("内联修复 AI 返回解析失败: {}", aiResponse);
+            throw new IllegalArgumentException("AI 返回格式异常，请重试");
+        }
+
+        String oldText = patch.path("oldText").asText("");
+        String newText = patch.path("newText").asText("");
+        String changeSummary = patch.path("changeSummary").asText("已修复");
+
+        if (oldText.isBlank()) {
+            throw new IllegalArgumentException("AI 未能定位到需要修改的原文片段，请尝试整章修复");
+        }
+
+        // 在章节内容中定位 oldText 并替换
+        String patchedContent;
+        if (chapterContent.contains(oldText)) {
+            patchedContent = chapterContent.replace(oldText, newText);
+        } else {
+            // 模糊匹配：尝试找最相似的子串
+            String bestMatch = findBestMatch(chapterContent, oldText);
+            if (bestMatch != null) {
+                patchedContent = chapterContent.replace(bestMatch, newText);
+                oldText = bestMatch; // 更新为实际匹配到的文本
+            } else {
+                // 找不到匹配，追加到章节末尾
+                patchedContent = chapterContent + "\n\n" + newText;
+                oldText = "";
+            }
+        }
+
+        // 合并到完整 PRD
+        String fullContent;
+        try {
+            JsonNode prdRoot = prdContentParser.normalize(source.getContent());
+            ObjectNode merged = prdRoot.deepCopy();
+            JsonNode chapters = merged.path("chapters");
+            if (chapters.isArray() && chapterIndex >= 0 && chapterIndex < chapters.size()) {
+                ((ObjectNode) chapters.get(chapterIndex)).put("content", patchedContent);
+            }
+            fullContent = merged.toString();
+        } catch (Exception e) {
+            fullContent = source.getContent();
+        }
+
+        // 保存为新版本
+        PrdDocument fixed = buildFixedPrdDocument(source, null, userId, fullContent);
+        fixed = prdDocumentRepository.save(fixed);
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("prdDocumentId", fixed.getId());
+        result.put("chapterIndex", chapterIndex);
+        result.put("oldText", oldText);
+        result.put("newText", newText);
+        result.put("changeSummary", changeSummary);
+        result.put("patchedContent", patchedContent);
+        return result;
+    }
+
+    private String findBestMatch(String content, String target) {
+        if (content == null || target == null || target.length() < 5) return null;
+        // 尝试找 target 的前 30 个字符
+        String prefix = target.length() > 30 ? target.substring(0, 30) : target;
+        if (content.contains(prefix)) return prefix;
+        // 尝试找 target 的后 30 个字符
+        String suffix = target.length() > 30 ? target.substring(target.length() - 30) : target;
+        if (content.contains(suffix)) return suffix;
+        // 尝试找 target 中最长的连续子串
+        for (int len = Math.min(target.length(), 20); len >= 8; len--) {
+            for (int i = 0; i + len <= target.length(); i++) {
+                String sub = target.substring(i, i + len);
+                if (content.contains(sub)) return sub;
+            }
+        }
+        return null;
     }
 }

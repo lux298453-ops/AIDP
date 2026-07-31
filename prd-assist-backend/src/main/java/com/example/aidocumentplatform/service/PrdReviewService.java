@@ -3,6 +3,8 @@ package com.example.aidocumentplatform.service;
 import com.example.aidocumentplatform.model.dto.request.PrdReviewFixRequest;
 import com.example.aidocumentplatform.model.dto.request.PrdReviewRequest;
 
+import java.util.Map;
+
 public interface PrdReviewService {
 
     /**
@@ -18,4 +20,10 @@ public interface PrdReviewService {
      * @return taskId（完成后 resultRefId = 新 prd_document.id）
      */
     Long submitFix(Long reportId, PrdReviewFixRequest request, Long userId);
+
+    /**
+     * 内联精准修复：AI 只返回 oldText → newText 的文本替换，后端在章节中定位并替换。
+     * 返回 { taskId, oldText, newText, changeSummary } 供前端高亮展示。
+     */
+    Map<String, Object> submitInlineFix(Long reportId, int issueIndex, Long sourcePrdDocumentId, Long userId);
 }

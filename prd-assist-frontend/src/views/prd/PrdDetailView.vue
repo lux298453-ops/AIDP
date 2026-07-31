@@ -59,6 +59,7 @@ interface ReviewIssue {
   chapterTitle?: string
   originalIndex?: number
   location: string
+  targetText?: string
   description: string
   suggestion: string
 }
@@ -71,6 +72,7 @@ const fixedFocusIssue = ref<ReviewIssue | null>(null)
 const reviewPanelOpen = ref(true)
 const reviewFixing = ref(false)
 const reviewFixTarget = ref<'batch' | number | null>(null)
+const reviewInlineFixing = ref<number | null>(null)
 const fromReviewId = computed(() => {
   const v = route.query.fromReview
   return v ? Number(v) : null
@@ -306,18 +308,15 @@ function matchChapterIndex(location: string | undefined | null): number {
 }
 
 function resolveIssueChapterIndex(issue: ReviewIssue): number {
-  // 优先使用 chapterIndex：后端修复时在同一个 index 位置合并章节，顺序不变，比标题模糊匹配更可靠
+  const byTitle = matchChapterIndex(issue.chapterTitle)
+  if (byTitle >= 0) return byTitle
+
   if (Number.isInteger(issue.chapterIndex)
     && issue.chapterIndex! >= 0
     && issue.chapterIndex! < chapters.value.length) {
     return issue.chapterIndex!
   }
 
-  // chapterIndex 无效时，用标题模糊匹配兜底
-  const byTitle = matchChapterIndex(issue.chapterTitle)
-  if (byTitle >= 0) return byTitle
-
-  // 最后尝试用 location 文本匹配
   return matchChapterIndex(issue.location)
 }
 
@@ -456,6 +455,25 @@ function scrollElementIntoContent(target?: HTMLElement | null, section?: HTMLEle
 }
 
 function findIssueTargetElement(section: HTMLElement, issue: ReviewIssue): HTMLElement | null {
+  // 优先用 targetText 做精准定位
+  if (issue.targetText && issue.targetText.length >= 10) {
+    const normalizedTarget = normalizeAnchorText(issue.targetText)
+    const nodes = Array.from(section.querySelectorAll<HTMLElement>(
+      '.rte-body h1,.rte-body h2,.rte-body h3,.rte-body h4,.rte-body p,.rte-body li,.rte-body td,.rte-body th,.rte-body div',
+    )).filter(el => (el.innerText || el.textContent || '').trim().length > 0)
+    for (const el of nodes) {
+      const text = normalizeAnchorText(el.innerText || el.textContent || '')
+      if (text.includes(normalizedTarget) || normalizedTarget.includes(text)) {
+        return el
+      }
+    }
+    // 尝试在 innerHTML 中搜索 targetText 的前 30 个字符
+    const prefix = issue.targetText.substring(0, Math.min(30, issue.targetText.length))
+    for (const el of nodes) {
+      if ((el.innerHTML || '').includes(prefix)) return el
+    }
+  }
+
   const candidates = buildIssueSearchTerms(issue)
   if (!candidates.length) return null
   const nodes = Array.from(section.querySelectorAll<HTMLElement>(
@@ -753,6 +771,99 @@ async function aiFixReview(issueIndexes?: number[]) {
 function finishReviewFixing() {
   reviewFixing.value = false
   reviewFixTarget.value = null
+  reviewInlineFixing.value = null
+}
+
+async function aiFixInline(issueIndex: number) {
+  if (!fromReviewId.value) return
+  const issue = reviewIssues.value[issueIndex]
+  if (!issue) return
+
+  if (dirty.value) {
+    try {
+      await ElMessageBox.confirm(
+        '当前 PRD 有未保存修改。AI 修复会基于已保存内容执行，是否先保存再修复？',
+        'AI 内联修复',
+        { type: 'info', confirmButtonText: '保存并修复', cancelButtonText: '取消' },
+      )
+      await save()
+      if (dirty.value) {
+        ElMessage.warning('请先保存成功后再修复')
+        return
+      }
+    } catch {
+      return
+    }
+  }
+
+  reviewInlineFixing.value = issueIndex
+  try {
+    const originalIndex = reviewIssueOriginalIndex(issue, issueIndex)
+    const res = await client.post(`/review/${fromReviewId.value}/fix-inline`, {
+      issueIndex: originalIndex,
+      sourcePrdDocumentId: id.value,
+    })
+    const data = res.data.data
+    const chIdx = data.chapterIndex as number
+    const oldText = data.oldText as string
+    const newText = data.newText as string
+    const changeSummary = data.changeSummary as string
+    const patchedContent = data.patchedContent as string
+    const newPrdId = data.prdDocumentId as number
+
+    // 原地更新章节内容
+    if (chIdx >= 0 && chIdx < chapters.value.length) {
+      chapters.value[chIdx].content = patchedContent
+      markDirty()
+    }
+
+    // 高亮被修改的文字
+    await nextTick()
+    if (chIdx >= 0) {
+      activeKey.value = `chapter-${chIdx}`
+      await nextTick()
+      const section = document.getElementById(`prd-section-chapter-${chIdx}`) as HTMLElement | null
+      if (section && newText) {
+        // 在渲染后的 DOM 中查找 newText 并高亮
+        const nodes = Array.from(section.querySelectorAll<HTMLElement>(
+          '.rte-body p,.rte-body li,.rte-body td,.rte-body th,.rte-body div',
+        )).filter(el => (el.innerText || el.textContent || '').trim().length > 0)
+        for (const el of nodes) {
+          const text = el.innerText || el.textContent || ''
+          if (text.includes(newText.substring(0, Math.min(30, newText.length)))) {
+            el.classList.add('inline-fix-flash')
+            window.setTimeout(() => el.classList.remove('inline-fix-flash'), 2000)
+            el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+            break
+          }
+        }
+      }
+    }
+
+    ElMessage.success(changeSummary || '内联修复完成')
+
+    // 从问题列表中移除已修复的问题
+    reviewIssues.value = reviewIssues.value.filter((_, i) => i !== issueIndex)
+    reviewFilteredFixedCount.value += 1
+
+    // 保存为新版本
+    if (newPrdId) {
+      await client.put(`/prd/${id.value}`, {
+        title: title.value,
+        description: description.value,
+        content: {
+          title: title.value,
+          summary: summary.value,
+          chapters: chapters.value,
+        },
+      })
+      dirty.value = false
+    }
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.message || e?.message || '内联修复失败')
+  } finally {
+    reviewInlineFixing.value = null
+  }
 }
 
 function watchReviewFixTask(fixTaskId: number, fixedIssueIndexes: number[]) {
@@ -1074,8 +1185,18 @@ watch(id, () => load())
                 <el-button
                   size="small"
                   text
+                  type="warning"
+                  :loading="reviewInlineFixing === idx"
+                  :disabled="(reviewFixing || reviewInlineFixing !== null) && reviewInlineFixing !== idx"
+                  @click.stop="aiFixInline(idx)"
+                >
+                  内联修复此条
+                </el-button>
+                <el-button
+                  size="small"
+                  text
                   :loading="reviewFixTarget === reviewIssueOriginalIndex(issue, idx)"
-                  :disabled="reviewFixing && reviewFixTarget !== reviewIssueOriginalIndex(issue, idx)"
+                  :disabled="(reviewFixing || reviewInlineFixing !== null) && reviewFixTarget !== reviewIssueOriginalIndex(issue, idx)"
                   @click.stop="aiFixReview([reviewIssueOriginalIndex(issue, idx)])"
                 >
                   AI 修复此条
@@ -1353,6 +1474,15 @@ watch(id, () => load())
 }
 @keyframes issue-focus-flash {
   0%   { background: rgba(245, 78, 0, 0.18); box-shadow: 0 0 0 4px rgba(245, 78, 0, 0.12); }
+  100% { background: transparent; box-shadow: 0 0 0 0 transparent; }
+}
+.content-section :deep(.inline-fix-flash) {
+  animation: inline-fix-flash 2s ease;
+  border-radius: 6px;
+}
+@keyframes inline-fix-flash {
+  0%   { background: rgba(11, 182, 199, 0.22); box-shadow: 0 0 0 3px rgba(11, 182, 199, 0.15); }
+  50%  { background: rgba(11, 182, 199, 0.12); box-shadow: 0 0 0 2px rgba(11, 182, 199, 0.08); }
   100% { background: transparent; box-shadow: 0 0 0 0 transparent; }
 }
 

@@ -44,23 +44,31 @@ public class PrdReviewPromptTemplate {
                 【审查维度】
                 %s
                 %s
-                【输出格式】
-                你必须返回一个 JSON 对象（不要包含 markdown 代码块标记）：
-                {
-                  "summary": "总体评价（一段话）",
-                  "score": 85,
-                  "issues": [
-                    {
-                      "severity": "CRITICAL|MAJOR|MINOR|SUGGESTION",
-                      "dimension": "completeness|consistency|compliance",
-                      "chapterIndex": 0,
-                      "chapterTitle": "与 chapterIndex 对应的章节标题",
-                      "location": "问题所在的具体章节或段落",
-                      "description": "问题的具体描述",
-                      "suggestion": "修改建议"
-                    }
-                  ]
-                }
+                 【输出格式】
+                 你必须返回一个 JSON 对象（不要包含 markdown 代码块标记）：
+                 {
+                   "summary": "总体评价（一段话）",
+                   "score": 85,
+                   "issues": [
+                     {
+                       "severity": "CRITICAL|MAJOR|MINOR|SUGGESTION",
+                       "dimension": "completeness|consistency|compliance",
+                       "chapterIndex": 0,
+                       "chapterTitle": "与 chapterIndex 对应的章节标题",
+                       "location": "问题所在的具体章节或段落",
+                       "targetText": "从 PRD 原文中摘录的问题相关原文片段（20~200 字），用于前端精准定位和高亮。如果问题是整体性的（如缺少某章节），填 ''",
+                       "description": "问题的具体描述",
+                       "suggestion": "修改建议"
+                     }
+                   ]
+                 }
+
+                 【targetText 要求】
+                 - targetText 必须是从 PRD 原文中逐字摘录的片段，不能自己概括或改写
+                 - 摘录长度 20~200 字，要足够唯一以便前端在章节中精准定位
+                 - 如果问题是"缺少某内容"或"整体结构问题"，targetText 填空字符串 ""
+                 - 如果问题涉及多个分散的句子，摘录最核心的一句
+
 
                 【严重程度说明】
                 - CRITICAL: 阻塞性问题，必须修复才能进入开发

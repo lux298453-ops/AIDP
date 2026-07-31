@@ -29,6 +29,7 @@ import java.util.Map;
  * GET  /api/review/{id}/export          → 导出审查报告 Word
  * GET  /api/review/{id}/export-prd      → 导出关联 PRD Word
  * POST /api/review/{id}/fix             → AI 按问题修订 PRD，返回 { taskId }
+ * POST /api/review/{id}/fix-inline      → AI 内联精准修复单条问题，返回 { prdDocumentId, oldText, newText, changeSummary }
  */
 @RestController
 @RequiredArgsConstructor
@@ -104,6 +105,22 @@ public class PrdReviewController {
         Long taskId = prdReviewService.submitFix(
                 id, request != null ? request : new PrdReviewFixRequest(), userId);
         return ApiResponse.success(Map.of("taskId", taskId));
+    }
+
+    /**
+     * 内联精准修复：AI 只返回 oldText → newText 的文本替换。
+     * 同步返回结果，供前端原地更新文本框并高亮修改文字。
+     */
+    @PostMapping("/api/review/{id}/fix-inline")
+    public ApiResponse<Map<String, Object>> fixInline(
+            @PathVariable Long id,
+            @RequestBody Map<String, Object> body) {
+        Long userId = getCurrentUserId();
+        int issueIndex = body.containsKey("issueIndex") ? ((Number) body.get("issueIndex")).intValue() : 0;
+        Long sourcePrdDocumentId = body.containsKey("sourcePrdDocumentId")
+                ? ((Number) body.get("sourcePrdDocumentId")).longValue() : null;
+        Map<String, Object> result = prdReviewService.submitInlineFix(id, issueIndex, sourcePrdDocumentId, userId);
+        return ApiResponse.success(result);
     }
 
     private ReviewReport getOwnedReport(Long id) {
