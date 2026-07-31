@@ -2,6 +2,7 @@
 import { ref, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { Search, List, Grid, Download, Refresh } from '@element-plus/icons-vue'
 import { getDocumentList } from '@/api/document'
 import client from '@/api/client'
 import type { DocumentVO } from '@/types/document'
