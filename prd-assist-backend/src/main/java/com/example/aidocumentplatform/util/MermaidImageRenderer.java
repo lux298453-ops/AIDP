@@ -335,8 +335,14 @@ public class MermaidImageRenderer {
             puppeteerCfg = createPuppeteerConfig();
             Files.writeString(tmpInput, code, StandardCharsets.UTF_8);
 
+            String mmdcCmd = resolveMmdcCommand();
+            if (mmdcCmd == null) {
+                log.warn("本地 mmdc 未找到，请执行 npm install -g @mermaid-js/mermaid-cli");
+                return null;
+            }
+
             ProcessBuilder pb = new ProcessBuilder(
-                    "mmdc",
+                    mmdcCmd,
                     "-i", tmpInput.toString(),
                     "-o", tmpOutput.toString(),
                     "-w", "1200",
@@ -370,6 +376,44 @@ public class MermaidImageRenderer {
             try { if (tmpOutput != null) Files.deleteIfExists(tmpOutput); } catch (Exception ignored) {}
             try { if (puppeteerCfg != null) Files.deleteIfExists(puppeteerCfg); } catch (Exception ignored) {}
         }
+        return null;
+    }
+
+    private String resolveMmdcCommand() {
+        boolean isWindows = System.getProperty("os.name", "").toLowerCase().contains("win");
+        String[] candidates = isWindows
+                ? new String[]{"mmdc.cmd", "mmdc.ps1", "mmdc"}
+                : new String[]{"mmdc"};
+
+        // 先尝试直接执行（依赖 PATH）
+        for (String cmd : candidates) {
+            try {
+                ProcessBuilder pb = new ProcessBuilder(cmd, "--version");
+                pb.redirectErrorStream(true);
+                Process p = pb.start();
+                if (p.waitFor(5, java.util.concurrent.TimeUnit.SECONDS) && p.exitValue() == 0) {
+                    return cmd;
+                }
+            } catch (Exception ignored) { /* try next */ }
+        }
+
+        // 再尝试 npm 全局目录
+        String npmPrefix = System.getenv("APPDATA") != null
+                ? System.getenv("APPDATA") + "\\npm"
+                : System.getProperty("user.home") + "/.npm-global";
+        for (String cmd : candidates) {
+            Path fullPath = Path.of(npmPrefix, cmd);
+            if (Files.isExecutable(fullPath) || Files.exists(fullPath)) {
+                return fullPath.toString();
+            }
+        }
+
+        // Unix: /usr/local/bin
+        if (!isWindows) {
+            Path unixPath = Path.of("/usr/local/bin/mmdc");
+            if (Files.exists(unixPath)) return unixPath.toString();
+        }
+
         return null;
     }
 
