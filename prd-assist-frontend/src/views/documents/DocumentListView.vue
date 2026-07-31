@@ -95,8 +95,9 @@ async function exportWord(doc: DocumentVO) {
     a.click()
     window.URL.revokeObjectURL(url)
     ElMessage.success('下载成功')
-  } catch {
-    ElMessage.error('下载失败')
+  } catch (e: any) {
+    console.error('导出失败:', e)
+    ElMessage.error(e?.response?.data?.message || e?.message || '下载失败')
   }
 }
 
