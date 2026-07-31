@@ -7,10 +7,10 @@ const router = useRouter()
 const user = useUserStore()
 
 const modules = [
-  { title: 'PRD 生成', desc: '输入需求描述，AI 自动生成结构化 PRD 文档', path: '/prd/generate', icon: 'Document', color: '#26251e', bg: 'rgba(38,37,30,0.06)' },
-  { title: 'PRD 增强', desc: '在已有 PRD 基础上补充、细化、优化内容', path: '/prd/enhance', icon: 'Edit', color: '#1f8a65', bg: 'rgba(31,138,101,0.08)' },
-  { title: 'PRD 审查', desc: 'AI 全面评审 PRD，检查完整性与一致性', path: '/prd/review', icon: 'Checked', color: '#c08532', bg: 'rgba(192,133,50,0.08)' },
-  { title: '原型生成', desc: '根据 PRD 生成可交互的 HTML 原型页面', path: '/prototype', icon: 'PictureFilled', color: '#cf2d56', bg: 'rgba(207,45,86,0.06)' },
+  { title: 'PRD 生成', desc: '输入需求描述，AI 自动生成结构化 PRD 文档', path: '/prd/generate', icon: Document, color: '#26251e', bg: 'rgba(38,37,30,0.06)' },
+  { title: 'PRD 增强', desc: '在已有 PRD 基础上补充、细化、优化内容', path: '/prd/enhance', icon: Edit, color: '#1f8a65', bg: 'rgba(31,138,101,0.08)' },
+  { title: 'PRD 审查', desc: 'AI 全面评审 PRD，检查完整性与一致性', path: '/prd/review', icon: Checked, color: '#c08532', bg: 'rgba(192,133,50,0.08)' },
+  { title: '原型生成', desc: '根据 PRD 生成可交互的 HTML 原型页面', path: '/prototype', icon: PictureFilled, color: '#cf2d56', bg: 'rgba(207,45,86,0.06)' },
 ]
 
 /** 使用流程步骤 */
