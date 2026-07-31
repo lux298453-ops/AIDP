@@ -128,9 +128,9 @@ function handleLogout() {
   gap: 6px;
   padding: 0 18px;
   height: 100%;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 500;
-  color: rgba(38, 37, 30, 0.55);
+  color: rgba(38, 37, 30, 0.65);
   cursor: pointer;
   border-bottom: 2px solid transparent;
   transition: all 0.15s ease;
