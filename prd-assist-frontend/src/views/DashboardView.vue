@@ -7,10 +7,10 @@ const router = useRouter()
 const user = useUserStore()
 
 const modules = [
-  { title: 'PRD 生成', desc: '输入需求描述，AI 自动生成结构化 PRD 文档', path: '/prd/generate', icon: Document, color: '#1e40af' },
-  { title: 'PRD 增强', desc: '在已有 PRD 基础上补充、细化、优化内容', path: '/prd/enhance', icon: Edit, color: '#10b981' },
-  { title: '原型生成', desc: '根据 PRD 生成可交互的 HTML 原型页面', path: '/prototype', icon: PictureFilled, color: '#c559f0' },
-  { title: 'PRD 审查', desc: 'AI 全面评审 PRD，检查完整性与一致性', path: '/prd/review', icon: Checked, color: '#f59e0b' },
+  { title: 'PRD 生成', desc: '输入需求描述，AI 自动生成结构化 PRD 文档', path: '/prd/generate', icon: Document, color: '#78716c', bg: 'rgba(120,113,108,0.08)' },
+  { title: 'PRD 增强', desc: '在已有 PRD 基础上补充、细化、优化内容', path: '/prd/enhance', icon: Edit, color: '#65a30d', bg: 'rgba(101,163,13,0.08)' },
+  { title: '原型生成', desc: '根据 PRD 生成可交互的 HTML 原型页面', path: '/prototype', icon: PictureFilled, color: '#d97706', bg: 'rgba(217,119,6,0.08)' },
+  { title: 'PRD 审查', desc: 'AI 全面评审 PRD，检查完整性与一致性', path: '/prd/review', icon: Checked, color: '#b45309', bg: 'rgba(180,83,9,0.08)' },
 ]
 
 const flowSteps = [
@@ -22,21 +22,11 @@ const flowSteps = [
 
 <template>
   <div class="dashboard">
-    <!-- ====== 欢迎横幅 ====== -->
+    <!-- ====== 欢迎区 ====== -->
     <div class="welcome-banner">
       <div class="welcome-left">
         <h2>欢迎回来，{{ user.nickname || user.username }}</h2>
         <p>AI 辅助设计平台 — 让策划工作更高效</p>
-      </div>
-      <div class="welcome-right">
-        <div class="welcome-stat">
-          <span class="welcome-stat-value">4</span>
-          <span class="welcome-stat-label">功能模块</span>
-        </div>
-        <div class="welcome-stat">
-          <span class="welcome-stat-value">3</span>
-          <span class="welcome-stat-label">工作步骤</span>
-        </div>
       </div>
     </div>
 
@@ -49,8 +39,8 @@ const flowSteps = [
         class="module-card"
         @click="router.push(mod.path)"
       >
-        <div class="mod-icon-box" :style="{ color: mod.color }">
-          <el-icon size="22"><component :is="mod.icon" /></el-icon>
+        <div class="mod-icon-box" :style="{ background: mod.bg, color: mod.color }">
+          <el-icon size="24"><component :is="mod.icon" /></el-icon>
         </div>
         <div class="mod-body">
           <h4>{{ mod.title }}</h4>
@@ -62,7 +52,7 @@ const flowSteps = [
     <!-- ====== 快捷操作 ====== -->
     <h3 class="section-title">快捷操作</h3>
     <div class="quick-row">
-      <div class="quick-card">
+      <div class="quick-card quick-main">
         <div class="quick-card-header">开始工作</div>
         <div class="quick-actions">
           <button class="quick-btn" @click="router.push('/documents')">
@@ -80,7 +70,7 @@ const flowSteps = [
         </div>
       </div>
 
-      <div class="quick-card">
+      <div class="quick-card quick-flow">
         <div class="quick-card-header">使用流程</div>
         <div class="flow-steps">
           <div
@@ -106,9 +96,11 @@ const flowSteps = [
 <style scoped>
 /* ====== 页面整体容器 ====== */
 .dashboard {
-  max-width: 1200px;
+  max-width: 1280px;
   margin: 0 auto;
-  padding: 40px 48px;
+  padding: 48px 64px;
+  background: #faf6f1;
+  min-height: 100vh;
 }
 
 /* ====== 欢迎横幅 ====== */
@@ -116,52 +108,37 @@ const flowSteps = [
   display: flex;
   align-items: center;
   justify-content: space-between;
-  background: linear-gradient(135deg, #1e40af, #3b82f6);
-  border-radius: 12px;
-  padding: 36px 40px;
-  color: #fff;
+  background: #e7e5d9;
+  border-radius: 2rem;
+  padding: 40px 44px;
+  color: #44403c;
   margin-bottom: 36px;
-  box-shadow: 0 1px 3px rgba(30, 64, 175, 0.12);
+  border: 1px solid #d6d3d1;
 }
 .welcome-left h2 {
-  margin: 0 0 6px;
-  font-size: 24px;
+  margin: 0 0 8px;
+  font-size: 28px;
   font-weight: 600;
   letter-spacing: -0.3px;
+  font-family: 'Source Serif 4', 'Iowan Old Style', Georgia, serif;
+  color: #292524;
 }
 .welcome-left p {
   margin: 0;
-  opacity: 0.8;
-  font-size: 14px;
-}
-.welcome-right {
-  display: flex;
-  gap: 32px;
-}
-.welcome-stat {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 2px;
-}
-.welcome-stat-value {
-  font-size: 28px;
-  font-weight: 700;
-  line-height: 1;
-}
-.welcome-stat-label {
-  font-size: 12px;
-  opacity: 0.7;
+  opacity: 0.65;
+  font-size: 15px;
+  color: #57534e;
 }
 
 /* ====== 区段标题 ====== */
 .section-title {
   font-size: 13px;
-  font-weight: 600;
-  color: #64748b;
+  font-weight: 500;
+  color: #a8a29e;
   text-transform: uppercase;
   letter-spacing: 0.6px;
-  margin: 0 0 16px;
+  margin: 36px 0 16px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
 
 /* =================================================================
@@ -171,43 +148,34 @@ const flowSteps = [
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 16px;
-  margin-bottom: 36px;
 }
 
 .module-card {
   display: flex;
   flex-direction: column;
-  padding: 24px;
+  padding: 28px 24px;
   background: #fff;
-  border-radius: 12px;
-  border: 1px solid #e2e8f0;
-  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06);
+  border-radius: 1.5rem;
+  border: 1px solid #d6d3d1;
   cursor: pointer;
-  transition: all 0.2s ease-out;
+  transition: all 0.3s ease;
   height: 100%;
 }
 .module-card:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.1);
-  border-color: #cbd5e1;
+  transform: translateY(-3px);
+  box-shadow: 0 8px 24px rgba(68, 64, 60, 0.1);
+  border-color: #a8a29e;
 }
 
 .mod-icon-box {
-  width: 44px;
-  height: 44px;
-  border-radius: 10px;
+  width: 48px;
+  height: 48px;
+  border-radius: 1rem;
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  margin-bottom: 16px;
-  background: #f1f5f9;
-  transition: all 0.2s ease-out;
-}
-.module-card:hover .mod-icon-box {
-  background: #1e40af;
-  color: #fff !important;
-  transform: scale(1.08);
+  margin-bottom: 18px;
 }
 
 .mod-body {
@@ -217,17 +185,18 @@ const flowSteps = [
 }
 .mod-body h4 {
   margin: 0 0 6px;
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 600;
-  color: #0f172a;
+  color: #292524;
   letter-spacing: -0.1px;
+  font-family: 'Source Serif 4', 'Iowan Old Style', Georgia, serif;
   flex-shrink: 0;
 }
 .mod-body p {
   margin: 0;
   font-size: 13px;
-  color: #64748b;
-  line-height: 1.55;
+  color: #78716c;
+  line-height: 1.65;
   flex: 1;
 }
 
@@ -242,19 +211,19 @@ const flowSteps = [
 
 .quick-card {
   background: #fff;
-  border-radius: 12px;
-  border: 1px solid #e2e8f0;
-  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06);
-  padding: 24px;
+  border-radius: 1.5rem;
+  border: 1px solid #d6d3d1;
+  padding: 24px 28px;
 }
 
 .quick-card-header {
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 600;
-  color: #0f172a;
-  margin-bottom: 18px;
-  padding-bottom: 12px;
-  border-bottom: 1px solid #f1f5f9;
+  color: #292524;
+  margin-bottom: 20px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid #e7e5d9;
+  font-family: 'Source Serif 4', 'Iowan Old Style', Georgia, serif;
 }
 
 .quick-actions {
@@ -268,40 +237,31 @@ const flowSteps = [
   align-items: center;
   justify-content: center;
   gap: 8px;
-  height: 48px;
-  border: 1px solid #e2e8f0;
-  border-radius: 10px;
-  background: #f8fafc;
-  color: #334155;
+  height: 52px;
+  border: 1px solid #d6d3d1;
+  border-radius: 999px;
+  background: #faf6f1;
+  color: #57534e;
   font-size: 14px;
   font-weight: 500;
   font-family: inherit;
   cursor: pointer;
-  transition: all 0.15s ease-out;
+  transition: all 0.3s ease;
   text-align: center;
   line-height: 1;
-  padding: 0 12px;
+  padding: 0 16px;
 }
 .quick-btn :deep(.el-icon) {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  color: #64748b;
-  transition: color 0.15s ease-out;
 }
 .quick-btn:hover {
-  background: #1e40af;
-  color: #fff;
-  border-color: #1e40af;
-  transform: translateY(-1px);
-  box-shadow: 0 2px 6px rgba(30, 64, 175, 0.15);
-}
-.quick-btn:hover :deep(.el-icon) {
-  color: #fff;
-}
-.quick-btn:active {
-  transform: scale(0.98) translateY(0);
+  background: #e7e5d9;
+  color: #292524;
+  border-color: #a8a29e;
+  transform: scale(0.97);
 }
 
 /* =================================================================
@@ -331,10 +291,10 @@ const flowSteps = [
   width: 28px;
   height: 28px;
   border-radius: 50%;
-  background: #1e40af;
-  color: #fff;
+  background: #57534e;
+  color: #faf6f1;
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 500;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -345,7 +305,7 @@ const flowSteps = [
   width: 1.5px;
   flex: 1;
   min-height: 24px;
-  background: #e2e8f0;
+  background: #d6d3d1;
 }
 
 .flow-content {
@@ -359,13 +319,13 @@ const flowSteps = [
 
 .flow-label {
   font-size: 14px;
-  font-weight: 600;
-  color: #0f172a;
+  font-weight: 500;
+  color: #292524;
   line-height: 28px;
 }
 .flow-desc {
   font-size: 12px;
-  color: #64748b;
+  color: #a8a29e;
   line-height: 1.5;
   margin-top: 2px;
 }
@@ -391,14 +351,6 @@ const flowSteps = [
   }
   .quick-actions {
     grid-template-columns: 1fr;
-  }
-  .welcome-banner {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 16px;
-  }
-  .welcome-right {
-    gap: 24px;
   }
 }
 </style>
