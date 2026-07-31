@@ -7,10 +7,10 @@ const router = useRouter()
 const user = useUserStore()
 
 const modules = [
-  { title: 'PRD 生成', desc: '输入需求描述，AI 自动生成结构化 PRD 文档', path: '/prd/generate', icon: Document, color: '#5a8a7a', bg: 'rgba(90,138,122,0.12)' },
-  { title: 'PRD 增强', desc: '在已有 PRD 基础上补充、细化、优化内容', path: '/prd/enhance', icon: Edit, color: '#8b7a5a', bg: 'rgba(139,122,90,0.12)' },
-  { title: '原型生成', desc: '根据 PRD 生成可交互的 HTML 原型页面', path: '/prototype', icon: PictureFilled, color: '#c07a5a', bg: 'rgba(192,122,90,0.10)' },
-  { title: 'PRD 审查', desc: 'AI 全面评审 PRD，检查完整性与一致性', path: '/prd/review', icon: Checked, color: '#7a8b5a', bg: 'rgba(122,139,90,0.12)' },
+  { title: 'PRD 生成', desc: '输入需求描述，AI 自动生成结构化 PRD 文档', path: '/prd/generate', icon: Document },
+  { title: 'PRD 增强', desc: '在已有 PRD 基础上补充、细化、优化内容', path: '/prd/enhance', icon: Edit },
+  { title: '原型生成', desc: '根据 PRD 生成可交互的 HTML 原型页面', path: '/prototype', icon: PictureFilled },
+  { title: 'PRD 审查', desc: 'AI 全面评审 PRD，检查完整性与一致性', path: '/prd/review', icon: Checked },
 ]
 
 const flowSteps = [
@@ -22,166 +22,128 @@ const flowSteps = [
 
 <template>
   <div class="dashboard">
-    <!-- 装饰云朵 -->
-    <div class="cloud cloud-1" />
-    <div class="cloud cloud-2" />
-
     <!-- ====== 欢迎区 ====== -->
-    <div class="welcome-banner">
-      <div class="welcome-left">
-        <h2>ようこそ、{{ user.nickname || user.username }}</h2>
-        <p>AI 辅助设计平台 — 让策划工作更高效</p>
+    <section class="welcome-section">
+      <div class="welcome-inner">
+        <h1 class="welcome-heading">欢迎回来，{{ user.nickname || user.username }}</h1>
+        <p class="welcome-sub">AI 辅助设计平台 — 让策划工作更高效</p>
       </div>
-      <div class="welcome-decor">
-        <svg viewBox="0 0 120 80" class="welcome-illust">
-          <ellipse cx="60" cy="70" rx="50" ry="8" fill="rgba(124,185,168,0.15)" />
-          <circle cx="40" cy="30" r="18" fill="rgba(124,185,168,0.25)" />
-          <circle cx="65" cy="22" r="22" fill="rgba(124,185,168,0.3)" />
-          <circle cx="90" cy="32" r="16" fill="rgba(124,185,168,0.2)" />
-        </svg>
-      </div>
-    </div>
+    </section>
 
     <!-- ====== 功能模块 ====== -->
-    <h3 class="section-title">功能模块</h3>
-    <div class="module-grid">
-      <div
-        v-for="mod in modules"
-        :key="mod.path"
-        class="module-card"
-        @click="router.push(mod.path)"
-      >
-        <div class="mod-icon-box" :style="{ background: mod.bg, color: mod.color }">
-          <el-icon size="24"><component :is="mod.icon" /></el-icon>
-        </div>
-        <div class="mod-body">
-          <h4>{{ mod.title }}</h4>
-          <p>{{ mod.desc }}</p>
+    <section class="section-block">
+      <h2 class="section-heading">功能模块</h2>
+      <div class="module-grid">
+        <div
+          v-for="mod in modules"
+          :key="mod.path"
+          class="module-card"
+          @click="router.push(mod.path)"
+        >
+          <div class="mod-icon-box">
+            <el-icon size="22"><component :is="mod.icon" /></el-icon>
+          </div>
+          <div class="mod-body">
+            <h3 class="mod-title">{{ mod.title }}</h3>
+            <p class="mod-desc">{{ mod.desc }}</p>
+          </div>
         </div>
       </div>
-    </div>
+    </section>
 
     <!-- ====== 快捷操作 ====== -->
-    <h3 class="section-title">快捷操作</h3>
-    <div class="quick-row">
-      <div class="quick-card quick-main">
-        <div class="quick-card-header">开始工作</div>
-        <div class="quick-actions">
-          <button class="quick-btn" @click="router.push('/documents')">
-            <el-icon size="18"><Upload /></el-icon>
-            <span>我的文档</span>
-          </button>
-          <button class="quick-btn" @click="router.push('/prd/generate')">
-            <el-icon size="18"><Document /></el-icon>
-            <span>PRD 生成</span>
-          </button>
-          <button class="quick-btn" @click="router.push('/prototype')">
-            <el-icon size="18"><PictureFilled /></el-icon>
-            <span>原型生成</span>
-          </button>
+    <section class="section-block">
+      <h2 class="section-heading">快捷操作</h2>
+      <div class="quick-row">
+        <div class="quick-card">
+          <h3 class="quick-card-heading">开始工作</h3>
+          <div class="quick-actions">
+            <button class="quick-btn" @click="router.push('/documents')">
+              <el-icon size="16"><Upload /></el-icon>
+              <span>我的文档</span>
+            </button>
+            <button class="quick-btn" @click="router.push('/prd/generate')">
+              <el-icon size="16"><Document /></el-icon>
+              <span>PRD 生成</span>
+            </button>
+            <button class="quick-btn" @click="router.push('/prototype')">
+              <el-icon size="16"><PictureFilled /></el-icon>
+              <span>原型生成</span>
+            </button>
+          </div>
         </div>
-      </div>
 
-      <div class="quick-card quick-flow">
-        <div class="quick-card-header">使用流程</div>
-        <div class="flow-steps">
-          <div
-            v-for="(step, idx) in flowSteps"
-            :key="idx"
-            class="flow-step"
-          >
-            <div class="flow-indicator">
-              <span class="flow-dot">{{ idx + 1 }}</span>
-              <div v-if="idx < flowSteps.length - 1" class="flow-line" />
-            </div>
-            <div class="flow-content">
-              <span class="flow-label">{{ step.label }}</span>
-              <span class="flow-desc">{{ step.desc }}</span>
+        <div class="quick-card">
+          <h3 class="quick-card-heading">使用流程</h3>
+          <div class="flow-steps">
+            <div
+              v-for="(step, idx) in flowSteps"
+              :key="idx"
+              class="flow-step"
+            >
+              <div class="flow-indicator">
+                <span class="flow-dot">{{ idx + 1 }}</span>
+                <div v-if="idx < flowSteps.length - 1" class="flow-line" />
+              </div>
+              <div class="flow-content">
+                <span class="flow-label">{{ step.label }}</span>
+                <span class="flow-desc">{{ step.desc }}</span>
+              </div>
             </div>
           </div>
         </div>
       </div>
-    </div>
+    </section>
   </div>
 </template>
 
 <style scoped>
 /* ====== 页面整体容器 ====== */
 .dashboard {
-  max-width: 1280px;
+  max-width: 1120px;
   margin: 0 auto;
-  padding: 48px 64px;
-  position: relative;
-  overflow: hidden;
+  padding: 80px 64px 120px;
+  font-family: 'Noto Serif SC', 'Source Serif 4', 'Iowan Old Style', Georgia, 'Times New Roman', serif;
+  font-weight: 300;
+  color: #2d2a24;
 }
 
-/* ====== 装饰云朵 ====== */
-.cloud {
-  position: absolute;
-  border-radius: 50%;
-  background: rgba(124, 185, 168, 0.08);
-  pointer-events: none;
-  z-index: 0;
+/* ====== 欢迎区 ====== */
+.welcome-section {
+  margin-bottom: 64px;
 }
-.cloud-1 {
-  width: 200px;
-  height: 80px;
-  top: -20px;
-  right: -40px;
+.welcome-inner {
+  padding: 56px 0 40px;
+  border-bottom: 1px solid rgba(196, 187, 168, 0.4);
 }
-.cloud-2 {
-  width: 160px;
-  height: 60px;
-  bottom: 60px;
-  left: -30px;
-}
-
-/* ====== 欢迎横幅 ====== */
-.welcome-banner {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  background: linear-gradient(135deg, #5a8a7a 0%, #7cb9a8 40%, #a8d5c8 100%);
-  border-radius: 24px;
-  padding: 36px 40px;
-  color: #faf5eb;
-  margin-bottom: 36px;
-  position: relative;
-  z-index: 1;
-  box-shadow: 0 4px 24px rgba(90, 138, 122, 0.2);
-}
-.welcome-left h2 {
-  margin: 0 0 8px;
+.welcome-heading {
+  margin: 0 0 12px;
   font-size: 28px;
-  font-weight: 600;
-  letter-spacing: 0.5px;
+  font-weight: 300;
+  letter-spacing: 0.02em;
+  color: #2d2a24;
+  line-height: 1.3;
 }
-.welcome-left p {
+.welcome-sub {
   margin: 0;
-  opacity: 0.8;
   font-size: 15px;
-  font-family: 'Source Serif 4', 'Iowan Old Style', Georgia, serif;
-}
-.welcome-decor {
-  flex-shrink: 0;
-  opacity: 0.6;
-}
-.welcome-illust {
-  width: 100px;
-  height: 66px;
+  color: #8a8a7e;
+  font-weight: 300;
+  letter-spacing: 0.03em;
 }
 
 /* ====== 区段标题 ====== */
-.section-title {
+.section-block {
+  margin-bottom: 56px;
+}
+.section-heading {
   font-size: 13px;
-  font-weight: 500;
-  color: rgba(58, 50, 38, 0.4);
+  font-weight: 400;
+  color: #a8a49a;
   text-transform: uppercase;
-  letter-spacing: 0.6px;
-  margin: 36px 0 16px;
+  letter-spacing: 0.12em;
+  margin: 0 0 24px;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  position: relative;
-  z-index: 1;
 }
 
 /* =================================================================
@@ -190,39 +152,32 @@ const flowSteps = [
 .module-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 16px;
-  position: relative;
-  z-index: 1;
+  gap: 1px;
+  background: rgba(196, 187, 168, 0.3);
 }
 
 .module-card {
   display: flex;
   flex-direction: column;
-  padding: 24px;
-  background: #faf5eb;
-  border-radius: 20px;
-  border: 1px solid rgba(124, 185, 168, 0.3);
+  padding: 36px 32px;
+  background: #faf8f4;
   cursor: pointer;
-  transition: all 0.3s ease-out;
+  transition: background-color 0.7s ease;
   height: 100%;
-  box-shadow: 0 2px 12px rgba(124, 185, 168, 0.1);
 }
 .module-card:hover {
-  transform: translateY(-3px);
-  box-shadow: 0 8px 28px rgba(124, 185, 168, 0.2);
-  border-color: rgba(124, 185, 168, 0.5);
-  background: #fff;
+  background: #f0ede6;
 }
 
 .mod-icon-box {
-  width: 48px;
-  height: 48px;
-  border-radius: 14px;
+  width: 40px;
+  height: 40px;
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  margin-bottom: 16px;
+  margin-bottom: 20px;
+  color: #8a9a7b;
 }
 
 .mod-body {
@@ -230,20 +185,21 @@ const flowSteps = [
   display: flex;
   flex-direction: column;
 }
-.mod-body h4 {
-  margin: 0 0 6px;
+.mod-title {
+  margin: 0 0 8px;
   font-size: 16px;
-  font-weight: 600;
-  color: #3a3226;
-  letter-spacing: 0;
+  font-weight: 400;
+  color: #2d2a24;
+  letter-spacing: 0.02em;
   flex-shrink: 0;
 }
-.mod-body p {
+.mod-desc {
   margin: 0;
   font-size: 13px;
-  color: rgba(58, 50, 38, 0.5);
-  line-height: 1.65;
+  color: #8a8a7e;
+  line-height: 1.7;
   flex: 1;
+  font-weight: 300;
 }
 
 /* =================================================================
@@ -252,28 +208,27 @@ const flowSteps = [
 .quick-row {
   display: grid;
   grid-template-columns: 2fr 1fr;
-  gap: 16px;
-  position: relative;
-  z-index: 1;
+  gap: 1px;
+  background: rgba(196, 187, 168, 0.3);
 }
 
 .quick-card {
-  background: #faf5eb;
-  border-radius: 20px;
-  border: 1px solid rgba(124, 185, 168, 0.3);
-  padding: 20px 24px;
-  box-shadow: 0 2px 12px rgba(124, 185, 168, 0.1);
+  background: #faf8f4;
+  padding: 36px 32px;
+  transition: background-color 0.7s ease;
 }
 
-.quick-card-header {
+.quick-card-heading {
   font-size: 15px;
-  font-weight: 600;
-  color: #3a3226;
-  margin-bottom: 18px;
-  padding-bottom: 12px;
-  border-bottom: 1px solid rgba(124, 185, 168, 0.25);
+  font-weight: 400;
+  color: #2d2a24;
+  margin: 0 0 24px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid rgba(196, 187, 168, 0.4);
+  letter-spacing: 0.03em;
 }
 
+/* 快捷按钮行 */
 .quick-actions {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -286,35 +241,33 @@ const flowSteps = [
   justify-content: center;
   gap: 8px;
   height: 52px;
-  border: 1px solid rgba(124, 185, 168, 0.3);
-  border-radius: 16px;
-  background: #fff;
-  color: #3a3226;
+  border: 1px solid rgba(196, 187, 168, 0.5);
+  background: transparent;
+  color: #5a564e;
   font-size: 14px;
-  font-weight: 500;
   font-family: inherit;
+  font-weight: 300;
   cursor: pointer;
-  transition: all 0.3s ease-out;
+  transition: background-color 0.7s ease, color 0.7s ease;
   text-align: center;
   line-height: 1;
   padding: 0 12px;
-  box-shadow: 0 2px 8px rgba(124, 185, 168, 0.08);
 }
 .quick-btn :deep(.el-icon) {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  color: #5a8a7a;
+  color: #8a9a7b;
+  transition: color 0.7s ease;
 }
 .quick-btn:hover {
-  background: #f4e4bc;
-  border-color: rgba(124, 185, 168, 0.5);
-  box-shadow: 0 4px 16px rgba(124, 185, 168, 0.2);
-  transform: scale(1.02);
+  background: rgba(138, 154, 123, 0.08);
+  color: #2d2a24;
+  border-color: rgba(138, 154, 123, 0.3);
 }
 .quick-btn:active {
-  transform: scale(0.98);
+  opacity: 0.8;
 }
 
 /* =================================================================
@@ -329,7 +282,7 @@ const flowSteps = [
 .flow-step {
   display: flex;
   align-items: flex-start;
-  gap: 14px;
+  gap: 16px;
 }
 
 .flow-indicator {
@@ -343,28 +296,28 @@ const flowSteps = [
 .flow-dot {
   width: 28px;
   height: 28px;
-  border-radius: 50%;
-  background: #5a8a7a;
-  color: #faf5eb;
+  background: #8a9a7b;
+  color: #faf8f4;
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 400;
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
 
 .flow-line {
-  width: 1.5px;
+  width: 1px;
   flex: 1;
   min-height: 24px;
-  background: rgba(124, 185, 168, 0.3);
+  background: rgba(196, 187, 168, 0.5);
 }
 
 .flow-content {
   display: flex;
   flex-direction: column;
-  padding-bottom: 20px;
+  padding-bottom: 24px;
 }
 .flow-step:last-child .flow-content {
   padding-bottom: 0;
@@ -372,15 +325,17 @@ const flowSteps = [
 
 .flow-label {
   font-size: 14px;
-  font-weight: 600;
-  color: #3a3226;
+  font-weight: 400;
+  color: #2d2a24;
   line-height: 28px;
+  letter-spacing: 0.02em;
 }
 .flow-desc {
   font-size: 12px;
-  color: rgba(58, 50, 38, 0.45);
-  line-height: 1.5;
+  color: #8a8a7e;
+  line-height: 1.6;
   margin-top: 2px;
+  font-weight: 300;
 }
 
 /* =================================================================
@@ -388,7 +343,7 @@ const flowSteps = [
    ================================================================= */
 @media (max-width: 1000px) {
   .dashboard {
-    padding: 32px 24px;
+    padding: 48px 32px 80px;
   }
   .module-grid {
     grid-template-columns: repeat(2, 1fr);
@@ -399,16 +354,23 @@ const flowSteps = [
 }
 
 @media (max-width: 600px) {
+  .dashboard {
+    padding: 32px 20px 64px;
+  }
   .module-grid {
     grid-template-columns: 1fr;
+  }
+  .module-card {
+    padding: 28px 24px;
+  }
+  .quick-card {
+    padding: 28px 24px;
   }
   .quick-actions {
     grid-template-columns: 1fr;
   }
-  .welcome-banner {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 16px;
+  .welcome-heading {
+    font-size: 22px;
   }
 }
 </style>
