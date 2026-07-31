@@ -813,44 +813,55 @@ public class PrototypePromptTemplate {
 
 
                         M6. 底部 TabBar .mobile-tabbar（参考 iOS TabBar + Vant Tabbar）
+                            防换行强制规则：
+                            - 父容器宽度 = 屏幕全宽（100%），高度固定 50px（不含安全区 padding-bottom）。
+                            - 父容器必须：display: flex; flex-direction: row; flex-wrap: nowrap; overflow: hidden; 绝对禁止换行。
+                            - 每个子项 .tab-item 使用 flex: 1（flex-grow:1 flex-shrink:1 flex-basis:0%）等分父容器剩余空间；min-width: 44px 仅作触控保底，实际宽度由 flex:1 自动计算。
+                            - .tab-item 内部图标与文字垂直居中排列：flex-direction: column; align-items: center; justify-content: center。
+                            - 文字过长时禁止撑大该 Tab：.tab-label 必须 white-space: nowrap; overflow: hidden; text-overflow: ellipsis; 必要时可缩小字号到 9px，但绝不允许换行或溢出父容器。
+                            - 自检逻辑：5 个 Tab 时每个宽度 = 父容器宽度 ÷ 5；所有 Tab 必须始终在同一行显示，绝不换行。
+
                             ```css
                             .mobile-tabbar {
-                              height: 50px; flex-shrink: 0; padding-bottom: env(safe-area-inset-bottom);
-                              display: flex; align-items: center; justify-content: space-around;
+                              width: 100%; height: 50px;
+                              flex-shrink: 0;
+                              padding-bottom: env(safe-area-inset-bottom);
+                              display: flex; flex-direction: row;
+                              align-items: center;
+                              justify-content: space-around;
                               flex-wrap: nowrap;
+                              overflow: hidden;
                               background: #fff; border-top: 1px solid #f1f5f9;
                             }
-                            /* Tab 数量 ≤3 或需要等宽时：.tab-item { flex: 1; min-width: 0; } */
-                            /* Tab 数量 ≥4 或文字较长时：父容器增加 .mobile-tabbar-scroll 类，子项固定宽度 */
-                            .mobile-tabbar-scroll {
-                              overflow-x: auto;
-                              justify-content: flex-start;
-                              -ms-overflow-style: none;
-                              scrollbar-width: none;
+                            .tab-item {
+                              flex: 1 1 0%;       /* 等分剩余空间，允许压缩但不允许换行 */
+                              min-width: 44px;    /* 触控区域下限 */
+                              height: 100%;
+                              display: flex; flex-direction: column;
+                              align-items: center; justify-content: center;
+                              gap: 2px;
+                              overflow: hidden;
                             }
-                            .mobile-tabbar-scroll::-webkit-scrollbar { display: none; }
-                            .mobile-tabbar-scroll .tab-item {
-                              flex: 0 0 auto;
-                              width: 72px; /* 按文字长度可在 64~80px 内调整 */
-                              min-width: 64px;
-                              max-width: 80px;
-                            }
-                            .tab-item { flex: 1; height: 100%; min-width: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; overflow: hidden; }
                             .tab-icon { width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; font-size: 20px; color: #64748b; flex-shrink: 0; }
                             .tab-item.active .tab-icon { color: #0bb6c7; }
-                            .tab-label { font-size: 10px; color: #64748b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+                            .tab-label {
+                              font-size: 10px; color: #64748b;
+                              white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+                              max-width: 100%;
+                            }
                             .tab-item.active .tab-label { color: #0bb6c7; }
+                            /* 字号应急兜底：Tab 极多时标签可缩小，但禁止换行 */
+                            .mobile-tabbar.dense .tab-label { font-size: 9px; }
                             ```
                             需求绝对绑定（最高优先级组件规则）：
                             - 如果用户或需求文档明确指定了 Tab 数量（例如“底部导航栏 5 个 tab”），AI 必须按该精确数量生成，不得以任何理由增减、合并、省略或折叠为“更多”。
                             - Tab 数量没有默认值；需求没指定时才允许按页面类型推断最少数量的合理 Tab，但一旦需求明确指定，必须严格遵循。
-                            - 当 Tab 数量 ≤3 时，Tab 等宽均分父容器（.tab-item flex:1; min-width:0）。
-                            - 当 Tab 数量 ≥4 或标签文字较长时，必须启用横向滚动：父容器加上 .mobile-tabbar-scroll 类，设置 overflow-x: auto、flex-wrap: nowrap；每个 .tab-item 设置固定宽度（64~80px，按文字长度判断）、flex-shrink: 0；超出部分水平滑动查看，禁止换行、禁止压缩宽度、禁止合并 Tab。
-                            - .mobile-tabbar 高度必须固定 50px（不含安全区），严禁因 Tab 过多或文字过长而被撑成两行；如果 AI 发现高度超过 50px，说明换行了，必须立即修正为横向滚动或加 .mobile-tabbar-scroll。
-                            - 所有 Tab 标签必须 white-space: nowrap + overflow: hidden + text-overflow: ellipsis，图标与文字垂直居中，禁止文字换行或溢出容器。
+                            - 无论 Tab 数量多少，统一采用 flex:1 等分布局；禁止把 4 个及以上 Tab 改成横向滚动，禁止固定宽度子项，禁止换行。
+                            - .mobile-tabbar 高度必须固定 50px（不含安全区），严禁因 Tab 过多或文字过长而被撑成两行；如果 AI 发现高度超过 50px，说明换行了，必须立即修正为 flex:1 等分 + 文字省略。
+                            - 所有 Tab 标签必须 white-space: nowrap + overflow: hidden + text-overflow: ellipsis，必要时启用 .dense 缩小字号；图标与文字垂直居中，禁止文字换行或溢出容器。
                             - 底部 TabBar 必须置于页面最底部，与上方内容区互不挤压；内容区 .mobile-content 必须设置 padding-bottom: calc(50px + env(safe-area-inset-bottom)) 或等效机制。
                             - 禁止隐藏文字只显示图标；每个 Tab 必须同时保留图标+文字或按需求保留文字。
-                            - 生成后校验：输出 HTML 前，必须数一遍 .mobile-tabbar 内 .tab-item 数量是否与需求一致；必须检查 .mobile-tabbar 高度是否仍为 50px；只要任一检查失败，立即修正后再输出。
+                            - 生成后校验：输出 HTML 前，必须数一遍 .mobile-tabbar 内 .tab-item 数量是否与需求一致；必须检查 .mobile-tabbar 高度是否仍为 50px 且所有 Tab 仍在同一行；只要任一检查失败，立即修正后再输出。
 
                         M7. 标签/徽章/状态 .mobile-tag（参考 Vant Tag）
 
