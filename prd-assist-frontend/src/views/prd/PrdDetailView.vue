@@ -67,6 +67,7 @@ const reviewScore = ref<number | null>(null)
 const reviewSummary = ref('')
 const reviewTotalIssueCount = ref(0)
 const reviewFilteredFixedCount = ref(0)
+const fixedFocusIssue = ref<ReviewIssue | null>(null)
 const reviewPanelOpen = ref(true)
 const reviewFixing = ref(false)
 const reviewFixTarget = ref<'batch' | number | null>(null)
@@ -83,6 +84,10 @@ const highlightIssueIndex = computed(() => {
   return v != null && v !== '' ? Number(v) : null
 })
 const fixedReviewIssueIndexes = computed(() => parseIssueIndexesQuery(route.query.fixedIssues))
+const focusReviewIssueIndex = computed(() => {
+  const v = route.query.focusIssue
+  return v != null && v !== '' ? Number(v) : null
+})
 const highlightIssueDisplayIndex = computed(() => {
   const originalIndex = highlightIssueIndex.value
   if (originalIndex == null || Number.isNaN(originalIndex)) return null
@@ -200,16 +205,11 @@ async function load() {
 
     // 默认选中 summary 或第一章
     activeKey.value = chapters.value.length ? 'chapter-0' : 'summary'
-    await nextTick()
-
-    // 若带了 issue 参数，定位到对应章节
-    if (highlightIssueDisplayIndex.value != null && reviewIssues.value[highlightIssueDisplayIndex.value]) {
-      jumpToIssue(highlightIssueDisplayIndex.value)
-    }
   } catch {
     ElMessage.error('PRD 加载失败')
   } finally {
     loading.value = false
+    await focusRouteIssueAfterRender()
   }
 }
 
@@ -227,8 +227,20 @@ async function loadReviewIssues(reportId: number) {
       ? parsed.issues.map((issue: ReviewIssue, originalIndex: number) => ({ ...issue, originalIndex }))
       : []
     const fixedIndexes = fixedReviewIssueIndexes.value
+    const focusOriginalIndex = focusReviewIssueIndex.value
+    fixedFocusIssue.value = null
     reviewTotalIssueCount.value = allIssues.length
     reviewFilteredFixedCount.value = 0
+    if (focusOriginalIndex != null && !Number.isNaN(focusOriginalIndex)) {
+      fixedFocusIssue.value = allIssues.find((issue, idx) =>
+        reviewIssueOriginalIndex(issue, idx) === focusOriginalIndex,
+      ) || null
+    } else if (fixedIndexes.size === 1) {
+      const onlyFixedIndex = Array.from(fixedIndexes)[0]
+      fixedFocusIssue.value = allIssues.find((issue, idx) =>
+        reviewIssueOriginalIndex(issue, idx) === onlyFixedIndex,
+      ) || null
+    }
     reviewIssues.value = allIssues.filter((issue, idx) => {
       const originalIndex = reviewIssueOriginalIndex(issue, idx)
       const fixed = fixedIndexes.has(originalIndex)
@@ -247,6 +259,7 @@ function clearReviewIssues() {
   reviewSummary.value = ''
   reviewTotalIssueCount.value = 0
   reviewFilteredFixedCount.value = 0
+  fixedFocusIssue.value = null
 }
 
 function parseIssueIndexesQuery(value: unknown): Set<number> {
@@ -293,33 +306,77 @@ function matchChapterIndex(location: string | undefined | null): number {
 }
 
 function resolveIssueChapterIndex(issue: ReviewIssue): number {
-  const byTitle = matchChapterIndex(issue.chapterTitle)
-  if (byTitle >= 0) return byTitle
-
+  // 优先使用 chapterIndex：后端修复时在同一个 index 位置合并章节，顺序不变，比标题模糊匹配更可靠
   if (Number.isInteger(issue.chapterIndex)
     && issue.chapterIndex! >= 0
     && issue.chapterIndex! < chapters.value.length) {
     return issue.chapterIndex!
   }
 
+  // chapterIndex 无效时，用标题模糊匹配兜底
+  const byTitle = matchChapterIndex(issue.chapterTitle)
+  if (byTitle >= 0) return byTitle
+
+  // 最后尝试用 location 文本匹配
   return matchChapterIndex(issue.location)
 }
 
 async function jumpToIssue(issueIndex: number) {
   const issue = reviewIssues.value[issueIndex]
   if (!issue) return
+  await jumpToIssueData(issue)
+}
+
+async function jumpToIssueData(issue: ReviewIssue, successMessage?: string) {
   const chIdx = resolveIssueChapterIndex(issue)
   if (chIdx >= 0) {
-    await selectNode({
+    const ok = await selectNode({
       key: `chapter-${chIdx}`,
       title: chapters.value[chIdx].title,
       level: headingLevel(chapters.value[chIdx].title),
       index: chIdx,
       kind: 'chapter',
-    })
+    }, issue)
+    if (successMessage && ok) ElMessage.success(successMessage)
   } else {
     ElMessage.info('未能自动定位章节，请在大纲中手动选择')
   }
+}
+
+async function focusRouteIssueAfterRender() {
+  await nextTick()
+  await new Promise(resolve => window.requestAnimationFrame(resolve))
+  await nextTick()
+
+  const issue = highlightIssueDisplayIndex.value != null
+    ? reviewIssues.value[highlightIssueDisplayIndex.value]
+    : fixedFocusIssue.value
+  if (!issue) return
+
+  const chIdx = resolveIssueChapterIndex(issue)
+  if (chIdx < 0) {
+    ElMessage.info('未能自动定位章节，请在大纲中手动选择')
+    return
+  }
+  const node: OutlineNode = {
+    key: `chapter-${chIdx}`,
+    title: chapters.value[chIdx].title,
+    level: headingLevel(chapters.value[chIdx].title),
+    index: chIdx,
+    kind: 'chapter',
+  }
+
+  for (let i = 0; i < 5; i++) {
+    if (await selectNode(node, issue)) {
+      if (fixedFocusIssue.value === issue) ElMessage.success('已定位到本次修复的章节')
+      return
+    }
+    await delay(120)
+  }
+}
+
+function delay(ms: number) {
+  return new Promise(resolve => window.setTimeout(resolve, ms))
 }
 
 function severityMeta(sev: string) {
@@ -373,18 +430,82 @@ function markDirty() {
 }
 
 // ── 大纲点击 → 滚动定位 ──────────────────────────────────
-async function selectNode(node: OutlineNode) {
+async function selectNode(node: OutlineNode, issue?: ReviewIssue): Promise<boolean> {
   activeKey.value = node.key
   await nextTick()
-  const el = document.getElementById(`prd-section-${node.key}`)
+  const section = document.getElementById(`prd-section-${node.key}`) as HTMLElement | null
+  const target = issue && section ? findIssueTargetElement(section, issue) : section
+  return scrollElementIntoContent(target || section, section || undefined, Boolean(issue))
+}
+
+function scrollElementIntoContent(target?: HTMLElement | null, section?: HTMLElement, precise = false): boolean {
   const container = contentScrollRef.value
-  if (el && container) {
-    const top = el.offsetTop - container.offsetTop - 12
-    container.scrollTo({ top: Math.max(0, top), behavior: 'smooth' })
-    // 高亮闪烁
-    el.classList.add('section-flash')
-    window.setTimeout(() => el.classList.remove('section-flash'), 900)
+  if (!target || !container) return false
+  const containerRect = container.getBoundingClientRect()
+  const targetRect = target.getBoundingClientRect()
+  const top = container.scrollTop + targetRect.top - containerRect.top - (precise ? 28 : 12)
+  container.scrollTo({ top: Math.max(0, top), behavior: 'smooth' })
+
+  const flashTarget = precise && target !== section ? target : section || target
+  flashTarget.classList.add(precise && target !== section ? 'issue-focus-flash' : 'section-flash')
+  window.setTimeout(() => {
+    flashTarget.classList.remove('section-flash')
+    flashTarget.classList.remove('issue-focus-flash')
+  }, 1100)
+  return true
+}
+
+function findIssueTargetElement(section: HTMLElement, issue: ReviewIssue): HTMLElement | null {
+  const candidates = buildIssueSearchTerms(issue)
+  if (!candidates.length) return null
+  const nodes = Array.from(section.querySelectorAll<HTMLElement>(
+    '.rte-body h1,.rte-body h2,.rte-body h3,.rte-body h4,.rte-body p,.rte-body li,.rte-body td,.rte-body th,.rte-body div',
+  )).filter(el => (el.innerText || el.textContent || '').trim().length > 0)
+
+  let best: HTMLElement | null = null
+  let bestScore = 0
+  for (const el of nodes) {
+    const text = normalizeAnchorText(el.innerText || el.textContent || '')
+    if (!text) continue
+    for (const term of candidates) {
+      if (!term || term.length < 4) continue
+      let score = 0
+      if (text.includes(term)) score = term.length + 20
+      else if (term.includes(text) && text.length >= 6) score = text.length + 8
+      else score = overlapScore(text, term)
+      if (score > bestScore) {
+        bestScore = score
+        best = el
+      }
+    }
   }
+  return bestScore >= 8 ? best : null
+}
+
+function buildIssueSearchTerms(issue: ReviewIssue): string[] {
+  const terms = [
+    issue.location,
+    issue.chapterTitle,
+    issue.description,
+  ]
+  const locationParts = (issue.location || '')
+    .split(/[>＞/\\|｜\-—–:：,，、\n]/)
+    .map(s => s.trim())
+    .filter(Boolean)
+  return Array.from(new Set([...terms, ...locationParts]
+    .map(normalizeAnchorText)
+    .filter(s => s.length >= 4)))
+    .sort((a, b) => b.length - a.length)
+}
+
+function overlapScore(text: string, term: string): number {
+  const max = Math.min(text.length, term.length, 80)
+  for (let len = max; len >= 4; len--) {
+    for (let start = 0; start + len <= term.length; start++) {
+      if (text.includes(term.slice(start, start + len))) return len
+    }
+  }
+  return 0
 }
 
 // 滚动时同步大纲高亮（IntersectionObserver）
@@ -605,7 +726,7 @@ async function aiFixReview(issueIndexes?: number[]) {
     try {
       await ElMessageBox.confirm(
         issueIndexes
-          ? '将根据该条审查建议生成修订版 PRD（保留当前版本），是否继续？'
+          ? '将只修复该问题对应章节，并生成修订版 PRD（保留当前版本），是否继续？'
           : `将修复 ${count} 条严重/重要问题，生成新版 PRD（保留当前版本），是否继续？`,
         'AI 修复 PRD',
         { type: 'info', confirmButtonText: '开始修复', cancelButtonText: '取消' },
@@ -673,6 +794,7 @@ async function openFixedPrd(fixTaskId: number, fixedIssueIndexes: number[]) {
           fromReview: String(fromReviewId.value),
           fixedFromReview: String(fromReviewId.value),
           fixedIssues: mergedFixedIssues.join(','),
+          ...(fixedIssueIndexes.length === 1 ? { focusIssue: String(fixedIssueIndexes[0]) } : {}),
         },
       })
     } else if (r.data.data.status === 'FAILED') {
@@ -1221,9 +1343,17 @@ watch(id, () => load())
 .content-section.section-flash {
   animation: flash-border 0.9s ease;
 }
+.content-section :deep(.issue-focus-flash) {
+  animation: issue-focus-flash 1.1s ease;
+  border-radius: 6px;
+}
 @keyframes flash-border {
   0%   { box-shadow: 0 0 0 2px rgba(245, 78, 0, 0.45); }
   100% { box-shadow: 0 0 0 0 transparent; }
+}
+@keyframes issue-focus-flash {
+  0%   { background: rgba(245, 78, 0, 0.18); box-shadow: 0 0 0 4px rgba(245, 78, 0, 0.12); }
+  100% { background: transparent; box-shadow: 0 0 0 0 transparent; }
 }
 
 .section-head {
