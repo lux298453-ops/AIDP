@@ -67,16 +67,6 @@ body {
   background: #{$bg-page};
 }
 
-button {
-  padding: 0;
-  margin: 0;
-  border: none;
-  background: none;
-  font: inherit;
-  color: inherit;
-  cursor: pointer;
-}
-
 // =====================================================
 //  Element Plus Global Overrides
 // =====================================================
@@ -102,20 +92,6 @@ button {
   border-radius: #{$radius-base} !important;
   font-weight: 400 !important;
   transition: all 0.15s ease !important;
-}
-
-/* 修复 el-icon 在 flex 容器中的垂直居中问题 */
-.el-icon {
-  display: inline-flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  vertical-align: middle !important;
-  line-height: 1 !important;
-}
-.el-icon svg {
-  display: block !important;
-  width: 100% !important;
-  height: 100% !important;
 }
 .el-button--primary {
   background-color: #{$color-primary} !important;

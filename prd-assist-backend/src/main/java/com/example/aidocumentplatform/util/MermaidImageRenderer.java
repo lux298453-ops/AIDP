@@ -22,11 +22,12 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Mermaid / 图片 URL → 高清 PNG。
+ * 图表（PlantUML / Mermaid / 图片 URL）→ 高清 PNG。
  *
  * <ul>
- *   <li>本地 mmdc 渲染，不依赖外部服务</li>
- *   <li>渲染前注入较大字号/间距，保证像素宽度 ≥ 1200</li>
+ *   <li>优先 PlantUML：纯 Java 渲染，质量高且无外部依赖</li>
+ *   <li>Mermaid 兜底：本地 mmdc 渲染，不依赖外部服务</li>
+ *   <li>渲染前注入较大字号/间距，保证像素宽度 ≥ {@link #MIN_EXPORT_WIDTH}</li>
  *   <li>内存缓存（按源码 hash），避免同文档多章节重复渲染</li>
  * </ul>
  */
@@ -38,6 +39,12 @@ public class MermaidImageRenderer {
 
     private static final Pattern MERMAID_FENCE = Pattern.compile(
             "```mermaid[ \\t]*\\n([\\s\\S]*?)```", Pattern.CASE_INSENSITIVE);
+
+    private static final Pattern PLANTUML_FENCE = Pattern.compile(
+            "```plantuml[ \\t]*\\n([\\s\\S]*?)```", Pattern.CASE_INSENSITIVE);
+
+    private static final Pattern RAW_PLANTUML = Pattern.compile(
+            "(?s)@startuml[\\s\\S]*?@enduml");
 
     private static final Pattern MD_IMAGE = Pattern.compile(
             "!\\[[^\\]]*\\]\\((https?://[^)\\s]+)\\)");
@@ -76,13 +83,16 @@ public class MermaidImageRenderer {
             """;
 
     private final boolean enabled;
+    private final PlantUmlImageRenderer plantUmlImageRenderer;
     /** mermaid 源码 hash → PNG */
     private final Map<String, byte[]> cache = new ConcurrentHashMap<>();
     private static final int CACHE_MAX = 64;
 
     public MermaidImageRenderer(
-            @Value("${app.mermaid.enabled:true}") boolean enabled) {
+            @Value("${app.mermaid.enabled:true}") boolean enabled,
+            PlantUmlImageRenderer plantUmlImageRenderer) {
         this.enabled = enabled;
+        this.plantUmlImageRenderer = plantUmlImageRenderer;
     }
 
     public boolean isEnabled() {
@@ -126,8 +136,26 @@ public class MermaidImageRenderer {
 
     public boolean hasRenderableChart(String content) {
         if (content == null || content.isBlank()) return false;
+        if (extractPlantUml(content) != null) return true;
         if (extractMermaid(content) != null) return true;
         return extractFirstImageUrl(content) != null;
+    }
+
+    /** 从章节 content 提取第一段 plantuml 源码 */
+    public String extractPlantUml(String content) {
+        if (content == null || content.isBlank()) return null;
+        String text = content.replace("\\n", "\n").replace("\r\n", "\n");
+        Matcher m = PLANTUML_FENCE.matcher(text);
+        if (m.find()) {
+            String code = m.group(1).trim();
+            return code.isEmpty() ? null : code;
+        }
+        Matcher raw = RAW_PLANTUML.matcher(text);
+        if (raw.find()) {
+            String code = raw.group(0).trim();
+            return code.isEmpty() ? null : code;
+        }
+        return null;
     }
 
     public String extractFirstImageUrl(String content) {
@@ -172,13 +200,45 @@ public class MermaidImageRenderer {
         return png;
     }
 
+    /**
+     * 渲染章节 content 中的图表 → 高清 PNG。
+     * 优先 PlantUML，其次 Mermaid（mmdc 兜底）。
+     */
     public byte[] resolveChartPng(String content) {
+        String plantUml = extractPlantUml(content);
+        if (plantUml != null) {
+            byte[] png = plantUmlImageRenderer.renderPlantUmlToPng(plantUml);
+            if (png != null) return png;
+        }
         String mermaid = extractMermaid(content);
         if (mermaid != null) {
             byte[] png = renderMermaidToPng(mermaid);
             if (png != null) return png;
         }
         return null;
+    }
+
+    /** 按代码围栏语言渲染图表（Word 导出正文代码块兜底用） */
+    public byte[] renderCodeFence(String lang, String code) {
+        if (lang == null) return null;
+        if ("plantuml".equalsIgnoreCase(lang)) {
+            return plantUmlImageRenderer.renderPlantUmlToPng(code);
+        }
+        if ("mermaid".equalsIgnoreCase(lang)) {
+            return renderMermaidToPng(code);
+        }
+        return null;
+    }
+
+    /** 供前端渲染接口直接调用 */
+    public byte[] renderByLang(String lang, String code) {
+        if (lang == null) {
+            if (code != null && (code.contains("@startuml") || code.contains("@enduml"))) {
+                return plantUmlImageRenderer.renderPlantUmlToPng(code);
+            }
+            return renderMermaidToPng(code);
+        }
+        return renderCodeFence(lang.trim(), code);
     }
 
     /** 读取 PNG/JPEG 像素宽；失败返回 0 */

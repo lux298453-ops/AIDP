@@ -165,16 +165,16 @@ public class PrdEnhanceServiceImpl implements PrdEnhanceService {
     private String buildEnhancedPrd(String aiResponse, PrdDocument source, List<String> contentTypes) {
         JsonNode generated = prdContentParser.parseObject(aiResponse);
         if (generated.path("chapters").isArray()) {
-            // 已是完整 PRD 结构时，仍规范化各章 mermaid 围栏
+            // 已是完整 PRD 结构时，仍规范化各章图表围栏
             ObjectNode root = generated.deepCopy();
             ArrayNode chapters = (ArrayNode) root.path("chapters");
             for (int i = 0; i < chapters.size(); i++) {
                 ObjectNode ch = (ObjectNode) chapters.get(i);
                 String type = ch.path("type").asText("");
-                String content = normalizeMermaidFences(ch.path("content").asText(""));
-                if (("structure".equals(type) || "flow".equals(type)) && !containsMermaid(content)) {
-                    log.warn("增强章节缺少 Mermaid 图: type={}, title={}", type, ch.path("title").asText());
-                    content = content + "\n\n> 提示：本应包含 Mermaid 图表，但模型未返回有效图源，请重新生成或手动补充。\n";
+                String content = normalizeChartFences(ch.path("content").asText(""));
+                if (("structure".equals(type) || "flow".equals(type)) && !containsChart(content)) {
+                    log.warn("增强章节缺少图表: type={}, title={}", type, ch.path("title").asText());
+                    content = content + "\n\n> 提示：本应包含图表（PlantUML），但模型未返回有效图源，请重新生成或手动补充。\n";
                 }
                 ch.put("content", content);
             }
@@ -194,10 +194,10 @@ public class PrdEnhanceServiceImpl implements PrdEnhanceService {
             ObjectNode chapter = objectMapper.createObjectNode();
             String type = section.path("type").asText("enhancement");
             String title = section.path("title").asText(defaultTitle(type));
-            String content = normalizeMermaidFences(section.path("content").asText(""));
-            if (("structure".equals(type) || "flow".equals(type)) && !containsMermaid(content)) {
-                log.warn("增强章节缺少 Mermaid 图: type={}, title={}", type, title);
-                content = content + "\n\n> 提示：本应包含 Mermaid 图表，但模型未返回有效图源，请重新生成或手动补充。\n";
+            String content = normalizeChartFences(section.path("content").asText(""));
+            if (("structure".equals(type) || "flow".equals(type)) && !containsChart(content)) {
+                log.warn("增强章节缺少图表: type={}, title={}", type, title);
+                content = content + "\n\n> 提示：本应包含图表（PlantUML），但模型未返回有效图源，请重新生成或手动补充。\n";
             }
             chapter.put("title", title);
             chapter.put("content", content);
@@ -229,11 +229,13 @@ public class PrdEnhanceServiceImpl implements PrdEnhanceService {
         };
     }
 
-    /** 是否包含 mermaid 代码围栏或 flowchart/sequenceDiagram 关键字块 */
-    private boolean containsMermaid(String content) {
+    /** 是否包含图表源码（PlantUML 围栏/裸 @startuml 块，或 Mermaid 围栏/裸 flowchart） */
+    private boolean containsChart(String content) {
         if (content == null || content.isBlank()) return false;
         String c = content.toLowerCase();
-        return c.contains("```mermaid")
+        return c.contains("```plantuml")
+                || c.contains("@startuml")
+                || c.contains("```mermaid")
                 || c.contains("flowchart ")
                 || c.contains("sequencediagram")
                 || c.contains("graph td")
@@ -241,15 +243,21 @@ public class PrdEnhanceServiceImpl implements PrdEnhanceService {
     }
 
     /**
-     * 规范化 AI 可能输出的不完整 mermaid 围栏：
+     * 规范化 AI 可能输出的不完整图表围栏：
+     * - 若出现 @startuml 但未包 ```plantuml，自动包一层
      * - 若出现 flowchart/sequenceDiagram 但未包 ```mermaid，自动包一层
      */
-    private String normalizeMermaidFences(String content) {
+    private String normalizeChartFences(String content) {
         if (content == null || content.isBlank()) return content == null ? "" : content;
-        if (content.contains("```mermaid")) return content;
+        String text = content.replace("\r\n", "\n");
+        if (text.contains("```plantuml") || text.contains("```mermaid")) return text;
 
-        // 尝试把裸 flowchart / sequenceDiagram 块包进围栏
-        String[] lines = content.replace("\r\n", "\n").split("\n", -1);
+        // 尝试把裸 @startuml 块包进 ```plantuml 围栏
+        String wrapped = wrapNakedPlantUml(text);
+        if (!wrapped.equals(text)) return wrapped;
+
+        // 再尝试把裸 flowchart / sequenceDiagram 块包进围栏
+        String[] lines = text.split("\n", -1);
         StringBuilder out = new StringBuilder();
         boolean inChart = false;
         StringBuilder chart = new StringBuilder();
@@ -295,6 +303,39 @@ public class PrdEnhanceServiceImpl implements PrdEnhanceService {
         }
         if (inChart && chart.length() > 0) {
             out.append("```mermaid\n").append(chart.toString().stripTrailing()).append("\n```\n");
+        }
+        return out.toString().stripTrailing();
+    }
+
+    /** 把裸 @startuml ... @enduml 包进 ```plantuml 围栏（保留围栏外文字） */
+    private String wrapNakedPlantUml(String text) {
+        if (!text.contains("@startuml")) return text;
+        StringBuilder out = new StringBuilder();
+        boolean inBlock = false;
+        StringBuilder block = new StringBuilder();
+        for (String line : text.split("\n")) {
+            String t = line.trim();
+            if (t.equalsIgnoreCase("@startuml") || t.toLowerCase().startsWith("@startuml")) {
+                if (!inBlock) {
+                    inBlock = true;
+                    block.setLength(0);
+                    block.append(line).append('\n');
+                    continue;
+                }
+            }
+            if (inBlock) {
+                block.append(line).append('\n');
+                if (t.equalsIgnoreCase("@enduml") || t.toLowerCase().startsWith("@enduml")) {
+                    inBlock = false;
+                    out.append("```plantuml\n").append(block.toString().stripTrailing()).append("\n```\n\n");
+                    block.setLength(0);
+                }
+                continue;
+            }
+            out.append(line).append('\n');
+        }
+        if (inBlock && block.length() > 0) {
+            out.append("```plantuml\n").append(block.toString().stripTrailing()).append("\n```\n");
         }
         return out.toString().stripTrailing();
     }

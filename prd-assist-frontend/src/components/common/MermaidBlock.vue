@@ -1,10 +1,12 @@
 <script setup lang="ts">
 /**
- * 渲染单个 Mermaid 图表。
- * - 失败时静默隐藏，避免 Mermaid 原始错误污染页面
+ * 渲染单个图表（PlantUML / Mermaid）。
+ * - PlantUML 走后端 /api/charts/render 渲染为 PNG 展示（保证与 Word 导出一致）
+ * - Mermaid 保留浏览器端渲染；失败时静默隐藏，避免原始错误污染页面
  * - 主题贴近平台暖色浅色风格
  */
 import { ref, watch, onMounted, nextTick } from 'vue'
+import { detectChartLang, renderChartImageUrl } from '@/utils/chart'
 
 const props = defineProps<{
   code: string
@@ -14,16 +16,33 @@ const props = defineProps<{
 const containerRef = ref<HTMLElement | null>(null)
 const errorMsg = ref('')
 const rendering = ref(false)
+const plantumlUrl = ref<string | null>(null)
 let renderSeq = 0
 
 async function render() {
   const code = (props.code || '').trim()
   errorMsg.value = ''
+  plantumlUrl.value = null
   if (!code) {
     errorMsg.value = '图表源码为空'
     return
   }
   if (!containerRef.value) return
+
+  const lang = detectChartLang(code)
+  if (lang === 'plantuml') {
+    rendering.value = true
+    const seq = ++renderSeq
+    const url = await renderChartImageUrl(code, lang)
+    if (seq !== renderSeq) return
+    if (url) {
+      plantumlUrl.value = url
+    } else {
+      errorMsg.value = '图表渲染失败'
+    }
+    rendering.value = false
+    return
+  }
 
   rendering.value = true
   const seq = ++renderSeq
@@ -58,7 +77,7 @@ async function render() {
     }
   } catch (e: any) {
     if (seq !== renderSeq) return
-    console.warn('Mermaid render failed', e)
+    console.warn('chart render failed', e)
     errorMsg.value = '图表渲染失败'
     if (containerRef.value) containerRef.value.innerHTML = ''
   } finally {
@@ -77,7 +96,10 @@ watch(() => props.code, () => { render() })
     </div>
 
     <div v-if="rendering" class="mermaid-loading">图表渲染中…</div>
-    <div ref="containerRef" class="mermaid-svg" />
+    <div v-else-if="plantumlUrl" class="plantuml-img">
+      <img :src="plantumlUrl" alt="图表" />
+    </div>
+    <div v-else ref="containerRef" class="mermaid-svg" />
   </div>
 </template>
 
@@ -115,6 +137,15 @@ watch(() => props.code, () => { render() })
   text-align: center;
 }
 .mermaid-svg :deep(svg) {
+  max-width: 100%;
+  height: auto;
+}
+.plantuml-img {
+  padding: 12px;
+  overflow-x: auto;
+  text-align: center;
+}
+.plantuml-img img {
   max-width: 100%;
   height: auto;
 }

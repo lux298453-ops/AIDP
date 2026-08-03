@@ -17,8 +17,10 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -39,6 +41,10 @@ public class WordExporter {
 
     private static final Pattern MERMAID_FENCE = Pattern.compile(
             "```mermaid[ \\t]*\\n([\\s\\S]*?)```", Pattern.CASE_INSENSITIVE);
+    private static final Pattern PLANTUML_FENCE = Pattern.compile(
+            "```plantuml[ \\t]*\\n([\\s\\S]*?)```", Pattern.CASE_INSENSITIVE);
+    private static final Pattern RAW_PLANTUML = Pattern.compile(
+            "(?s)@startuml[\\s\\S]*?@enduml");
     private static final Pattern CODE_FENCE = Pattern.compile(
             "```([a-zA-Z0-9_+-]*)[ \\t]*\\n([\\s\\S]*?)```");
     private static final Pattern MD_IMAGE = Pattern.compile(
@@ -322,7 +328,8 @@ public class WordExporter {
         try (XWPFDocument doc = new XWPFDocument(); ByteArrayOutputStream bos = new ByteArrayOutputStream()) {
             JsonNode chapters = root.path("chapters");
             String summary = textOf(root.path("summary"));
-            boolean standardOutline = hasStandardTemplateOutline(chapters);
+            Set<Integer> consumed = new HashSet<>();
+            consumeStandardChapters(chapters, consumed);
             String docTitle = title != null && !title.isBlank()
                     ? title : textOf(root.path("title"));
             if (docTitle.isBlank()) docTitle = "PRD文档";
@@ -341,20 +348,20 @@ public class WordExporter {
                     new String[][]{{"V1.0", "AI", LocalDate.now().toString(), "初始版本"}});
             addBlank(doc);
 
-            addHeading(doc, "1. 需求概述", 1);
+            addHeading(doc, headingOr(chapterTitleByTitle(chapters, "1. 需求概述", null), "1. 需求概述"), 1);
             if (summary.length() > 5) {
                 writeMarkdown(doc, "一句话需求：" + summary);
             }
-            addHeading(doc, "1.1 需求背景（必填）", 2);
-            writeMarkdown(doc, standardOrFallback(chapters, "1.1 需求背景", "需求概述", "需求背景"));
-            addHeading(doc, "1.2 需求目标/价值（必填）", 2);
-            writeMarkdown(doc, standardOrFallback(chapters, "1.2 需求目标", "需求概述", "目标", "价值", "业务价值"));
-            addHeading(doc, "1.3 需求覆盖范围", 2);
-            writeMarkdown(doc, standardOrFallback(chapters, "1.3 需求覆盖范围", "需求概述", "覆盖", "范围", "场景"));
-            addHeading(doc, "1.4 需求列表", 2);
-            writeMarkdown(doc, standardOrFallback(chapters, "1.4 需求列表", "功能设计", "功能点", "功能列表"));
-            addHeading(doc, "1.5 关联方", 2);
-            String stakeholderContent = chapterContentByTitle(chapters, "1.5 关联方");
+            addHeading(doc, headingOr(chapterTitleByTitle(chapters, "1.1 需求背景", null), "1.1 需求背景（必填）"), 2);
+            writeMarkdown(doc, standardOrFallback(chapters, "1.1 需求背景", consumed, "需求概述", "需求背景"));
+            addHeading(doc, headingOr(chapterTitleByTitle(chapters, "1.2 需求目标", null), "1.2 需求目标/价值（必填）"), 2);
+            writeMarkdown(doc, standardOrFallback(chapters, "1.2 需求目标", consumed, "需求概述", "目标", "价值", "业务价值"));
+            addHeading(doc, headingOr(chapterTitleByTitle(chapters, "1.3 需求覆盖范围", null), "1.3 需求覆盖范围"), 2);
+            writeMarkdown(doc, standardOrFallback(chapters, "1.3 需求覆盖范围", consumed, "需求概述", "覆盖", "范围", "场景"));
+            addHeading(doc, headingOr(chapterTitleByTitle(chapters, "1.4 需求列表", null), "1.4 需求列表"), 2);
+            writeMarkdown(doc, standardOrFallback(chapters, "1.4 需求列表", consumed, "功能设计", "功能点", "功能列表"));
+            addHeading(doc, headingOr(chapterTitleByTitle(chapters, "1.5 关联方", null), "1.5 关联方"), 2);
+            String stakeholderContent = chapterContentByTitle(chapters, "1.5 关联方", consumed);
             if (!stakeholderContent.isBlank()) {
                 writeMarkdown(doc, stakeholderContent);
             } else {
@@ -363,77 +370,77 @@ public class WordExporter {
             }
             addBlank(doc);
 
-            addHeading(doc, "2. 流程图（专家评审必备）", 1);
-            insertSemanticChart(doc, chapters, chartImages, "flow",
+            addHeading(doc, headingOr(chapterTitleByTitle(chapters, "2. 流程图", null), "2. 流程图（专家评审必备）"), 1);
+            insertSemanticChart(doc, chapters, chartImages, consumed, "flow",
                     new String[]{"交互流程", "流程", "流程图"}, "flow");
             addBlank(doc);
 
-            addHeading(doc, "3. 原型图 和 交互+视觉图", 1);
-            insertSemanticChart(doc, chapters, chartImages, "structure",
+            addHeading(doc, headingOr(chapterTitleByTitle(chapters, "3. 原型图", null), "3. 原型图 和 交互+视觉图"), 1);
+            insertSemanticChart(doc, chapters, chartImages, consumed, "structure",
                     new String[]{"UI设计", "原型", "布局", "视觉", "UI", "页面结构", "结构"}, "structure");
             addBlank(doc);
 
-            addHeading(doc, "4. 功能需求描述（同行/专家评审必备）", 1);
+            addHeading(doc, headingOr(chapterTitleByTitle(chapters, "4. 功能需求描述", null), "4. 功能需求描述（同行/专家评审必备）"), 1);
             addHeading(doc, "名词解释", 2);
             addPlainParagraph(doc, "（没有则填无）");
             addBlank(doc);
 
-            String functionContent = chapterContentByTitle(chapters, "4. 功能需求描述");
+            String functionContent = chapterContentByTitle(chapters, "4. 功能需求描述", consumed);
             if (!functionContent.isBlank()) {
                 writeMarkdown(doc, functionContent);
                 addBlank(doc);
             }
 
-            if (!standardOutline && chapters.isArray() && !chapters.isEmpty()) {
-                int idx = 1;
+            addHeading(doc, headingOr(chapterTitleByTitle(chapters, "4.1 耦合场景", null), "4.1 耦合场景"), 3);
+            writeMarkdown(doc, standardOrFallback(chapters, "4.1 耦合场景", consumed, "异常处理", "耦合", "异常"));
+            addHeading(doc, headingOr(chapterTitleByTitle(chapters, "4.2 边界场景", null), "4.2 边界场景"), 3);
+            writeMarkdown(doc, standardOrFallback(chapters, "4.2 边界场景", consumed, "异常处理", "边界"));
+            addHeading(doc, headingOr(chapterTitleByTitle(chapters, "4.3 非功能需求", null), "4.3 非功能需求"), 3);
+            writeMarkdown(doc, standardOrFallback(chapters, "4.3 非功能需求", consumed, "安全与性能", "非功能", "性能"));
+            addBlank(doc);
+
+            addHeading(doc, headingOr(chapterTitleByTitle(chapters, "5. 埋点与报表", null), "5. 埋点与报表"), 1);
+            addPlainParagraph(doc, "核心关注数据：");
+            writeMarkdown(doc, standardOrFallback(chapters, "5. 埋点与报表", consumed, "安全与性能", "埋点", "指标", "数据统计"));
+            addPlainParagraph(doc, "具体埋点文档：需与数分同学对齐并录入obus");
+            addPlainParagraph(doc, "报表：（没有则填无）");
+            addBlank(doc);
+
+            addHeading(doc, headingOr(chapterTitleByTitle(chapters, "6. 配置项", null), "6. 配置项（专家评审必备）"), 1);
+            writeMarkdown(doc, standardOrFallback(chapters, "6. 配置项", consumed, "安全与性能", "配置"));
+            addBlank(doc);
+
+            addHeading(doc, headingOr(chapterTitleByTitle(chapters, "7. 动效", null), "7. 动效（专家评审必备）"), 1);
+            writeMarkdown(doc, standardOrDefault(chapters, "7. 动效", consumed, "（没有则填无）"));
+            addBlank(doc);
+
+            addHeading(doc, headingOr(chapterTitleByTitle(chapters, "8. 运营计划", null), "8. 运营计划（专家评审必备）"), 1);
+            writeMarkdown(doc, standardOrDefault(chapters, "8. 运营计划", consumed, "（没有则填无）"));
+            addBlank(doc);
+
+            addHeading(doc, headingOr(chapterTitleByTitle(chapters, "9. 安全与合规", null), "9. 安全与合规"), 1);
+            writeMarkdown(doc, standardOrFallback(chapters, "9. 安全与合规", consumed, "安全与性能", "安全", "加密", "合规"));
+            addBlank(doc);
+
+            addHeading(doc, headingOr(chapterTitleByTitle(chapters, "10. 需求评审意见", null), "10. 需求评审意见"), 1);
+            writeMarkdown(doc, standardOrDefault(chapters, "10. 需求评审意见", consumed, "（必填，没有则填无）"));
+            addBlank(doc);
+
+            // 补充章节：增强新增的 数据字段/测试用例/页面结构图 等，以及标准骨架未覆盖的用户自定义章节
+            if (chapters.isArray() && !chapters.isEmpty()) {
                 for (int i = 0; i < chapters.size(); i++) {
+                    if (consumed.contains(i)) continue;
                     JsonNode ch = chapters.get(i);
                     String chTitle = textOf(ch.path("title"));
                     String chContent = textOf(ch.path("content"));
                     String chType = ch.path("type").asText("").toLowerCase();
                     byte[] png = resolveImage(chartImages, String.valueOf(i), typeKey(chType));
-                    if (chContent.isBlank() && png == null) continue;
-                    addHeading(doc, idx + "）" + (chTitle.isBlank() ? "章节" + idx : chTitle), 3);
+                    if (chTitle.isBlank() && chContent.isBlank() && png == null) continue;
+                    addHeading(doc, chTitle.isBlank() ? "补充章节" : chTitle, headingLevelFromTitle(chTitle));
                     writeBodyWithCharts(doc, chContent, png);
                     addBlank(doc);
-                    idx++;
                 }
             }
-
-            addHeading(doc, "4.X 耦合场景", 3);
-            writeMarkdown(doc, standardOrFallback(chapters, "4.X 耦合场景", "异常处理", "耦合", "异常"));
-            addHeading(doc, "4.X 边界场景", 3);
-            writeMarkdown(doc, standardOrFallback(chapters, "4.X 边界场景", "异常处理", "边界"));
-            addHeading(doc, "4.X 非功能需求", 3);
-            writeMarkdown(doc, standardOrFallback(chapters, "4.X 非功能需求", "安全与性能", "非功能", "性能"));
-            addBlank(doc);
-
-            addHeading(doc, "5. 埋点与报表", 1);
-            addPlainParagraph(doc, "核心关注数据：");
-            writeMarkdown(doc, standardOrFallback(chapters, "5. 埋点与报表", "安全与性能", "埋点", "指标", "数据统计"));
-            addPlainParagraph(doc, "具体埋点文档：需与数分同学对齐并录入obus");
-            addPlainParagraph(doc, "报表：（没有则填无）");
-            addBlank(doc);
-
-            addHeading(doc, "6. 配置项（专家评审必备）", 1);
-            writeMarkdown(doc, standardOrFallback(chapters, "6. 配置项", "安全与性能", "配置"));
-            addBlank(doc);
-
-            addHeading(doc, "7. 动效（专家评审必备）", 1);
-            writeMarkdown(doc, standardOrDefault(chapters, "7. 动效", "（没有则填无）"));
-            addBlank(doc);
-
-            addHeading(doc, "8. 运营计划（专家评审必备）", 1);
-            writeMarkdown(doc, standardOrDefault(chapters, "8. 运营计划", "（没有则填无）"));
-            addBlank(doc);
-
-            addHeading(doc, "9. 安全与合规", 1);
-            writeMarkdown(doc, standardOrFallback(chapters, "9. 安全与合规", "安全与性能", "安全", "加密", "合规"));
-            addBlank(doc);
-
-            addHeading(doc, "10. 需求评审意见", 1);
-            writeMarkdown(doc, standardOrDefault(chapters, "10. 需求评审意见", "（必填，没有则填无）"));
-            addBlank(doc);
 
             if (description != null && !description.isBlank() && !looksLikeJson(description)) {
                 addHeading(doc, "附录：用户原始需求输入", 2);
@@ -451,6 +458,7 @@ public class WordExporter {
 
     private void insertSemanticChart(XWPFDocument doc, JsonNode chapters,
                                      Map<String, byte[]> chartImages,
+                                     Set<Integer> consumed,
                                      String semanticKey,
                                      String[] titleKeywords,
                                      String typeHint) {
@@ -468,6 +476,7 @@ public class WordExporter {
                     }
                 }
                 if (match) {
+                    if (consumed != null) consumed.add(i);
                     if (png == null) {
                         png = resolveImage(chartImages, String.valueOf(i), typeKey(type));
                     }
@@ -504,8 +513,8 @@ public class WordExporter {
         if (png != null && png.length > 0) {
             addImage(doc, png);
             text = stripChartSource(text);
-        } else if (mermaidImageRenderer.extractMermaid(text) != null) {
-            addPlainParagraph(doc, "（图表渲染失败，请检查网络或重新导出）");
+        } else if (mermaidImageRenderer.hasRenderableChart(text)) {
+            addPlainParagraph(doc, "（图表渲染失败，请检查源码或重新导出）");
             text = stripChartSource(text);
         }
 
@@ -514,12 +523,14 @@ public class WordExporter {
         }
     }
 
-    /** 去掉 mermaid 围栏、裸 flowchart、Markdown 图片与 diagram URL */
+    /** 去掉图表源码（plantuml/mermaid 围栏、裸 flowchart、裸 @startuml 块）、Markdown 图片与 diagram URL */
     private String stripChartSource(String content) {
         if (content == null || content.isBlank()) return "";
         String text = content.replace("\\n", "\n");
-        String rest = MERMAID_FENCE.matcher(text).replaceAll("").trim();
-        rest = MD_IMAGE.matcher(rest).replaceAll("").trim();
+        String rest = MERMAID_FENCE.matcher(text).replaceAll("");
+        rest = PLANTUML_FENCE.matcher(rest).replaceAll("");
+        rest = RAW_PLANTUML.matcher(rest).replaceAll("");
+        rest = MD_IMAGE.matcher(rest).replaceAll("");
         rest = rest.replaceAll("(?im)^\\s*(structureDiagramUrl|flowDiagramUrl|diagramUrl|imageUrl)\\s*[:=].*$", "").trim();
 
         if (rest.matches("(?is)(?s).*^\\s*(flowchart|graph|sequenceDiagram)\\b.*")) {
@@ -577,9 +588,10 @@ public class WordExporter {
         List<Block> blocks = splitBlocks(src);
         for (Block block : blocks) {
             if (block.code) {
-                if ("mermaid".equalsIgnoreCase(block.lang)) {
+                String lang = block.lang == null ? "" : block.lang.trim().toLowerCase();
+                if ("mermaid".equals(lang) || "plantuml".equals(lang)) {
                     // 兜底：若 strip 漏掉，这里再渲一次
-                    byte[] png = mermaidImageRenderer.renderMermaidToPng(block.text);
+                    byte[] png = mermaidImageRenderer.renderCodeFence(lang, block.text);
                     if (png != null) addImage(doc, png);
                     continue;
                 }
@@ -1066,31 +1078,77 @@ public class WordExporter {
     // ==================== 章节检索 ====================
 
     private boolean hasStandardTemplateOutline(JsonNode chapters) {
-        return !chapterContentByTitle(chapters, "1.1 需求背景").isBlank()
-                && !chapterContentByTitle(chapters, "4. 功能需求描述").isBlank()
-                && !chapterContentByTitle(chapters, "10. 需求评审意见").isBlank();
+        return !chapterContentByTitle(chapters, "1.1 需求背景", null).isBlank()
+                && !chapterContentByTitle(chapters, "4. 功能需求描述", null).isBlank()
+                && !chapterContentByTitle(chapters, "10. 需求评审意见", null).isBlank();
+    }
+
+    /** 标准模板骨架覆盖的章节（按归一化后的标题关键字预标记为已消费，避免补充循环重复导出） */
+    private void consumeStandardChapters(JsonNode chapters, Set<Integer> consumed) {
+        if (chapters == null || !chapters.isArray() || consumed == null) return;
+        String[] standardKeywords = {
+                "1需求概述", "11需求背景必填", "12需求目标价值必填", "13需求覆盖范围", "14需求列表", "15关联方",
+                "2流程图专家评审必备", "3原型图和交互视觉图", "4功能需求描述同行专家评审必备",
+                "41耦合场景", "42边界场景", "43非功能需求",
+                "5埋点与报表", "6配置项专家评审必备", "7动效专家评审必备", "8运营计划专家评审必备",
+                "9安全与合规", "10需求评审意见"
+        };
+        for (int i = 0; i < chapters.size(); i++) {
+            String normalized = normalizeTitleForMatch(textOf(chapters.get(i).path("title")));
+            if (normalized.isEmpty()) continue;
+            for (String kw : standardKeywords) {
+                if (normalized.contains(kw)) {
+                    consumed.add(i);
+                    break;
+                }
+            }
+        }
+    }
+
+    private static String headingOr(String realTitle, String fallback) {
+        return (realTitle != null && !realTitle.isBlank()) ? realTitle : fallback;
     }
 
     private String standardOrFallback(JsonNode chapters, String standardTitleKeyword,
+                                      Set<Integer> consumed,
                                       String fallbackTitleKeyword, String... fallbackContentKeywords) {
-        String content = chapterContentByTitle(chapters, standardTitleKeyword);
+        String content = chapterContentByTitle(chapters, standardTitleKeyword, consumed);
         if (!content.isBlank()) return content;
         return firstChapterContent(chapters, fallbackTitleKeyword, fallbackContentKeywords);
     }
 
-    private String standardOrDefault(JsonNode chapters, String standardTitleKeyword, String fallback) {
-        String content = chapterContentByTitle(chapters, standardTitleKeyword);
+    private String standardOrDefault(JsonNode chapters, String standardTitleKeyword,
+                                     Set<Integer> consumed, String fallback) {
+        String content = chapterContentByTitle(chapters, standardTitleKeyword, consumed);
         return content.isBlank() ? fallback : content;
     }
 
-    private String chapterContentByTitle(JsonNode chapters, String titleKeyword) {
+    private String chapterContentByTitle(JsonNode chapters, String titleKeyword, Set<Integer> consumed) {
         if (chapters == null || !chapters.isArray() || titleKeyword == null || titleKeyword.isBlank()) return "";
         String normalizedKeyword = normalizeTitleForMatch(titleKeyword);
-        for (JsonNode ch : chapters) {
+        for (int i = 0; i < chapters.size(); i++) {
+            JsonNode ch = chapters.get(i);
             String title = textOf(ch.path("title"));
             String normalizedTitle = normalizeTitleForMatch(title);
             if (normalizedTitle.contains(normalizedKeyword)) {
+                if (consumed != null) consumed.add(i);
                 return textOf(ch.path("content"));
+            }
+        }
+        return "";
+    }
+
+    /** 返回匹配章节的实际标题（尊重用户改过的章节名），并把下标标记为已消费 */
+    private String chapterTitleByTitle(JsonNode chapters, String titleKeyword, Set<Integer> consumed) {
+        if (chapters == null || !chapters.isArray() || titleKeyword == null || titleKeyword.isBlank()) return "";
+        String normalizedKeyword = normalizeTitleForMatch(titleKeyword);
+        for (int i = 0; i < chapters.size(); i++) {
+            JsonNode ch = chapters.get(i);
+            String title = textOf(ch.path("title"));
+            String normalizedTitle = normalizeTitleForMatch(title);
+            if (normalizedTitle.contains(normalizedKeyword)) {
+                if (consumed != null) consumed.add(i);
+                return title;
             }
         }
         return "";

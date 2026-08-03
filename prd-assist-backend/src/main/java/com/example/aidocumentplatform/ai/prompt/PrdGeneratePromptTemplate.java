@@ -85,7 +85,7 @@ public class PrdGeneratePromptTemplate {
                     },
                     {
                       "title": "2. 流程图（专家评审必备）",
-                      "content": "用 mermaid flowchart 描述主流程、分支判断和异常回退路径，并在图后补充关键节点说明。"
+                      "content": "用 PlantUML 绘制流程图（以 @startuml 开头、@enduml 结尾，并包在 ```plantuml 围栏中），描述主流程、分支判断和异常回退路径，并在图后补充关键节点说明。"
                     },
                     {
                       "title": "3. 原型图 和 交互+视觉图",
@@ -138,6 +138,24 @@ public class PrdGeneratePromptTemplate {
                 1. chapters 数量、顺序、title 必须严格等于上方标准模板大纲，不得合并、删减或重命名
                 2. 每个 content 不少于 120 字，用 \\"\\n\\" 换行，用 \\"|\\" 画表格
                 3. JSON 示例必须使用多行格式，禁止压缩成一行
+                4. 图表一律使用 PlantUML，禁止使用 Mermaid。格式示例：
+                   ```plantuml
+                   @startuml
+                   start
+                   :用户发起需求;
+                   if (信息完整?) then (是)
+                     :进入流程;
+                   else (否)
+                     :提示补全;
+                   endif
+                   stop
+                   @enduml
+                   ```
+                   也可以使用 activity / sequence / component / state 等图型；节点标签用中文。
+                 5. PlantUML 语法硬性要求：每条语句占一行；skinparam 一行只写一个参数，
+                   参数名与值之间必须有空格（写 RoundCorner 12，禁止 RoundCorner12、BackgroundColor#F8FBFF 这类粘连写法）；
+                   skinparam ... { } 块的 { 与 } 必须各自独占一行，块内每个参数单独一行。
+                   允许 left to right direction 与 skinparam packageStyle rectangle 同时使用，无冲突。
                 你的输出质量决定了开发团队能否直接开始编码，请认真对待。
                 只返回JSON。
                 """.formatted(featureName, description);

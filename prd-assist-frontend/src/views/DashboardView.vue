@@ -7,12 +7,13 @@ const router = useRouter()
 const user = useUserStore()
 
 const modules = [
-  { title: 'PRD 生成', desc: '输入需求描述，AI 自动生成结构化 PRD 文档', path: '/prd/generate', icon: Document, color: '#2d5016', bg: 'rgba(45,80,22,0.08)' },
+  { title: 'PRD 生成', desc: '输入需求描述，AI 自动生成结构化 PRD 文档', path: '/prd/generate', icon: Document, color: '#26251e', bg: 'rgba(38,37,30,0.06)' },
   { title: 'PRD 增强', desc: '在已有 PRD 基础上补充、细化、优化内容', path: '/prd/enhance', icon: Edit, color: '#1f8a65', bg: 'rgba(31,138,101,0.08)' },
-  { title: '原型生成', desc: '根据 PRD 生成可交互的 HTML 原型页面', path: '/prototype', icon: PictureFilled, color: '#e07b39', bg: 'rgba(224,123,57,0.08)' },
+  { title: '原型生成', desc: '根据 PRD 生成可交互的 HTML 原型页面', path: '/prototype', icon: PictureFilled, color: '#cf2d56', bg: 'rgba(207,45,86,0.06)' },
   { title: 'PRD 审查', desc: 'AI 全面评审 PRD，检查完整性与一致性', path: '/prd/review', icon: Checked, color: '#c08532', bg: 'rgba(192,133,50,0.08)' },
 ]
 
+/** 使用流程步骤 */
 const flowSteps = [
   { label: '上传参考文档', desc: '上传 XMind / Word / 文本等参考素材' },
   { label: '生成 / 增强 PRD', desc: 'AI 自动撰写或补充产品需求文档' },
@@ -22,14 +23,11 @@ const flowSteps = [
 
 <template>
   <div class="dashboard">
-    <!-- ====== 欢迎横幅 ====== -->
+    <!-- ====== 欢迎区 ====== -->
     <div class="welcome-banner">
       <div class="welcome-left">
         <h2>欢迎回来，{{ user.nickname || user.username }}</h2>
         <p>AI 辅助设计平台 — 让策划工作更高效</p>
-      </div>
-      <div class="welcome-decor">
-        <span class="decor-leaf">&#x1F33F;</span>
       </div>
     </div>
 
@@ -55,6 +53,7 @@ const flowSteps = [
     <!-- ====== 快捷操作 ====== -->
     <h3 class="section-title">快捷操作</h3>
     <div class="quick-row">
+      <!-- 开始工作 -->
       <div class="quick-card quick-main">
         <div class="quick-card-header">开始工作</div>
         <div class="quick-actions">
@@ -73,6 +72,7 @@ const flowSteps = [
         </div>
       </div>
 
+      <!-- 使用流程 -->
       <div class="quick-card quick-flow">
         <div class="quick-card-header">使用流程</div>
         <div class="flow-steps">
@@ -102,8 +102,6 @@ const flowSteps = [
   max-width: 1280px;
   margin: 0 auto;
   padding: 48px 64px;
-  background: #fef9f0;
-  min-height: 100%;
 }
 
 /* ====== 欢迎横幅 ====== */
@@ -111,85 +109,38 @@ const flowSteps = [
   display: flex;
   align-items: center;
   justify-content: space-between;
-  background: linear-gradient(135deg, #2d5016 0%, #3d6b1e 50%, #4a7a28 100%);
-  border-radius: 20px;
-  padding: 36px 40px;
-  color: #fef9f0;
-  margin-bottom: 36px;
-  box-shadow: 0 4px 20px rgba(45, 80, 22, 0.15);
-  position: relative;
-  overflow: hidden;
-}
-.welcome-banner::before {
-  content: '';
-  position: absolute;
-  top: -40px;
-  right: -40px;
-  width: 200px;
-  height: 200px;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.04);
-}
-.welcome-banner::after {
-  content: '';
-  position: absolute;
-  bottom: -60px;
-  right: 80px;
-  width: 160px;
-  height: 160px;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.03);
-}
-.welcome-left {
-  position: relative;
-  z-index: 1;
+  background: #26251e;
+  border-radius: 10px;
+  padding: 32px 36px;
+  color: #f2f1ed;
+  margin-bottom: 32px;
 }
 .welcome-left h2 {
-  margin: 0 0 8px;
-  font-size: 28px;
-  font-weight: 700;
-  letter-spacing: -0.3px;
+  margin: 0 0 6px;
+  font-size: 26px;
+  font-weight: 400;
+  letter-spacing: -0.325px;
 }
 .welcome-left p {
   margin: 0;
-  opacity: 0.75;
+  opacity: 0.6;
   font-size: 15px;
   font-family: 'Source Serif 4', 'Iowan Old Style', Georgia, serif;
-}
-.welcome-decor {
-  position: relative;
-  z-index: 1;
-}
-.decor-leaf {
-  font-size: 48px;
-  opacity: 0.3;
-  filter: grayscale(0.3);
 }
 
 /* ====== 区段标题 ====== */
 .section-title {
-  font-size: 13px;
-  font-weight: 600;
-  color: #8b7355;
+  font-size: 14px;
+  font-weight: 500;
+  color: rgba(38, 37, 30, 0.4);
   text-transform: uppercase;
-  letter-spacing: 0.6px;
-  margin: 36px 0 16px;
+  letter-spacing: 0.5px;
+  margin: 32px 0 14px;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.section-title::before {
-  content: '';
-  display: inline-block;
-  width: 4px;
-  height: 14px;
-  border-radius: 2px;
-  background: #2d5016;
 }
 
 /* =================================================================
-   功能模块卡片
+   功能模块卡片 —— 强制等高
    ================================================================= */
 .module-grid {
   display: grid;
@@ -202,26 +153,26 @@ const flowSteps = [
   flex-direction: column;
   padding: 24px;
   background: #fff;
-  border-radius: 16px;
-  border: 1px solid #d4e4bc;
+  border-radius: 8px;
+  border: 1px solid rgba(38, 37, 30, 0.1);
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all 0.2s;
+
+  /* 关键：让整行等高 —— grid 默认 stretch，卡片填满 grid cell */
   height: 100%;
-  box-shadow: 0 1px 3px rgba(45, 80, 22, 0.06);
 }
 .module-card:hover {
-  transform: translateY(-3px);
-  box-shadow: 0 8px 24px rgba(45, 80, 22, 0.1);
-  border-color: #a8c97e;
-}
-.module-card:active {
-  transform: scale(0.98);
+  transform: translateY(-2px);
+  box-shadow:
+    rgba(0, 0, 0, 0.14) 0px 28px 70px,
+    rgba(0, 0, 0, 0.1) 0px 14px 32px,
+    rgba(38, 37, 30, 0.1) 0px 0px 0px 1px;
 }
 
 .mod-icon-box {
-  width: 48px;
-  height: 48px;
-  border-radius: 14px;
+  width: 44px;
+  height: 44px;
+  border-radius: 8px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -229,6 +180,7 @@ const flowSteps = [
   margin-bottom: 16px;
 }
 
+/* 内容区 flex 填充剩余空间，保证标题和描述位置统一 */
 .mod-body {
   flex: 1;
   display: flex;
@@ -237,15 +189,15 @@ const flowSteps = [
 .mod-body h4 {
   margin: 0 0 6px;
   font-size: 16px;
-  font-weight: 600;
-  color: #2d5016;
-  letter-spacing: -0.1px;
+  font-weight: 400;
+  color: #26251e;
+  letter-spacing: -0.11px;
   flex-shrink: 0;
 }
 .mod-body p {
   margin: 0;
   font-size: 13px;
-  color: #8b7355;
+  color: rgba(38, 37, 30, 0.55);
   line-height: 1.6;
   flex: 1;
 }
@@ -261,19 +213,18 @@ const flowSteps = [
 
 .quick-card {
   background: #fff;
-  border-radius: 16px;
-  border: 1px solid #d4e4bc;
+  border-radius: 8px;
+  border: 1px solid rgba(38, 37, 30, 0.1);
   padding: 20px 24px;
-  box-shadow: 0 1px 3px rgba(45, 80, 22, 0.06);
 }
 
 .quick-card-header {
   font-size: 15px;
-  font-weight: 600;
-  color: #2d5016;
+  font-weight: 500;
+  color: #26251e;
   margin-bottom: 18px;
   padding-bottom: 12px;
-  border-bottom: 1px solid #d4e4bc;
+  border-bottom: 1px solid rgba(38, 37, 30, 0.08);
 }
 
 /* 快捷按钮行 */
@@ -289,18 +240,17 @@ const flowSteps = [
   justify-content: center;
   gap: 8px;
   height: 52px;
-  border: 1px solid #d4e4bc;
-  border-radius: 999px;
-  background: #fef9f0;
-  color: #5a6e3a;
+  border: 1px solid rgba(38, 37, 30, 0.1);
+  border-radius: 8px;
+  background: #f7f7f4;
+  color: rgba(38, 37, 30, 0.75);
   font-size: 14px;
-  font-weight: 500;
   font-family: inherit;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all 0.15s;
   text-align: center;
   line-height: 1;
-  padding: 0 16px;
+  padding: 0 12px;
 }
 .quick-btn :deep(.el-icon) {
   display: inline-flex;
@@ -309,18 +259,13 @@ const flowSteps = [
   flex-shrink: 0;
 }
 .quick-btn:hover {
-  background: #2d5016;
-  color: #fef9f0;
-  border-color: #2d5016;
-  transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(45, 80, 22, 0.15);
-}
-.quick-btn:active {
-  transform: scale(0.97);
+  background: #ebeae5;
+  color: #26251e;
+  border-color: rgba(38, 37, 30, 0.2);
 }
 
 /* =================================================================
-   使用流程
+   使用流程 —— 自定义步骤（小而美的序号 + 连接线）
    ================================================================= */
 .flow-steps {
   display: flex;
@@ -334,6 +279,7 @@ const flowSteps = [
   gap: 14px;
 }
 
+/* 左侧：序号圆 + 竖线 */
 .flow-indicator {
   display: flex;
   flex-direction: column;
@@ -346,10 +292,10 @@ const flowSteps = [
   width: 28px;
   height: 28px;
   border-radius: 50%;
-  background: #2d5016;
-  color: #fef9f0;
+  background: #26251e;
+  color: #f2f1ed;
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 500;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -357,12 +303,13 @@ const flowSteps = [
 }
 
 .flow-line {
-  width: 2px;
+  width: 1.5px;
   flex: 1;
   min-height: 24px;
-  background: #d4e4bc;
+  background: rgba(38, 37, 30, 0.15);
 }
 
+/* 右侧：文字 */
 .flow-content {
   display: flex;
   flex-direction: column;
@@ -374,13 +321,13 @@ const flowSteps = [
 
 .flow-label {
   font-size: 14px;
-  font-weight: 600;
-  color: #2d5016;
-  line-height: 28px;
+  font-weight: 500;
+  color: #26251e;
+  line-height: 28px; /* 与圆点高度对齐 */
 }
 .flow-desc {
   font-size: 12px;
-  color: #8b7355;
+  color: rgba(38, 37, 30, 0.45);
   line-height: 1.5;
   margin-top: 2px;
 }
@@ -406,12 +353,6 @@ const flowSteps = [
   }
   .quick-actions {
     grid-template-columns: 1fr;
-  }
-  .welcome-banner {
-    padding: 24px 20px;
-  }
-  .welcome-left h2 {
-    font-size: 22px;
   }
 }
 </style>

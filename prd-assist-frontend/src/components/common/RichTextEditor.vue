@@ -6,7 +6,7 @@
  * - model 存「可读纯文本」（\n 换行、列表前缀），展示层转 HTML
  * - 兼容后端 Word 导出的纯文本 content
  */
-import { ref, watch, onMounted, nextTick } from 'vue'
+import { ref, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 
 const props = defineProps<{
   modelValue: string
@@ -223,10 +223,194 @@ function exec(cmd: string, value?: string) {
   emitFromDom()
 }
 
+// ── 表格行/列操作 ─────────────────────────────────────────
+interface TableMenuState { show: boolean; x: number; y: number }
+const tableMenu = ref<TableMenuState>({ show: false, x: 0, y: 0 })
+
+function currentCell(): HTMLTableCellElement | null {
+  const sel = window.getSelection()
+  if (!sel || sel.rangeCount === 0 || !editorRef.value) return null
+  let node: Node | null = sel.getRangeAt(0).commonAncestorContainer
+  if (node.nodeType === Node.TEXT_NODE && node.parentElement) node = node.parentElement
+  let el = node as HTMLElement
+  while (el && el !== editorRef.value) {
+    if (el.tagName === 'TD' || el.tagName === 'TH') return el as HTMLTableCellElement
+    el = el.parentElement as HTMLElement
+  }
+  return null
+}
+
+function currentRow(): HTMLTableRowElement | null {
+  const cell = currentCell()
+  return cell?.parentElement as HTMLTableRowElement | null
+}
+
+function currentTable(): HTMLTableElement | null {
+  const row = currentRow()
+  return row?.closest('table') as HTMLTableElement | null
+}
+
+function placeCaret(el: HTMLElement | null) {
+  if (!el) return
+  const range = document.createRange()
+  range.selectNodeContents(el)
+  range.collapse(true)
+  const sel = window.getSelection()
+  sel?.removeAllRanges()
+  sel?.addRange(range)
+}
+
+function positionTableMenu() {
+  const cell = currentCell()
+  const table = cell ? currentTable() : null
+  if (!cell || !table) {
+    tableMenu.value.show = false
+    return
+  }
+  const rect = table.getBoundingClientRect()
+  tableMenu.value.x = Math.max(8, Math.min(rect.left, window.innerWidth - 340))
+  tableMenu.value.y = Math.max(4, rect.top - 40)
+  tableMenu.value.show = true
+}
+
+function afterTableEdit(focusCell: HTMLElement | null) {
+  placeCaret(focusCell)
+  emitFromDom()
+  positionTableMenu()
+}
+
+function insertRow(after: boolean) {
+  const row = currentRow()
+  if (!row || !currentTable()) return
+  const colCount = row.cells.length
+  const newRow = row.cloneNode(false) as HTMLTableRowElement
+  for (let i = 0; i < colCount; i++) {
+    const td = document.createElement('td')
+    td.innerHTML = '<br>'
+    newRow.appendChild(td)
+  }
+  if (after) row.after(newRow)
+  else row.before(newRow)
+  afterTableEdit(newRow.cells[0])
+}
+
+function deleteRow() {
+  const row = currentRow()
+  const table = currentTable()
+  if (!row || !table) return
+  const rows = Array.from(table.rows)
+  const idx = rows.indexOf(row)
+  row.remove()
+  if (table.rows.length === 0) {
+    table.remove()
+    tableMenu.value.show = false
+    editorRef.value?.focus()
+    emitFromDom()
+    return
+  }
+  const targetRow = rows[Math.min(idx, table.rows.length - 1)]
+  afterTableEdit(targetRow.cells[0])
+}
+
+function insertColumn(after: boolean) {
+  const cell = currentCell()
+  const table = currentTable()
+  if (!cell || !table) return
+  const cellIndex = cell.cellIndex
+  const rows = Array.from(table.rows)
+  rows.forEach(row => {
+    const tag = row.cells[cellIndex]?.tagName === 'TH' ? 'th' : 'td'
+    const td = document.createElement(tag)
+    td.innerHTML = '<br>'
+    const ref = after ? row.cells[cellIndex + 1] || null : row.cells[cellIndex] || null
+    row.insertBefore(td, ref)
+  })
+  afterTableEdit(rows[0].cells[after ? cellIndex + 1 : cellIndex] || null)
+}
+
+function deleteColumn() {
+  const cell = currentCell()
+  const table = currentTable()
+  if (!cell || !table) return
+  const cellIndex = cell.cellIndex
+  const rows = Array.from(table.rows)
+  rows.forEach(row => row.cells[cellIndex]?.remove())
+  if (table.rows.length === 0 || rows[0].cells.length === 0) {
+    table.remove()
+    tableMenu.value.show = false
+    editorRef.value?.focus()
+    emitFromDom()
+    return
+  }
+  afterTableEdit(rows[0].cells[Math.min(cellIndex, rows[0].cells.length - 1)] || null)
+}
+
+function deleteTable() {
+  const table = currentTable()
+  if (!table) return
+  table.remove()
+  tableMenu.value.show = false
+  editorRef.value?.focus()
+  emitFromDom()
+}
+
+function buildTable(rowCount: number, colCount: number): HTMLTableElement {
+  const table = document.createElement('table')
+  table.className = 'rte-table'
+  const head = document.createElement('thead')
+  const hr = document.createElement('tr')
+  for (let c = 0; c < colCount; c++) {
+    const th = document.createElement('th')
+    th.innerHTML = '<br>'
+    hr.appendChild(th)
+  }
+  head.appendChild(hr)
+  const body = document.createElement('tbody')
+  for (let r = 1; r < rowCount; r++) {
+    const tr = document.createElement('tr')
+    for (let c = 0; c < colCount; c++) {
+      const td = document.createElement('td')
+      td.innerHTML = '<br>'
+      tr.appendChild(td)
+    }
+    body.appendChild(tr)
+  }
+  table.appendChild(head)
+  table.appendChild(body)
+  return table
+}
+
+function insertTable() {
+  const table = buildTable(2, 3)
+  const wrap = document.createElement('div')
+  wrap.className = 'rte-table-wrap'
+  wrap.appendChild(table)
+  editorRef.value?.focus()
+
+  const existingTable = currentTable()
+  if (existingTable) {
+    existingTable.after(wrap)
+  } else {
+    const sel = window.getSelection()
+    if (sel && sel.rangeCount && editorRef.value?.contains(sel.getRangeAt(0).commonAncestorContainer)) {
+      const range = sel.getRangeAt(0)
+      range.deleteContents()
+      range.insertNode(wrap)
+    } else {
+      editorRef.value?.appendChild(wrap)
+    }
+  }
+  const p = document.createElement('p')
+  p.innerHTML = '<br>'
+  wrap.after(p)
+  afterTableEdit(table.querySelector('th,td'))
+}
+
 function onInput() { emitFromDom() }
 function onFocus() { focused.value = true; emit('focus') }
 function onBlur() {
   focused.value = false
+  tableMenu.value.show = false
   emitFromDom()
 }
 
@@ -246,6 +430,13 @@ watch(
 onMounted(async () => {
   await nextTick()
   setHtml(plainToHtml(props.modelValue || ''))
+  document.addEventListener('selectionchange', positionTableMenu)
+  window.addEventListener('scroll', positionTableMenu, true)
+})
+
+onBeforeUnmount(() => {
+  document.removeEventListener('selectionchange', positionTableMenu)
+  window.removeEventListener('scroll', positionTableMenu, true)
 })
 
 defineExpose({
@@ -266,6 +457,8 @@ defineExpose({
       <button type="button" class="rte-btn" title="有序列表" @click="exec('insertOrderedList')">1. 列表</button>
       <span class="rte-sep" />
       <button type="button" class="rte-btn" title="清除格式" @click="exec('removeFormat')">清除</button>
+      <span class="rte-sep" />
+      <button type="button" class="rte-btn" title="插入表格" @click="insertTable">▦ 表格</button>
     </div>
     <div
       ref="editorRef"
@@ -276,7 +469,25 @@ defineExpose({
       @input="onInput"
       @focus="onFocus"
       @blur="onBlur"
+      @mouseup="positionTableMenu"
+      @keyup="positionTableMenu"
     />
+    <div
+      v-show="tableMenu.show"
+      class="table-menu"
+      :style="{ left: tableMenu.x + 'px', top: tableMenu.y + 'px' }"
+      @mousedown.prevent
+    >
+      <button type="button" title="在上方插入行" @click="insertRow(false)">上行+</button>
+      <button type="button" title="在下方插入行" @click="insertRow(true)">下行+</button>
+      <button type="button" title="删除当前行" @click="deleteRow">删行</button>
+      <span class="rte-sep" />
+      <button type="button" title="在左侧插入列" @click="insertColumn(false)">左列+</button>
+      <button type="button" title="在右侧插入列" @click="insertColumn(true)">右列+</button>
+      <button type="button" title="删除当前列" @click="deleteColumn">删列</button>
+      <span class="rte-sep" />
+      <button type="button" title="删除整个表格" @click="deleteTable">删表</button>
+    </div>
   </div>
 </template>
 
@@ -374,4 +585,35 @@ defineExpose({
 }
 .rte-body :deep(strong),
 .rte-body :deep(b) { font-weight: 600; }
+
+.table-menu {
+  position: fixed;
+  z-index: 2000;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 6px;
+  background: #26251e;
+  border-radius: 8px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
+}
+.table-menu .rte-sep {
+  width: 1px;
+  height: 14px;
+  background: rgba(255, 255, 255, 0.22);
+  margin: 0 2px;
+}
+.table-menu button {
+  border: none;
+  background: transparent;
+  color: #f2f1ed;
+  font-size: 12px;
+  padding: 4px 7px;
+  border-radius: 5px;
+  cursor: pointer;
+  line-height: 1.3;
+  font-family: inherit;
+  white-space: nowrap;
+}
+.table-menu button:hover { background: rgba(255, 255, 255, 0.16); }
 </style>

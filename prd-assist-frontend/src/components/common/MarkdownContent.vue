@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /**
  * 轻量 Markdown/纯文本展示：
- * - 拆出 ```mermaid 代码块 → MermaidBlock
+ * - 拆出 ```plantuml / ```mermaid 代码块 → MermaidBlock
  * - 其余按段落 / 列表 / 表格展示
  * 用于 PRD 章节只读对比与增强结果中的图表渲染
  */
@@ -15,7 +15,7 @@ const props = defineProps<{
 }>()
 
 type Block =
-  | { kind: 'mermaid'; code: string }
+  | { kind: 'chart'; code: string }
   | { kind: 'code'; lang: string; code: string }
   | { kind: 'html'; html: string }
 
@@ -43,28 +43,28 @@ function parseContent(raw: string): Block[] {
     }
     const lang = (m[1] || '').toLowerCase()
     const code = m[2].trim()
-    if (lang === 'mermaid' || (!lang && /^(flowchart|graph|sequencediagram)\b/i.test(code))) {
-      result.push({ kind: 'mermaid', code })
+    if (lang === 'plantuml' || lang === 'mermaid' || (!lang && /^(flowchart|graph|sequencediagram|@startuml)\b/i.test(code))) {
+      result.push({ kind: 'chart', code })
     } else {
       result.push({ kind: 'code', lang, code })
     }
     last = m.index + m[0].length
   }
   if (last < text.length) {
-    // 无围栏但含裸 flowchart 的兜底
+    // 无围栏但含裸图表（flowchart / @startuml）的兜底
     const rest = text.slice(last)
-    const naked = splitNakedMermaid(rest)
+    const naked = splitNakedChart(rest)
     result.push(...naked)
   }
 
-  // 若整段没有 fence，再尝试裸 mermaid
+  // 若整段没有 fence，再尝试裸图表
   if (result.length === 0) {
-    return splitNakedMermaid(text)
+    return splitNakedChart(text)
   }
   return result
 }
 
-function splitNakedMermaid(text: string): Block[] {
+function splitNakedChart(text: string): Block[] {
   const lines = text.split('\n')
   const out: Block[] = []
   let buf: string[] = []
@@ -78,7 +78,7 @@ function splitNakedMermaid(text: string): Block[] {
   }
   const flushChart = () => {
     if (chart && chart.length) {
-      out.push({ kind: 'mermaid', code: chart.join('\n').trim() })
+      out.push({ kind: 'chart', code: chart.join('\n').trim() })
       chart = null
     }
   }
@@ -90,13 +90,22 @@ function splitNakedMermaid(text: string): Block[] {
       chart = [line]
       continue
     }
+    if (!chart && /^@startuml\b/i.test(t)) {
+      flushBuf()
+      chart = [line]
+      continue
+    }
     if (chart) {
       if (
         t === '' ||
-        /(--|==>|-->|\[|\]|\(|\)|subgraph|\bend\b|participant|Note|style |classDef)/i.test(t) ||
+        /@startuml|@enduml|(--|==>|-->|\[|\]|\(|\)|subgraph|\bend\b|participant|Note|style |classDef)/i.test(t) ||
         /^[A-Za-z][\w]*([\[{(].*)?$/.test(t)
       ) {
         chart.push(line)
+        if (/^@enduml\b/i.test(t)) {
+          flushChart()
+          continue
+        }
         continue
       }
       flushChart()
@@ -218,10 +227,10 @@ function inlineFormat(s: string): string {
   <div class="md-content">
     <template v-for="(block, i) in blocks" :key="i">
       <MermaidBlock
-        v-if="block.kind === 'mermaid' && renderCharts !== false"
+        v-if="block.kind === 'chart' && renderCharts !== false"
         :code="block.code"
       />
-      <pre v-else-if="block.kind === 'mermaid'" class="code-fallback">{{ block.code }}</pre>
+      <pre v-else-if="block.kind === 'chart'" class="code-fallback">{{ block.code }}</pre>
       <pre v-else-if="block.kind === 'code'" class="code-block"><code>{{ block.code }}</code></pre>
       <div v-else class="md-html" v-html="block.html" />
     </template>

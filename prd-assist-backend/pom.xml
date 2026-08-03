@@ -85,6 +85,13 @@
             <version>5.3.0</version>
         </dependency>
 
+        <!-- PlantUML (本地渲染图表，无需外部服务/命令行) -->
+        <dependency>
+            <groupId>net.sourceforge.plantuml</groupId>
+            <artifactId>plantuml</artifactId>
+            <version>1.2026.6</version>
+        </dependency>
+
         <!-- Jackson (JSON处理) -->
         <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>

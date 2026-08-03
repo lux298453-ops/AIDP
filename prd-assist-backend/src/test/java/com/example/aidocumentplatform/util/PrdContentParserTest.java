@@ -8,7 +8,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.apache.poi.xwpf.usermodel.XWPFDocument;
 import org.junit.jupiter.api.Test;
-import org.springframework.web.reactive.function.client.WebClient;
 
 import java.io.ByteArrayInputStream;
 import java.util.List;
@@ -35,8 +34,7 @@ class PrdContentParserTest {
 
     private WordExporter wordExporter() {
         // 测试环境禁用外部 mermaid 渲染
-        MermaidImageRenderer renderer = new MermaidImageRenderer(
-                WebClient.builder().build(), "https://kroki.io", false);
+        MermaidImageRenderer renderer = new MermaidImageRenderer(false, new PlantUmlImageRenderer());
         return new WordExporter(parser, renderer);
     }
 
@@ -304,15 +302,17 @@ class PrdContentParserTest {
         chapters.addObject().put("title", "2. 流程图（专家评审必备）").put("content", "流程说明内容。");
         chapters.addObject().put("title", "3. 原型图 和 交互+视觉图").put("content", "原型交互内容。");
         chapters.addObject().put("title", "4. 功能需求描述（同行/专家评审必备）").put("content", "这是标准功能需求详情。");
-        chapters.addObject().put("title", "4.X 耦合场景").put("content", "这是标准耦合场景。");
-        chapters.addObject().put("title", "4.X 边界场景").put("content", "这是标准边界场景。");
-        chapters.addObject().put("title", "4.X 非功能需求").put("content", "这是标准非功能需求。");
+        chapters.addObject().put("title", "4.1 耦合场景").put("content", "这是标准耦合场景。");
+        chapters.addObject().put("title", "4.2 边界场景").put("content", "这是标准边界场景。");
+        chapters.addObject().put("title", "4.3 非功能需求").put("content", "这是标准非功能需求。");
         chapters.addObject().put("title", "5. 埋点与报表").put("content", "这是标准埋点内容。");
         chapters.addObject().put("title", "6. 配置项（专家评审必备）").put("content", "这是标准配置项。");
         chapters.addObject().put("title", "7. 动效（专家评审必备）").put("content", "这是标准动效。");
         chapters.addObject().put("title", "8. 运营计划（专家评审必备）").put("content", "这是标准运营计划。");
         chapters.addObject().put("title", "9. 安全与合规").put("content", "这是标准安全合规。");
         chapters.addObject().put("title", "10. 需求评审意见").put("content", "这是标准评审意见。");
+        chapters.addObject().put("title", "数据字段").put("content", "这是增强补充的数据字段。");
+        chapters.addObject().put("title", "测试用例").put("content", "这是增强补充的测试用例。");
 
         byte[] bytes = wordExporter().export("标准大纲测试", null, root.toString(), TemplateType.STANDARD);
         try (XWPFDocument document = new XWPFDocument(new ByteArrayInputStream(bytes))) {
@@ -323,6 +323,22 @@ class PrdContentParserTest {
             assertTrue(paragraphs.stream().anyMatch(p -> p.contains("这是标准需求背景内容")));
             assertTrue(paragraphs.stream().anyMatch(p -> p.contains("这是标准功能需求详情")));
             assertTrue(paragraphs.stream().anyMatch(p -> p.contains("这是标准评审意见")));
+            // 4.X 硬编码缺陷：应输出文档实际章节名 4.1/4.2/4.3，不得出现字面 4.X
+            assertTrue(paragraphs.contains("4.1 耦合场景"));
+            assertTrue(paragraphs.contains("4.2 边界场景"));
+            assertTrue(paragraphs.contains("4.3 非功能需求"));
+            assertTrue(paragraphs.stream().anyMatch(p -> p.contains("这是标准耦合场景")));
+            assertTrue(paragraphs.stream().anyMatch(p -> p.contains("这是标准边界场景")));
+            assertTrue(paragraphs.stream().anyMatch(p -> p.contains("这是标准非功能需求")));
+            assertFalse(paragraphs.stream().anyMatch(p -> p.contains("4.X 耦合场景")));
+            assertFalse(paragraphs.stream().anyMatch(p -> p.contains("4.X 边界场景")));
+            assertFalse(paragraphs.stream().anyMatch(p -> p.contains("4.X 非功能需求")));
+            // 标准模板命中骨架时，增强新增的补充章节不得被丢弃
+            assertTrue(paragraphs.contains("数据字段"));
+            assertTrue(paragraphs.stream().anyMatch(p -> p.contains("这是增强补充的数据字段")));
+            assertTrue(paragraphs.contains("测试用例"));
+            assertTrue(paragraphs.stream().anyMatch(p -> p.contains("这是增强补充的测试用例")));
+            // 骨架章节不得重复导出
             assertFalse(paragraphs.stream().anyMatch(p -> p.contains("1）1. 需求概述")));
             assertFalse(paragraphs.stream().anyMatch(p -> p.contains("2）1.1 需求背景")));
         }

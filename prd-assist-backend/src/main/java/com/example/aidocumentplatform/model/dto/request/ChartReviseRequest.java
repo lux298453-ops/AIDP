@@ -18,6 +18,6 @@ public class ChartReviseRequest {
     @NotBlank(message = "请描述修改需求")
     private String instruction;
 
-    /** 可选：前端当前编辑中的 mermaid 源码（未保存时优先使用） */
-    private String currentMermaid;
+    /** 可选：前端当前编辑中的图表源码（未保存时优先使用；PlantUML 或 Mermaid） */
+    private String currentCode;
 }

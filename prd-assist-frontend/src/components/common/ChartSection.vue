@@ -1,21 +1,23 @@
 <script setup lang="ts">
 /**
  * 图表章节交互区
- * - 默认：渲染 Mermaid 图 + 下方说明文字
+ * - 默认：渲染图表（PlantUML 走后端 / Mermaid 浏览器端）+ 下方说明文字
  * - 代码模式：可编辑源码 + 重新渲染
  * - AI 修改：自然语言修订图表
  */
 import { ref, computed, watch, onMounted, nextTick } from 'vue'
 import { ElMessage } from 'element-plus'
 import {
-  extractMermaidCode,
-  extractMermaidCaption,
-  replaceMermaidInContent,
-} from '@/utils/mermaid'
+  detectChartLang,
+  extractChartCode,
+  extractChartCaption,
+  replaceChartInContent,
+  renderChartImageUrl,
+} from '@/utils/chart'
 import client from '@/api/client'
 
 const props = defineProps<{
-  /** 章节完整 content（含 mermaid + 说明） */
+  /** 章节完整 content（含图表 + 说明） */
   modelValue: string
   /** 章节类型 structure / flow / 其他 */
   chartType?: string
@@ -36,6 +38,7 @@ const code = ref('')
 const caption = ref('')
 const draftCode = ref('')
 const containerRef = ref<HTMLElement | null>(null)
+const plantumlUrl = ref<string | null>(null)
 const rendering = ref(false)
 const errorMsg = ref('')
 const aiDialog = ref(false)
@@ -51,15 +54,13 @@ const chartLabel = computed(() => {
 
 function syncFromModel() {
   const content = props.modelValue || ''
-  code.value = extractMermaidCode(content) || ''
-  caption.value = extractMermaidCaption(content)
+  code.value = extractChartCode(content) || ''
+  caption.value = extractChartCaption(content)
   draftCode.value = code.value
 }
 
-function emitContent(mermaidCode: string, cap?: string) {
-  const c = cap !== undefined ? cap : caption.value
-  const block = '```mermaid\n' + mermaidCode.trim() + '\n```'
-  const next = c?.trim() ? block + '\n\n' + c.trim() : block
+function emitContent(chartCode: string) {
+  const next = replaceChartInContent(props.modelValue || '', chartCode)
   emit('update:modelValue', next)
   emit('change')
 }
@@ -67,6 +68,7 @@ function emitContent(mermaidCode: string, cap?: string) {
 async function renderChart(source?: string) {
   const src = (source ?? code.value ?? '').trim()
   errorMsg.value = ''
+  plantumlUrl.value = null
   if (!src) {
     errorMsg.value = '暂无图表源码'
     return
@@ -74,6 +76,20 @@ async function renderChart(source?: string) {
   if (!containerRef.value) return
   rendering.value = true
   const seq = ++renderSeq
+
+  const lang = detectChartLang(src)
+  if (lang === 'plantuml') {
+    const url = await renderChartImageUrl(src, lang)
+    if (seq !== renderSeq) return
+    if (url) {
+      plantumlUrl.value = url
+    } else {
+      errorMsg.value = '图表渲染失败，请检查 PlantUML 语法'
+    }
+    rendering.value = false
+    return
+  }
+
   try {
     containerRef.value.innerHTML = ''
     const mermaid = (await import('mermaid')).default
@@ -156,9 +172,9 @@ async function submitAiRevise() {
     const res = await client.post(`/prd/${props.prdId}/chart-revise`, {
       chapterIndex: props.chapterIndex,
       instruction,
-      currentMermaid: code.value,
+      currentCode: code.value,
     })
-    const newCode = res.data?.data?.mermaid || res.data?.data?.code
+    const newCode = res.data?.data?.code || res.data?.data?.mermaid
     const newContent = res.data?.data?.content
     if (newContent) {
       emit('update:modelValue', newContent)
@@ -195,17 +211,17 @@ onMounted(() => {
 
 watch(() => props.modelValue, (v, old) => {
   if (v === old) return
-  // 外部更新时同步（避免编辑框自己触发的循环：比较 mermaid 源码）
-  const nextCode = extractMermaidCode(v || '') || ''
+  // 外部更新时同步（避免编辑框自己触发的循环：比较图表源码）
+  const nextCode = extractChartCode(v || '') || ''
   if (nextCode !== code.value) {
     syncFromModel()
     if (mode.value === 'preview') nextTick(() => renderChart())
   } else {
-    caption.value = extractMermaidCaption(v || '')
+    caption.value = extractChartCaption(v || '')
   }
 })
 
-defineExpose({ getSvgHtml, getMermaidCode: () => code.value, renderChart })
+defineExpose({ getSvgHtml, getChartCode: () => code.value, renderChart })
 </script>
 
 <template>
@@ -234,9 +250,15 @@ defineExpose({ getSvgHtml, getMermaidCode: () => code.value, renderChart })
         <el-button size="small" @click="mode = 'code'">去代码模式修复</el-button>
       </div>
       <div
+        v-if="plantumlUrl"
+        class="chart-img"
+      >
+        <img :src="plantumlUrl" alt="图表" />
+      </div>
+      <div
         ref="containerRef"
         class="chart-svg"
-        :class="{ hidden: !!errorMsg }"
+        :class="{ hidden: !!errorMsg || !!plantumlUrl }"
       />
       <div v-if="caption" class="chart-caption">
         <div class="caption-label">说明</div>
@@ -251,7 +273,7 @@ defineExpose({ getSvgHtml, getMermaidCode: () => code.value, renderChart })
         type="textarea"
         :rows="14"
         class="code-input"
-        placeholder="在此编辑 Mermaid 源码…"
+        placeholder="在此编辑图表源码（PlantUML / Mermaid）…"
       />
       <div class="code-actions">
         <el-button type="primary" @click="applyCodeAndRender">重新渲染</el-button>
@@ -348,6 +370,15 @@ defineExpose({ getSvgHtml, getMermaidCode: () => code.value, renderChart })
 }
 .chart-svg.hidden { display: none; }
 .chart-svg :deep(svg) {
+  max-width: 100%;
+  height: auto;
+}
+.chart-img {
+  padding: 12px;
+  overflow-x: auto;
+  text-align: center;
+}
+.chart-img img {
   max-width: 100%;
   height: auto;
 }

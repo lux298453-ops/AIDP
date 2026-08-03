@@ -498,13 +498,29 @@ POST /api/prd/review
     {
       "severity": "CRITICAL",
       "dimension": "compliance",
+      "chapterIndex": 2,
+      "chapterTitle": "3. 登录与认证",
       "location": "登录模块",
+      "targetText": "当前 PRD 中与该问题直接相关的原文片段，用于前端精准定位和高亮",
       "description": "未提及密码加密存储方案",
       "suggestion": "增加BCrypt加密存储要求"
     }
   ]
 }
 ```
+
+**issues 字段说明**:
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `severity` | string | 严重程度：`CRITICAL` / `MAJOR` / `MINOR` / `SUGGESTION` |
+| `dimension` | string | 审查维度：`completeness` / `consistency` / `compliance` |
+| `chapterIndex` | number | 问题所属章节下标，0-based；无法定位时为 `-1` |
+| `chapterTitle` | string | 与 `chapterIndex` 对应的章节标题 |
+| `location` | string | 更细的问题位置描述，如段落、模块、小节 |
+| `targetText` | string | 从 PRD 原文逐字摘录的问题相关片段，20~200 字；整体缺失类问题可为空字符串 |
+| `description` | string | 问题描述 |
+| `suggestion` | string | 修改建议 |
 
 **严重程度**: `CRITICAL` > `MAJOR` > `MINOR` > `SUGGESTION`
 
@@ -541,6 +557,108 @@ GET /api/review/{id}
   }
 }
 ```
+
+---
+
+### 6.3 AI 修复严重项 / 生成修订版 PRD
+
+```
+POST /api/review/{id}/fix
+```
+
+🔒 需要认证。
+
+**说明**: 异步接口。用于批量修复严重/重要问题，或作为内联修复失败后的兜底流程。接口会创建新的 PRD 文档版本，不覆盖原 PRD。
+
+**Path Parameters**:
+
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| `id` | number | `review_report.id` |
+
+**Request Body**:
+
+```json
+{
+  "issueIndexes": [0, 2],
+  "severities": ["CRITICAL", "MAJOR"],
+  "sourcePrdDocumentId": 12
+}
+```
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|:--:|------|
+| `issueIndexes` | number[] | 否 | 指定修复的问题下标，0-based，对应报告 `issues` 数组 |
+| `severities` | string[] | 否 | 按严重程度批量修复；不传时默认修复 `CRITICAL` + `MAJOR` |
+| `sourcePrdDocumentId` | number | 否 | 当前 PRD 文档 ID；从 PRD 编辑页发起时用于基于当前版本修复 |
+
+**Response** `200`:
+
+```json
+{
+  "code": 200,
+  "message": "success",
+  "data": { "taskId": 101 }
+}
+```
+
+> 前端通过任务 SSE 获取进度；成功后 `task.resultRefId` 为新生成的 `prd_document.id`。
+
+---
+
+### 6.4 内联精准修复单条问题
+
+```
+POST /api/review/{id}/fix-inline
+```
+
+🔒 需要认证。
+
+**说明**: 同步接口。用于单条问题的快速修复。AI 只返回 `oldText -> newText` 文本替换，后端在目标章节内定位并替换，保存为新版本；前端用 `patchedContent` 原地更新当前章节并高亮修改内容。
+
+**Path Parameters**:
+
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| `id` | number | `review_report.id` |
+
+**Request Body**:
+
+```json
+{
+  "issueIndex": 0,
+  "sourcePrdDocumentId": 12
+}
+```
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|:--:|------|
+| `issueIndex` | number | 是 | 要修复的问题下标，0-based，对应报告 `issues` 数组 |
+| `sourcePrdDocumentId` | number | 否 | 当前 PRD 文档 ID；不传时使用审查报告关联的 PRD |
+
+**Response** `200`:
+
+```json
+{
+  "code": 200,
+  "message": "success",
+  "data": {
+    "prdDocumentId": 13,
+    "chapterIndex": 2,
+    "oldText": "原章节中的待修复文本片段",
+    "newText": "修复后的文本片段",
+    "patchedContent": "替换后的章节完整内容",
+    "changeSummary": "补充了密码加密存储要求"
+  }
+}
+```
+
+**前端交互约定**:
+
+- 单条问题只展示「内联修复此条」。
+- 内联修复成功后，当前 PRD 页面原地更新章节内容、高亮修改片段，并从问题列表移除该问题。
+- 内联修复失败时，前端提示是否改为生成修订版 PRD；用户确认后再调用 `POST /api/review/{id}/fix`。
+- 「AI 修复此条」不再作为常驻按钮展示，仅作为内联失败后的隐藏兜底能力。
 
 ---
 

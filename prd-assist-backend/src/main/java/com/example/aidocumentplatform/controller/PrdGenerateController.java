@@ -280,7 +280,7 @@ public class PrdGenerateController {
     }
 
     /**
-     * 带图表图片导出：前端将 Mermaid 渲染为 PNG base64 后 POST。
+     * 带图表图片导出：前端将图表渲染为 PNG base64 后 POST。
      * body.chartImages[].key = 章节下标（"0"）或 "summary"
      */
     @PostMapping("/{id}/export")
@@ -308,8 +308,8 @@ public class PrdGenerateController {
     }
 
     /**
-     * AI 修订某章节中的 Mermaid 图表。
-     * 同步返回新 mermaid 源码，并写回 prd_document.content（保留原说明文字）。
+     * AI 修订某章节中的图表（PlantUML / Mermaid）。
+     * 同步返回新图表源码，并写回 prd_document.content（保留原说明文字）。
      */
     @PostMapping("/{id}/chart-revise")
     public ApiResponse<Map<String, Object>> reviseChart(
@@ -327,17 +327,18 @@ public class PrdGenerateController {
             String title = chapter.path("title").asText("");
             String type = chapter.path("type").asText("chart");
             String oldContent = chapter.path("content").asText("");
-            String currentMermaid = request.getCurrentMermaid();
-            if (currentMermaid == null || currentMermaid.isBlank()) {
-                currentMermaid = extractMermaid(oldContent);
+            String currentCode = request.getCurrentCode();
+            if (currentCode == null || currentCode.isBlank()) {
+                currentCode = extractChart(oldContent);
             }
-            if (currentMermaid == null || currentMermaid.isBlank()) {
-                throw new IllegalArgumentException("该章节未找到 Mermaid 图表源码");
+            if (currentCode == null || currentCode.isBlank()) {
+                throw new IllegalArgumentException("该章节未找到图表源码（PlantUML/Mermaid）");
             }
+            String lang = detectChartLang(currentCode);
 
             String system = chartRevisePromptTemplate.getSystemPrompt();
             String user = chartRevisePromptTemplate.buildUserPrompt(
-                    type, title, currentMermaid, request.getInstruction());
+                    type, title, currentCode, request.getInstruction(), lang);
             String aiRaw;
             AiRequestContext.setUserId(getCurrentUserId());
             try {
@@ -345,12 +346,12 @@ public class PrdGenerateController {
             } finally {
                 AiRequestContext.clear();
             }
-            String newMermaid = stripMermaidFence(aiRaw);
-            if (newMermaid.isBlank()) {
-                throw new IllegalArgumentException("AI 未返回有效 Mermaid 源码");
+            String newCode = stripChartFence(aiRaw, lang);
+            if (newCode.isBlank()) {
+                throw new IllegalArgumentException("AI 未返回有效图表源码");
             }
 
-            String newContent = replaceMermaid(oldContent, newMermaid);
+            String newContent = replaceChart(oldContent, newCode, lang);
             chapter.put("content", newContent);
 
             // 写回完整 JSON
@@ -359,7 +360,7 @@ public class PrdGenerateController {
             prdDocumentRepository.save(prd);
 
             Map<String, Object> result = new LinkedHashMap<>();
-            result.put("mermaid", newMermaid);
+            result.put("code", newCode);
             result.put("content", newContent);
             result.put("chapterIndex", idx);
             return ApiResponse.success(result);
@@ -385,12 +386,23 @@ public class PrdGenerateController {
     private static final Pattern MERMAID_FENCE = Pattern.compile(
             "```mermaid[ \\t]*\\n([\\s\\S]*?)```", Pattern.CASE_INSENSITIVE);
 
-    private String extractMermaid(String content) {
+    private static final Pattern PLANTUML_FENCE = Pattern.compile(
+            "```plantuml[ \\t]*\\n([\\s\\S]*?)```", Pattern.CASE_INSENSITIVE);
+
+    private static final Pattern RAW_PLANTUML = Pattern.compile(
+            "(?s)@startuml[\\s\\S]*?@enduml");
+
+    /** 提取章节中的图表源码（优先 PlantUML，其次 Mermaid） */
+    private String extractChart(String content) {
         if (content == null) return null;
-        Matcher m = MERMAID_FENCE.matcher(content.replace("\\n", "\n"));
+        String text = content.replace("\\n", "\n");
+        Matcher p = PLANTUML_FENCE.matcher(text);
+        if (p.find()) return p.group(1).trim();
+        Matcher rp = RAW_PLANTUML.matcher(text);
+        if (rp.find()) return rp.group(0).trim();
+        Matcher m = MERMAID_FENCE.matcher(text);
         if (m.find()) return m.group(1).trim();
         // 裸 flowchart
-        String text = content.replace("\\n", "\n");
         for (String line : text.split("\n")) {
             if (line.trim().matches("(?i)^(flowchart|graph|sequenceDiagram)\\b.*")) {
                 return text.substring(text.indexOf(line)).trim();
@@ -399,26 +411,45 @@ public class PrdGenerateController {
         return null;
     }
 
-    private String stripMermaidFence(String raw) {
+    private String detectChartLang(String code) {
+        if (code != null && (code.contains("@startuml") || code.contains("@enduml"))) {
+            return "plantuml";
+        }
+        return "mermaid";
+    }
+
+    private String stripChartFence(String raw, String lang) {
         if (raw == null) return "";
         String s = raw.trim();
+        boolean plantuml = "plantuml".equalsIgnoreCase(lang);
         // 去掉可能的 markdown 围栏
-        s = s.replaceAll("(?is)^```(?:mermaid)?\\s*", "").replaceAll("(?is)```\\s*$", "").trim();
-        // 若 AI 仍返回了 JSON，尝试取 mermaid 字段
+        s = s.replaceAll("(?is)^```(?:plantuml|mermaid)?\\s*", "").replaceAll("(?is)```\\s*$", "").trim();
+        if (plantuml) {
+            // 只保留 @startuml ... @enduml 块
+            Matcher rp = RAW_PLANTUML.matcher(s);
+            if (rp.find()) s = rp.group(0).trim();
+        }
+        // 若 AI 仍返回了 JSON，尝试取 code 字段
         if (s.startsWith("{")) {
             try {
                 JsonNode n = objectMapper.readTree(s);
-                if (n.has("mermaid")) return n.get("mermaid").asText("").trim();
                 if (n.has("code")) return n.get("code").asText("").trim();
+                if (n.has("chart")) return n.get("chart").asText("").trim();
             } catch (Exception ignored) { /* use raw */ }
         }
         return s;
     }
 
-    private String replaceMermaid(String content, String newMermaid) {
+    private String replaceChart(String content, String newCode, String lang) {
         String text = content == null ? "" : content.replace("\\n", "\n");
-        String block = "```mermaid\n" + newMermaid.trim() + "\n```";
-        Matcher m = MERMAID_FENCE.matcher(text);
+        boolean plantuml = "plantuml".equalsIgnoreCase(lang);
+        String block;
+        if (plantuml) {
+            block = "```plantuml\n" + newCode.trim() + "\n```";
+        } else {
+            block = "```mermaid\n" + newCode.trim() + "\n```";
+        }
+        Matcher m = (plantuml ? PLANTUML_FENCE : MERMAID_FENCE).matcher(text);
         if (m.find()) {
             return m.replaceFirst(Matcher.quoteReplacement(block));
         }

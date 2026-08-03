@@ -262,7 +262,7 @@ async function aiFix(issueIndexes?: number[]) {
   try {
     await ElMessageBox.confirm(
       issueIndexes
-        ? '将根据该条建议生成修订版 PRD（保留原版），是否继续？'
+        ? '将只修复该问题对应章节，并生成修订版 PRD（保留原版），是否继续？'
         : `将修复 ${count} 条严重/重要问题，生成新版 PRD（保留原版），是否继续？`,
       'AI 修订 PRD',
       { type: 'info', confirmButtonText: '开始修复', cancelButtonText: '取消' },
@@ -275,8 +275,8 @@ async function aiFix(issueIndexes?: number[]) {
   fixingTarget.value = selectedIssueIndexes.length === 1 ? selectedIssueIndexes[0] : 'batch'
   progress.value = 0
   liveContent.value = ''
-  progressMsg.value = '正在提交修复任务...'
-  liveMessages.value = ['正在提交修复任务...']
+  progressMsg.value = selectedIssueIndexes.length === 1 ? '正在提交单条问题局部修复任务...' : '正在提交修复任务...'
+  liveMessages.value = [progressMsg.value]
   try {
     const body = { issueIndexes: selectedIssueIndexes }
     const res = await client.post(`/review/${reportId.value}/fix`, body)
@@ -296,12 +296,14 @@ function resolveFixIssueIndexes(issueIndexes?: number[]): number[] {
 }
 
 function buildFixedPrdQuery(fixedIssueIndexes: number[]) {
-  return {
+  const query: Record<string, string> = {
     compare: String(linkedPrdId.value),
     fromReview: String(reportId.value),
     fixedFromReview: String(reportId.value),
     fixedIssues: fixedIssueIndexes.join(','),
   }
+  if (fixedIssueIndexes.length === 1) query.focusIssue = String(fixedIssueIndexes[0])
+  return query
 }
 
 function watchFixTask(fixTaskId: number, fixedIssueIndexes: number[]) {
@@ -568,15 +570,6 @@ function dimLabel(d: string) {
               <div class="issue-actions">
                 <el-button size="small" text type="primary" :disabled="!linkedPrdId" @click="openPrdEditor(item.originalIndex)">
                   去编辑此章
-                </el-button>
-                <el-button
-                  size="small"
-                  text
-                  :loading="fixingTarget === item.originalIndex"
-                  :disabled="!linkedPrdId || (fixing && fixingTarget !== item.originalIndex)"
-                  @click="aiFix([item.originalIndex])"
-                >
-                  AI 修复此条
                 </el-button>
               </div>
             </div>

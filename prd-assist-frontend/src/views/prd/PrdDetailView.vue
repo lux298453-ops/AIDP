@@ -15,7 +15,7 @@ import { getTaskById, getTaskSseUrl } from '@/api/task'
 import RichTextEditor from '@/components/common/RichTextEditor.vue'
 import MarkdownContent from '@/components/common/MarkdownContent.vue'
 import ChartSection from '@/components/common/ChartSection.vue'
-import { hasMermaid as detectMermaid, extractMermaidCode, mermaidCodeToPngBase64 } from '@/utils/mermaid'
+import { hasChart as detectMermaid, extractChartCode, chartToPngBase64, detectContentLang } from '@/utils/chart'
 
 interface Chapter {
   title: string
@@ -615,17 +615,18 @@ async function exportWord() {
     }
   }
   try {
-    // 收集含 mermaid 的章节，渲染为 PNG 一并导出；失败时仍 POST 空列表，由后端 Kroki 兜底
+    // 收集含图表的章节，渲染为 PNG 一并导出；失败时仍 POST 空列表，由后端兜底渲染
     const chartImages: { key: string; pngBase64: string }[] = []
-    let mermaidCount = 0
+    let chartCount = 0
     for (let i = 0; i < chapters.value.length; i++) {
       const ch = chapters.value[i]
-      if (!hasMermaid(ch.content)) continue
-      const code = extractMermaidCode(ch.content)
+      const lang = detectContentLang(ch.content)
+      if (!lang) continue
+      const code = extractChartCode(ch.content)
       if (!code) continue
-      mermaidCount++
+      chartCount++
       try {
-        const png = await mermaidCodeToPngBase64(code)
+        const png = await chartToPngBase64(code, lang)
         if (png) {
           chartImages.push({ key: String(i), pngBase64: png })
           // 语义 key：STANDARD 骨架第 2/3 章用
@@ -641,18 +642,19 @@ async function exportWord() {
         console.warn('章节图表转 PNG 失败', i, err)
       }
     }
-    if (hasMermaid(summary.value)) {
-      const code = extractMermaidCode(summary.value)
+    const summaryLang = detectContentLang(summary.value)
+    if (summaryLang) {
+      const code = extractChartCode(summary.value)
       if (code) {
-        mermaidCount++
+        chartCount++
         try {
-          const png = await mermaidCodeToPngBase64(code)
+          const png = await chartToPngBase64(code, summaryLang)
           if (png) chartImages.push({ key: 'summary', pngBase64: png })
         } catch { /* ignore */ }
       }
     }
 
-    // 始终走 POST：即使前端 0 张图，后端也会从 mermaid 源码自动渲染
+    // 始终走 POST：即使前端 0 张图，后端也会从图表源码自动渲染
     const response = await client.post(
       `/prd/${id.value}/export`,
       { chartImages },
@@ -664,7 +666,7 @@ async function exportWord() {
     anchor.download = `${title.value || 'PRD'}.docx`
     anchor.click()
     URL.revokeObjectURL(url)
-    if (mermaidCount > 0 && chartImages.length === 0) {
+    if (chartCount > 0 && chartImages.length === 0) {
       ElMessage.success('Word 导出成功（图表由服务端渲染）')
     } else if (chartImages.length) {
       ElMessage.success(`Word 导出成功（含 ${chartImages.length} 张图）`)
@@ -778,6 +780,7 @@ async function aiFixInline(issueIndex: number) {
   if (!fromReviewId.value) return
   const issue = reviewIssues.value[issueIndex]
   if (!issue) return
+  const originalIndex = reviewIssueOriginalIndex(issue, issueIndex)
 
   if (dirty.value) {
     try {
@@ -798,7 +801,6 @@ async function aiFixInline(issueIndex: number) {
 
   reviewInlineFixing.value = issueIndex
   try {
-    const originalIndex = reviewIssueOriginalIndex(issue, issueIndex)
     const res = await client.post(`/review/${fromReviewId.value}/fix-inline`, {
       issueIndex: originalIndex,
       sourcePrdDocumentId: id.value,
@@ -860,7 +862,18 @@ async function aiFixInline(issueIndex: number) {
       dirty.value = false
     }
   } catch (e: any) {
-    ElMessage.error(e?.response?.data?.message || e?.message || '内联修复失败')
+    const message = e?.response?.data?.message || e?.message || '内联修复失败'
+    reviewInlineFixing.value = null
+    try {
+      await ElMessageBox.confirm(
+        `${message}。是否改为生成修订版 PRD？`,
+        '内联修复失败',
+        { type: 'warning', confirmButtonText: '生成修订版', cancelButtonText: '取消' },
+      )
+      await aiFixReview([originalIndex])
+    } catch {
+      ElMessage.error(message)
+    }
   } finally {
     reviewInlineFixing.value = null
   }
@@ -1191,15 +1204,6 @@ watch(id, () => load())
                   @click.stop="aiFixInline(idx)"
                 >
                   内联修复此条
-                </el-button>
-                <el-button
-                  size="small"
-                  text
-                  :loading="reviewFixTarget === reviewIssueOriginalIndex(issue, idx)"
-                  :disabled="(reviewFixing || reviewInlineFixing !== null) && reviewFixTarget !== reviewIssueOriginalIndex(issue, idx)"
-                  @click.stop="aiFixReview([reviewIssueOriginalIndex(issue, idx)])"
-                >
-                  AI 修复此条
                 </el-button>
               </div>
             </div>
