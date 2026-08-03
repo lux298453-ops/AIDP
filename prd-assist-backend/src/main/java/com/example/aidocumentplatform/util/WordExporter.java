@@ -21,6 +21,10 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -77,8 +81,8 @@ public class WordExporter {
     public byte[] export(String title, String description, String contentJson,
                          TemplateType templateType, Map<String, byte[]> chartImages) {
         Map<String, byte[]> images = chartImages != null
-                ? new HashMap<>(chartImages)
-                : new HashMap<>();
+                ? new ConcurrentHashMap<>(chartImages)
+                : new ConcurrentHashMap<>();
 
         // 丢弃低清前端图（宽度 < 1000），强制后端高清重渲
         images.entrySet().removeIf(e -> {
@@ -228,26 +232,51 @@ public class WordExporter {
     private void fillMissingCharts(JsonNode root, Map<String, byte[]> images) {
         if (!mermaidImageRenderer.isEnabled()) return;
         try {
+            JsonNode chapters = root.path("chapters");
+
+            // 1) 收集缺失图（summary + 各章节），并行渲染。
+            //    PlantUML/Mermaid 渲染器线程安全、CPU 密集，并行可把 N 张串行降到 ~1 张时长。
+            List<Object[]> jobs = new ArrayList<>();
             String summary = textOf(root.path("summary"));
             if (!summary.isBlank() && !images.containsKey("summary")) {
-                byte[] png = mermaidImageRenderer.resolveChartPng(summary);
-                if (png != null) images.put("summary", png);
+                jobs.add(new Object[]{"summary", summary});
             }
-            JsonNode chapters = root.path("chapters");
-            if (!chapters.isArray()) return;
-            for (int i = 0; i < chapters.size(); i++) {
-                JsonNode ch = chapters.get(i);
-                String content = textOf(ch.path("content"));
-                String type = ch.path("type").asText("").toLowerCase();
-                String title = textOf(ch.path("title"));
-                String idxKey = String.valueOf(i);
-
-                byte[] png = images.get(idxKey);
-                if (png == null) {
-                    png = mermaidImageRenderer.resolveChartPng(content);
-                    if (png != null) images.put(idxKey, png);
+            if (chapters.isArray()) {
+                for (int i = 0; i < chapters.size(); i++) {
+                    String idxKey = String.valueOf(i);
+                    if (images.containsKey(idxKey)) continue;
+                    String content = textOf(chapters.get(i).path("content"));
+                    if (!content.isBlank()) jobs.add(new Object[]{idxKey, content});
                 }
-                if (png != null) {
+            }
+            if (!jobs.isEmpty()) {
+                int threads = Math.max(1, Runtime.getRuntime().availableProcessors() - 1);
+                ExecutorService pool = Executors.newFixedThreadPool(Math.min(threads, jobs.size()));
+                List<Future<?>> futures = new ArrayList<>();
+                for (Object[] job : jobs) {
+                    String key = (String) job[0];
+                    String content = (String) job[1];
+                    futures.add(pool.submit(() -> {
+                        byte[] png = mermaidImageRenderer.resolveChartPng(content);
+                        if (png != null) images.put(key, png);
+                    }));
+                }
+                for (Future<?> future : futures) {
+                    try {
+                        future.get();
+                    } catch (Exception ignored) { /* 单张失败不影响导出 */ }
+                }
+                pool.shutdown();
+            }
+
+            // 2) 语义 key（flow/structure）：STANDARD 骨架第 2/3 章使用
+            if (chapters.isArray()) {
+                for (int i = 0; i < chapters.size(); i++) {
+                    JsonNode ch = chapters.get(i);
+                    String type = ch.path("type").asText("").toLowerCase();
+                    String title = textOf(ch.path("title"));
+                    byte[] png = images.get(String.valueOf(i));
+                    if (png == null) continue;
                     if (("flow".equals(type) || title.contains("流程")) && !images.containsKey("flow")) {
                         images.put("flow", png);
                     }

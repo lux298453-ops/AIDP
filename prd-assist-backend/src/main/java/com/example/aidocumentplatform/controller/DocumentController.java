@@ -57,6 +57,18 @@ public class DocumentController {
         return ApiResponse.success(paged);
     }
 
+    /**
+     * 删除我的文档（PRD / 原型 / 审查报告），仅允许删除本人文档。
+     *
+     * @param docType 文档类型：PRD / PROTOTYPE / REVIEW
+     * @param id      文档 ID
+     */
+    @DeleteMapping("/{docType}/{id}")
+    public ApiResponse<Void> delete(@PathVariable String docType, @PathVariable Long id) {
+        documentService.delete(getCurrentUserId(), docType, id);
+        return ApiResponse.success();
+    }
+
     private Long getCurrentUserId() {
         SecurityUser user = (SecurityUser) SecurityContextHolder.getContext()
                 .getAuthentication().getPrincipal();

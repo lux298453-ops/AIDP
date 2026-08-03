@@ -6,7 +6,7 @@
  */
 import { onMounted, onBeforeUnmount, ref, computed, nextTick, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage, ElMessageBox, ElLoading } from 'element-plus'
 import {
   ArrowLeft, Check, Download, Refresh, Plus, Delete, MagicStick,
 } from '@element-plus/icons-vue'
@@ -15,7 +15,7 @@ import { getTaskById, getTaskSseUrl } from '@/api/task'
 import RichTextEditor from '@/components/common/RichTextEditor.vue'
 import MarkdownContent from '@/components/common/MarkdownContent.vue'
 import ChartSection from '@/components/common/ChartSection.vue'
-import { hasChart as detectMermaid, extractChartCode, chartToPngBase64, detectContentLang } from '@/utils/chart'
+import { hasChart as detectMermaid } from '@/utils/chart'
 
 interface Chapter {
   title: string
@@ -614,50 +614,17 @@ async function exportWord() {
       // cancel → 直接导出
     }
   }
+  const exporting = ElLoading.service({
+    fullscreen: true,
+    lock: true,
+    text: '正在导出 Word，图表由服务端渲染，请稍候…',
+    background: 'rgba(0, 0, 0, 0.5)',
+  })
   try {
-    // 收集含图表的章节，渲染为 PNG 一并导出；失败时仍 POST 空列表，由后端兜底渲染
-    const chartImages: { key: string; pngBase64: string }[] = []
-    let chartCount = 0
-    for (let i = 0; i < chapters.value.length; i++) {
-      const ch = chapters.value[i]
-      const lang = detectContentLang(ch.content)
-      if (!lang) continue
-      const code = extractChartCode(ch.content)
-      if (!code) continue
-      chartCount++
-      try {
-        const png = await chartToPngBase64(code, lang)
-        if (png) {
-          chartImages.push({ key: String(i), pngBase64: png })
-          // 语义 key：STANDARD 骨架第 2/3 章用
-          const t = (ch.type || '').toLowerCase()
-          if (t === 'flow' || (ch.title || '').includes('流程')) {
-            chartImages.push({ key: 'flow', pngBase64: png })
-          }
-          if (t === 'structure' || (ch.title || '').includes('结构')) {
-            chartImages.push({ key: 'structure', pngBase64: png })
-          }
-        }
-      } catch (err) {
-        console.warn('章节图表转 PNG 失败', i, err)
-      }
-    }
-    const summaryLang = detectContentLang(summary.value)
-    if (summaryLang) {
-      const code = extractChartCode(summary.value)
-      if (code) {
-        chartCount++
-        try {
-          const png = await chartToPngBase64(code, summaryLang)
-          if (png) chartImages.push({ key: 'summary', pngBase64: png })
-        } catch { /* ignore */ }
-      }
-    }
-
-    // 始终走 POST：即使前端 0 张图，后端也会从图表源码自动渲染
+    // 图表由后端统一渲染（并行 + 缓存），前端不再逐章预渲染，减少 N 次串行往返
     const response = await client.post(
       `/prd/${id.value}/export`,
-      { chartImages },
+      { chartImages: [] },
       { responseType: 'blob' },
     )
     const url = URL.createObjectURL(response.data)
@@ -666,15 +633,11 @@ async function exportWord() {
     anchor.download = `${title.value || 'PRD'}.docx`
     anchor.click()
     URL.revokeObjectURL(url)
-    if (chartCount > 0 && chartImages.length === 0) {
-      ElMessage.success('Word 导出成功（图表由服务端渲染）')
-    } else if (chartImages.length) {
-      ElMessage.success(`Word 导出成功（含 ${chartImages.length} 张图）`)
-    } else {
-      ElMessage.success('Word 导出成功')
-    }
+    ElMessage.success('Word 导出成功')
   } catch {
     ElMessage.error('Word 导出失败')
+  } finally {
+    exporting.close()
   }
 }
 

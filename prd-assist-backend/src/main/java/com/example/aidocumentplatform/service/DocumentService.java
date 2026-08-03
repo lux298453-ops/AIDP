@@ -26,4 +26,13 @@ public interface DocumentService {
      * @return 分页后的统一文档列表
      */
     Page<DocumentVO> listUnified(Long userId, String keyword, String taskType, Pageable pageable);
+
+    /**
+     * 删除我的文档（PRD / 原型 / 审查报告），仅允许删除本人文档。
+     *
+     * @param userId  当前用户 ID
+     * @param docType 文档类型：PRD / PROTOTYPE / REVIEW
+     * @param id      文档 ID
+     */
+    void delete(Long userId, String docType, Long id);
 }

@@ -30,38 +30,6 @@ type Preset = {
 
 const presets: Preset[] = [
   {
-    label: 'ChatGPT / OpenAI',
-    value: 'openai',
-    desc: '官方 OpenAI API，适合 GPT 系列模型',
-    baseUrl: 'https://api.openai.com',
-    model: 'gpt-5.1',
-    apiType: 'responses',
-    appendApiPath: true,
-    openAiAuthEnabled: true,
-    authHeaderType: 'bearer',
-    actorAuthorization: '',
-    reasoningEffort: 'medium',
-    imageDetail: 'high',
-    maxOutputTokens: 16384,
-    supportsImage: true,
-  },
-  {
-    label: 'Claude',
-    value: 'claude',
-    desc: 'Anthropic 官方接口，适合 Claude 系列模型',
-    baseUrl: 'https://api.anthropic.com',
-    model: 'claude-sonnet-4-20250514',
-    apiType: 'messages',
-    appendApiPath: true,
-    openAiAuthEnabled: true,
-    authHeaderType: 'x-api-key',
-    actorAuthorization: '',
-    reasoningEffort: '',
-    imageDetail: 'high',
-    maxOutputTokens: 16384,
-    supportsImage: true,
-  },
-  {
     label: 'DeepSeek',
     value: 'deepseek',
     desc: 'DeepSeek 官方接口，使用 Chat Completions',
@@ -112,36 +80,35 @@ const presets: Preset[] = [
 ]
 
 const form = reactive<AiModelConfigRequest>({
-  provider: 'openai',
-  baseUrl: 'https://api.openai.com',
+  provider: 'deepseek',
+  baseUrl: 'https://api.deepseek.com',
   apiKey: '',
-  model: 'gpt-5.1',
-  apiType: 'responses',
+  model: 'deepseek-chat',
+  apiType: 'chat-completions',
   appendApiPath: true,
   openAiAuthEnabled: true,
   authHeaderType: 'bearer',
   actorAuthorization: '',
-  reasoningEffort: 'medium',
+  reasoningEffort: '',
   disableResponseStorage: true,
-  maxOutputTokens: 16384,
+  maxOutputTokens: 8192,
   imageDetail: 'high',
   enabled: true,
 })
 
 const selectedPreset = computed(() => presets.find(item => item.value === form.provider) || presets[0])
-const isClaude = computed(() => form.provider === 'claude')
 const isDeepSeek = computed(() => form.provider === 'deepseek')
 const isCustom = computed(() => form.provider === 'custom')
 const isFlintic = computed(() => form.provider === 'flintic')
 const isCustomGateway = computed(() => isCustom.value || isFlintic.value)
 const showApiType = computed(() => isCustom.value)
-const showOpenAiAdvanced = computed(() => form.provider === 'openai' || isCustomGateway.value)
+const showOpenAiAdvanced = computed(() => isCustomGateway.value)
 const showImageDetail = computed(() => selectedPreset.value.supportsImage && !isDeepSeek.value)
 const willSendApiKeyAuth = computed(() => isCustom.value ? form.openAiAuthEnabled : selectedPreset.value.openAiAuthEnabled)
-const apiKeyRequired = computed(() => isClaude.value || willSendApiKeyAuth.value)
+const apiKeyRequired = computed(() => willSendApiKeyAuth.value)
 const modelPlaceholder = computed(() => selectedPreset.value.model || '请输入模型名称')
 const baseUrlPlaceholder = computed(() => selectedPreset.value.baseUrl || 'https://api.example.com')
-const apiKeyLabel = computed(() => isClaude.value ? 'Claude API Key' : isDeepSeek.value ? 'DeepSeek API Key' : isFlintic.value ? 'API Key（可留空）' : 'API Key')
+const apiKeyLabel = computed(() => isDeepSeek.value ? 'DeepSeek API Key' : isFlintic.value ? 'API Key（可留空）' : 'API Key')
 
 function applyPreset(provider: string) {
   const preset = presets.find(item => item.value === provider)
@@ -164,22 +131,28 @@ async function loadConfig() {
   try {
     const { data } = await getAiConfig()
     const config = data.data
-    Object.assign(form, {
-      provider: config.provider || 'openai',
-      baseUrl: config.baseUrl || '',
-      apiKey: '',
-      model: config.model || '',
-      apiType: config.apiType || 'responses',
-      appendApiPath: config.appendApiPath !== false,
-      openAiAuthEnabled: config.openAiAuthEnabled !== false,
-      authHeaderType: config.authHeaderType || 'bearer',
-      actorAuthorization: config.actorAuthorization || '',
-      reasoningEffort: config.reasoningEffort || '',
-      disableResponseStorage: config.disableResponseStorage !== false,
-      maxOutputTokens: config.maxOutputTokens || 16384,
-      imageDetail: config.imageDetail || 'high',
-      enabled: config.enabled !== false,
-    })
+    const loadedProvider = config.provider || presets[0].value
+    if (!presets.some(p => p.value === loadedProvider)) {
+      // 官方 OpenAI / Claude 已下线：已保存的该供应商配置自动回退到 DeepSeek
+      applyPreset(presets[0].value)
+    } else {
+      Object.assign(form, {
+        provider: loadedProvider,
+        baseUrl: config.baseUrl || '',
+        apiKey: '',
+        model: config.model || '',
+        apiType: config.apiType || 'responses',
+        appendApiPath: config.appendApiPath !== false,
+        openAiAuthEnabled: config.openAiAuthEnabled !== false,
+        authHeaderType: config.authHeaderType || 'bearer',
+        actorAuthorization: config.actorAuthorization || '',
+        reasoningEffort: config.reasoningEffort || '',
+        disableResponseStorage: config.disableResponseStorage !== false,
+        maxOutputTokens: config.maxOutputTokens || 16384,
+        imageDetail: config.imageDetail || 'high',
+        enabled: config.enabled !== false,
+      })
+    }
     savedMaskedKey.value = config.maskedApiKey || ''
     hasSavedKey.value = !!config.hasApiKey
     savedProvider.value = form.provider

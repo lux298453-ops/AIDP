@@ -2,7 +2,7 @@
 import { ref, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Search, List, Grid, Download, Refresh } from '@element-plus/icons-vue'
+import { Search, List, Grid, Download, Refresh, Delete } from '@element-plus/icons-vue'
 import { getDocumentList } from '@/api/document'
 import client from '@/api/client'
 import type { DocumentVO } from '@/types/document'
@@ -133,6 +133,26 @@ async function exportReview(doc: DocumentVO) {
   }
 }
 
+/** 删除文档 */
+async function handleDelete(doc: DocumentVO) {
+  try {
+    await ElMessageBox.confirm(
+      `确定删除「${doc.title}」吗？删除后不可恢复。`,
+      '删除文档',
+      { confirmButtonText: '删除', cancelButtonText: '取消', type: 'warning' }
+    )
+  } catch {
+    return
+  }
+  try {
+    await client.delete(`/documents/${doc.docType}/${doc.id}`)
+    ElMessage.success('删除成功')
+    loadDocs()
+  } catch (e: any) {
+    console.error('删除失败:', e)
+  }
+}
+
 /** 重新生成 */
 async function handleRegenerate(doc: DocumentVO) {
   if (!doc.taskId) return
@@ -181,10 +201,10 @@ async function handleRegenerate(doc: DocumentVO) {
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="title" label="标题" min-width="240" show-overflow-tooltip />
+        <el-table-column prop="title" label="标题" min-width="170" show-overflow-tooltip />
         <el-table-column prop="description" label="描述" min-width="200" show-overflow-tooltip />
         <el-table-column prop="createdAt" label="创建时间" width="160" :formatter="(_r: any, _c: any, v: string) => formatDate(v)" />
-        <el-table-column label="操作" width="220" fixed="right">
+        <el-table-column label="操作" width="320" fixed="right">
           <template #default="{ row }">
             <el-button type="primary" size="small" link @click.stop="goDetail(row)">
               打开
@@ -197,6 +217,9 @@ async function handleRegenerate(doc: DocumentVO) {
             </el-button>
             <el-button v-if="row.docType === 'REVIEW'" type="primary" size="small" link @click.stop="exportReview(row)">
               <el-icon><Download /></el-icon> 导出
+            </el-button>
+            <el-button type="danger" size="small" link @click.stop="handleDelete(row)">
+              <el-icon><Delete /></el-icon> 删除
             </el-button>
             <el-button v-if="row.taskId" type="warning" size="small" link @click.stop="handleRegenerate(row)">
               <el-icon><Refresh /></el-icon> 重新生成

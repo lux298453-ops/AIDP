@@ -105,4 +105,31 @@ public class DocumentServiceImpl implements DocumentService {
     private boolean matches(String filter, String value) {
         return filter == null || filter.isBlank() || filter.equals(value);
     }
+
+    // ==================== 删除 ====================
+    @Override
+    public void delete(Long userId, String docType, Long id) {
+        String type = docType == null ? "" : docType.toUpperCase();
+        switch (type) {
+            case "PRD" -> {
+                PrdDocument prd = prdDocumentRepository.findById(id)
+                        .orElseThrow(() -> new BusinessException(ErrorCode.DOCUMENT_NOT_FOUND));
+                if (!prd.getUserId().equals(userId)) throw new BusinessException(ErrorCode.ACCESS_DENIED);
+                prdDocumentRepository.delete(prd);
+            }
+            case "PROTOTYPE" -> {
+                PrototypeResult proto = prototypeResultRepository.findById(id)
+                        .orElseThrow(() -> new BusinessException(ErrorCode.DOCUMENT_NOT_FOUND));
+                if (!proto.getUserId().equals(userId)) throw new BusinessException(ErrorCode.ACCESS_DENIED);
+                prototypeResultRepository.delete(proto);
+            }
+            case "REVIEW" -> {
+                ReviewReport review = reviewReportRepository.findById(id)
+                        .orElseThrow(() -> new BusinessException(ErrorCode.DOCUMENT_NOT_FOUND));
+                if (!review.getUserId().equals(userId)) throw new BusinessException(ErrorCode.ACCESS_DENIED);
+                reviewReportRepository.delete(review);
+            }
+            default -> throw new BusinessException(ErrorCode.DOCUMENT_NOT_FOUND);
+        }
+    }
 }
