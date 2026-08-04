@@ -204,18 +204,18 @@ public class PrdGenerateController {
     }
 
     private TemplateType parseTemplate(String value) {
-        try {
-            return TemplateType.valueOf(value);
-        } catch (Exception e) {
-            return TemplateType.STANDARD;
-        }
+        return parseEnum(TemplateType.class, value, "template");
     }
 
     private DetailLevel parseDetailLevel(String value) {
+        return parseEnum(DetailLevel.class, value, "detailLevel");
+    }
+
+    private <E extends Enum<E>> E parseEnum(Class<E> enumClass, String value, String fieldName) {
         try {
-            return DetailLevel.valueOf(value);
+            return Enum.valueOf(enumClass, value.trim().toUpperCase(java.util.Locale.ROOT));
         } catch (Exception e) {
-            return DetailLevel.DETAILED;
+            throw new IllegalArgumentException("参数 " + fieldName + " 无效: " + value);
         }
     }
 

@@ -517,11 +517,12 @@ public class OpenAiClient implements AiClient {
     }
 
     private boolean isRetryable(Throwable throwable) {
-        if (throwable instanceof WebClientResponseException e) {
-            int code = e.getStatusCode().value();
-            return code == 429 || e.getStatusCode().is5xxServerError() || e.getStatusCode().is2xxSuccessful();
+        WebClientResponseException responseException = findCause(throwable, WebClientResponseException.class);
+        if (responseException != null) {
+            int code = responseException.getStatusCode().value();
+            return code == 408 || code == 429 || responseException.getStatusCode().is5xxServerError();
         }
-        return true;
+        return hasTransportFailureMarker(throwable);
     }
 
     private void handleStreamChunk(String chunk, StringBuilder eventBuffer, StringBuilder text,

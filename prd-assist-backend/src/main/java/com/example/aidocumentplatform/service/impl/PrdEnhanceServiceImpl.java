@@ -7,10 +7,10 @@ import com.example.aidocumentplatform.model.dto.request.PrdEnhanceRequest;
 import com.example.aidocumentplatform.model.entity.AsyncTask;
 import com.example.aidocumentplatform.model.entity.PrdDocument;
 import com.example.aidocumentplatform.model.enums.DocumentSourceType;
-import com.example.aidocumentplatform.model.enums.TaskStatus;
 import com.example.aidocumentplatform.model.enums.TaskType;
 import com.example.aidocumentplatform.repository.AsyncTaskRepository;
 import com.example.aidocumentplatform.repository.PrdDocumentRepository;
+import com.example.aidocumentplatform.service.TaskService;
 import com.example.aidocumentplatform.service.PrdEnhanceService;
 import com.example.aidocumentplatform.util.WordReader;
 import com.example.aidocumentplatform.util.PrdContentParser;
@@ -35,32 +35,40 @@ public class PrdEnhanceServiceImpl implements PrdEnhanceService {
     private final PrdDocumentRepository prdDocumentRepository;
     private final AiClient aiClient;
     private final PrdEnhancePromptTemplate promptTemplate;
-    private final TaskServiceImpl taskService;
+    private final TaskService taskService;
     private final WordReader wordReader;
     private final PrdContentParser prdContentParser;
     private final ApplicationContext applicationContext;
+    private final IdempotentTaskService idempotentTaskService;
+    private final AsyncTaskLifecycleService asyncTaskLifecycleService;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Override
     public Long submit(PrdEnhanceRequest request, Long userId) {
         String prdContent = resolvePrdContent(request, userId);
-        AsyncTask task = createTask(userId, prdContent, request.getContentTypes(), null);
+        IdempotentTaskService.TaskReservation reservation =
+                createTask(userId, prdContent, request.getContentTypes(), null);
         // 经 Spring 代理调用，确保 @Async 生效
-        applicationContext.getBean(PrdEnhanceServiceImpl.class).execute(
-                task.getId(), prdContent, null, request.getContentTypes(), request.getInstruction(),
-                request.getPrdDocumentId(), userId);
-        return task.getId();
+        if (reservation.created()) {
+            applicationContext.getBean(PrdEnhanceServiceImpl.class).execute(
+                    reservation.task().getId(), prdContent, null, request.getContentTypes(), request.getInstruction(),
+                    request.getPrdDocumentId(), userId);
+        }
+        return reservation.task().getId();
     }
 
     @Override
     public Long submitWithWord(PrdEnhanceRequest request, byte[] wordBytes, String fileName, Long userId) {
         String wordContent = wordReader.extractText(wordBytes);
         String prdContent = resolvePrdContent(request, userId);
-        AsyncTask task = createTask(userId, prdContent, request.getContentTypes(), fileName);
-        applicationContext.getBean(PrdEnhanceServiceImpl.class).execute(
-                task.getId(), prdContent, wordContent, request.getContentTypes(), request.getInstruction(),
-                request.getPrdDocumentId(), userId);
-        return task.getId();
+        IdempotentTaskService.TaskReservation reservation =
+                createTask(userId, prdContent, request.getContentTypes(), fileName);
+        if (reservation.created()) {
+            applicationContext.getBean(PrdEnhanceServiceImpl.class).execute(
+                    reservation.task().getId(), prdContent, wordContent, request.getContentTypes(), request.getInstruction(),
+                    request.getPrdDocumentId(), userId);
+        }
+        return reservation.task().getId();
     }
 
     /** 解析 PRD 内容：优先从 prdDocumentId 查，否则用 prdContent */
@@ -73,7 +81,7 @@ public class PrdEnhanceServiceImpl implements PrdEnhanceService {
         return req.getPrdContent();
     }
 
-    private AsyncTask createTask(Long userId, String prdContent, List<String> types, String fileName) {
+    private IdempotentTaskService.TaskReservation createTask(Long userId, String prdContent, List<String> types, String fileName) {
         // List.toString() 会生成 [structure, flow]（无引号），PostgreSQL JSONB 不接受；必须用 ObjectMapper
         String inputJson;
         try {
@@ -92,21 +100,19 @@ public class PrdEnhanceServiceImpl implements PrdEnhanceService {
             inputJson = "{\"contentTypes\":[]}";
             log.warn("序列化增强任务 inputParams 失败，使用空 contentTypes", e);
         }
-        AsyncTask task = AsyncTask.builder()
-                .userId(userId).taskType(TaskType.PRD_ENHANCE).status(TaskStatus.PENDING)
-                .inputParams(inputJson).build();
-        task = asyncTaskRepository.save(task);
+        IdempotentTaskService.TaskReservation reservation =
+                idempotentTaskService.createOrReuseTask(userId, TaskType.PRD_ENHANCE, inputJson);
+        AsyncTask task = reservation.task();
         log.info("PRD增强任务已创建: taskId={}, userId={}, contentTypes={}", task.getId(), userId, types);
-        return task;
+        return reservation;
     }
 
     @Async("asyncTaskExecutor")
     public void execute(Long taskId, String prdContent, String wordContent,
                          List<String> contentTypes, String instruction, Long sourceDocumentId, Long userId) {
-        AsyncTask task = asyncTaskRepository.findById(taskId).orElse(null);
-        if (task == null) return;
+        if (asyncTaskRepository.findById(taskId).isEmpty()) return;
         try {
-            task.setStatus(TaskStatus.RUNNING); asyncTaskRepository.save(task);
+            asyncTaskLifecycleService.markRunning(taskId);
             List<String> types = contentTypes != null ? contentTypes : List.of();
             boolean needChart = types.stream().anyMatch(t ->
                     "structure".equalsIgnoreCase(t) || "flow".equalsIgnoreCase(t));
@@ -128,6 +134,7 @@ public class PrdEnhanceServiceImpl implements PrdEnhanceService {
             // 先落库再推 SSE，避免进度推送异常影响保存
             PrdDocument source = sourceDocumentId != null ? findOwnedPrd(sourceDocumentId, userId) : null;
             String jsonContent = buildEnhancedPrd(aiResponse, source, types);
+            publishEnhanceWarnings(taskId, jsonContent, types);
 
             // 存入 prd_document（增强结果也作为 PRD 文档的一条记录）
             PrdDocument doc = PrdDocument.builder()
@@ -139,18 +146,12 @@ public class PrdEnhanceServiceImpl implements PrdEnhanceService {
                     .template(source != null ? source.getTemplate() : null)
                     .detailLevel(source != null ? source.getDetailLevel() : null)
                     .build();
-            doc = prdDocumentRepository.save(doc);
-
-            task.setResultRefId(doc.getId());
-            task.setStatus(TaskStatus.SUCCESS);
-            asyncTaskRepository.save(task);
+            doc = asyncTaskLifecycleService.savePrdDocumentAndMarkSuccess(taskId, doc);
             taskService.pushProgress(taskId, 100, "PRD 增强完成");
             log.info("PRD增强成功: taskId={}, documentId={}", taskId, doc.getId());
         } catch (Exception e) {
             log.error("PRD增强失败: taskId={}", taskId, e);
-            task.setStatus(TaskStatus.FAILED);
-            task.setErrorMessage(truncate(e.getMessage(), 500));
-            asyncTaskRepository.save(task);
+            asyncTaskLifecycleService.markFailed(taskId, truncate(e.getMessage(), 500));
             taskService.pushProgress(taskId, 0, "增强失败: " + e.getMessage());
         }
     }
@@ -219,6 +220,55 @@ public class PrdEnhanceServiceImpl implements PrdEnhanceService {
         return root.toString();
     }
 
+    private void publishEnhanceWarnings(Long taskId, String jsonContent, List<String> requestedTypes) {
+        if (taskId == null || jsonContent == null || jsonContent.isBlank()) {
+            return;
+        }
+        try {
+            JsonNode root = prdContentParser.parseObject(jsonContent);
+            JsonNode chapters = root.path("chapters");
+            if (!chapters.isArray()) {
+                return;
+            }
+
+            java.util.List<String> warnings = new java.util.ArrayList<>();
+            if (requestedTypes != null) {
+                for (String type : requestedTypes) {
+                    if (!"structure".equals(type) && !"flow".equals(type)) {
+                        continue;
+                    }
+                    boolean found = false;
+                    for (JsonNode chapter : chapters) {
+                        if (type.equals(chapter.path("type").asText())) {
+                            found = true;
+                            break;
+                        }
+                    }
+                    if (!found) {
+                        warnings.add("requested chapter type missing: " + type);
+                    }
+                }
+            }
+
+            for (JsonNode chapter : chapters) {
+                String type = chapter.path("type").asText("");
+                if (("structure".equals(type) || "flow".equals(type))
+                        && !containsChart(chapter.path("content").asText(""))) {
+                    warnings.add("chart source missing for chapter type: " + type);
+                }
+            }
+
+            for (String warning : warnings) {
+                log.warn("PRD enhancement degraded result: taskId={}, warning={}", taskId, warning);
+                taskService.pushCustomEvent(taskId, "enhance-warning", java.util.Map.of(
+                        "taskId", taskId,
+                        "message", warning
+                ));
+            }
+        } catch (Exception e) {
+            log.warn("Failed to inspect enhanced PRD result: taskId={}, cause={}", taskId, e.getMessage());
+        }
+    }
     private String defaultTitle(String type) {
         return switch (type) {
             case "structure" -> "页面结构图";

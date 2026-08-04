@@ -74,18 +74,25 @@ public class PlantUmlImageRenderer {
 
     /** 注入到 @startuml 之后的通用高质量样式（仅当源码未自定义 skinparam 时） */
     private static final String SKIN_PARAMS = """
-            scale 4
+            scale 8
             skinparam shadowing false
             skinparam backgroundColor white
             skinparam defaultFontName "Microsoft YaHei"
             skinparam defaultFontSize 16
-            skinparam dpi 150
+            skinparam dpi 300
             skinparam ArrowColor #333333
+            """;
+
+    /** 导出专用高 DPI 设置，追加到 @enduml 之前覆盖低 DPI */
+    private static final String EXPORT_SKIN_PARAMS = """
+            skinparam dpi 600
             """;
 
     private final boolean graphvizAvailable;
     /** plantuml 源码 hash → PNG */
     private final Map<String, byte[]> cache = new ConcurrentHashMap<>();
+    private final Map<String, byte[]> exportCache = new ConcurrentHashMap<>();
+    private final Map<String, byte[]> svgCache = new ConcurrentHashMap<>();
     private static final int CACHE_MAX = 64;
 
     public PlantUmlImageRenderer() {
@@ -122,19 +129,27 @@ public class PlantUmlImageRenderer {
      * 渲染 plantuml → 高清 PNG（宽 ≥ {@link #MIN_EXPORT_WIDTH}，带缓存）。
      */
     public byte[] renderPlantUmlToPng(String source) {
+        return renderPlantUmlToPng(source, false);
+    }
+
+    /**
+     * 渲染 plantuml → 高清 PNG，export=true 时使用 600 DPI 并放大到最小宽度。
+     */
+    public byte[] renderPlantUmlToPng(String source, boolean forExport) {
         if (source == null || source.isBlank()) return null;
         String code = sanitize(source);
         if (code.isBlank()) return null;
-        String key = sha1(code);
-        byte[] cached = cache.get(key);
+        String key = sha1(code) + (forExport ? "_export" : "");
+        Map<String, byte[]> targetCache = forExport ? exportCache : cache;
+        byte[] cached = targetCache.get(key);
         if (cached != null) return cached;
 
-        String full = ensureFullSource(code);
-        byte[] png = render(full);
+        String full = forExport ? ensureExportSource(code) : ensureFullSource(code);
+        byte[] png = render(full, FileFormat.PNG);
         if (png == null) {
             // 重试一次：强制 smetana 纯 Java 布局（兜底无 Graphviz 环境）
             String smetana = forceSmetana(full);
-            if (!smetana.equals(full)) png = render(smetana);
+            if (!smetana.equals(full)) png = render(smetana, FileFormat.PNG);
         }
         if (png == null) {
             log.warn("PlantUML 渲染失败，使用占位图。sourceLen={}, source={}",
@@ -143,9 +158,34 @@ public class PlantUmlImageRenderer {
         }
         if (png == null) return null;
 
-        png = ensureMinWidth(png, MIN_EXPORT_WIDTH, code);
-        putCache(key, png);
+        if (forExport) {
+            png = ensureMinWidth(png, MIN_EXPORT_WIDTH, code);
+        }
+        putCache(targetCache, key, png);
         return png;
+    }
+
+    public byte[] renderPlantUmlToSvg(String source) {
+        if (source == null || source.isBlank()) return null;
+        String code = sanitize(source);
+        if (code.isBlank()) return null;
+        String key = sha1(code);
+        byte[] cached = svgCache.get(key);
+        if (cached != null) return cached;
+
+        String full = ensureFullSource(code);
+        byte[] svg = render(full, FileFormat.SVG);
+        if (svg == null) {
+            String smetana = forceSmetana(full);
+            if (!smetana.equals(full)) svg = render(smetana, FileFormat.SVG);
+        }
+        if (svg == null) {
+            log.warn("PlantUML SVG 渲染失败: sourceLen={}, source={}",
+                    code.length(), code.substring(0, Math.min(300, code.length())).replace('\n', ' '));
+            return null;
+        }
+        putSvgCache(key, svg);
+        return svg;
     }
 
     // ── private ──────────────────────────────────────────────
@@ -291,7 +331,6 @@ public class PlantUmlImageRenderer {
         StringBuilder sb = new StringBuilder();
         String rest = c;
         if (c.startsWith("@startuml")) {
-            // 保留 @startuml 行在最前，样式注入到其后
             int nl = c.indexOf('\n');
             if (nl >= 0) {
                 sb.append(c, 0, nl).append('\n');
@@ -303,12 +342,11 @@ public class PlantUmlImageRenderer {
         } else {
             sb.append("@startuml\n");
         }
-        // 注入的指令必须位于 @startuml 之后才会被 PlantUML 解析
+        if (!graphvizAvailable) {
+            sb.append("!pragma layout smetana\n");
+        }
         // 仅在源码未自定义样式时注入通用 skinparam，避免覆盖用户自定义
         if (!c.contains("skinparam")) {
-            if (!graphvizAvailable) {
-                sb.append("!pragma layout smetana\n");
-            }
             sb.append(SKIN_PARAMS);
         } else if (!graphvizAvailable && !c.contains("smetana") && !c.contains("elturco")) {
             sb.append("!pragma layout smetana\n");
@@ -320,6 +358,38 @@ public class PlantUmlImageRenderer {
         return sb.toString();
     }
 
+    /** 导出专用：始终注入高 DPI，覆盖源码中可能已有的低 DPI 设置 */
+    private String ensureExportSource(String code) {
+        String c = code.trim();
+        StringBuilder sb = new StringBuilder();
+        String rest = c;
+        if (c.startsWith("@startuml")) {
+            int nl = c.indexOf('\n');
+            if (nl >= 0) {
+                sb.append(c, 0, nl).append('\n');
+                rest = c.substring(nl + 1);
+            } else {
+                sb.append(c).append('\n');
+                rest = "";
+            }
+        } else {
+            sb.append("@startuml\n");
+        }
+        if (!graphvizAvailable) {
+            sb.append("!pragma layout smetana\n");
+        }
+        // 去掉 rest 末尾的 @enduml
+        String body = rest.replaceAll("(?s)\\s*@enduml\\s*$", "");
+        sb.append(body);
+        if (!body.isEmpty() && !body.endsWith("\n")) {
+            sb.append('\n');
+        }
+        // 始终注入高 DPI（在 @enduml 之前，后定义的优先）
+        sb.append(EXPORT_SKIN_PARAMS);
+        sb.append("@enduml\n");
+        return sb.toString();
+    }
+
     private String forceSmetana(String full) {
         if (full.contains("!pragma layout smetana") || full.contains("!pragma layout elturco")) {
             return full;
@@ -327,26 +397,28 @@ public class PlantUmlImageRenderer {
         return full.replaceFirst("(?s)(@startuml\\b.*?)(\\n|$)", "$1\n!pragma layout smetana\n");
     }
 
-    private byte[] render(String fullSource) {
+    private byte[] render(String fullSource, FileFormat format) {
         try {
             SourceStringReader reader = new SourceStringReader(fullSource);
-            // 检测语法错误图：PlantUML 源码有语法错误时输出的是 PSystemError 错误图，
-            // 若不加校验会把错误图当成成功 PNG 返回（此前误判的根因）。
             for (BlockUml block : reader.getBlocks()) {
                 if (block.getDiagram() instanceof PSystemError) {
-                    log.warn("PlantUML 语法错误（PSystemError），返回失败。source={}",
+                    log.warn("PlantUML 语法错误，跳过渲染: source={}",
                             fullSource.substring(0, Math.min(200, fullSource.length())).replace('\n', ' '));
                     return null;
                 }
             }
             ByteArrayOutputStream bos = new ByteArrayOutputStream();
-            reader.outputImage(bos, new FileFormatOption(FileFormat.PNG));
-            byte[] png = bos.toByteArray();
-            if (isPng(png) && png.length > 500) {
-                log.info("PlantUML 渲染成功: bytes={}", png.length);
-                return png;
+            reader.outputImage(bos, new FileFormatOption(format));
+            byte[] output = bos.toByteArray();
+            if (format == FileFormat.PNG && isPng(output) && output.length > 500) {
+                log.info("PlantUML PNG 渲染成功: bytes={}", output.length);
+                return output;
             }
-            log.warn("PlantUML 输出异常: bytes={}", png == null ? 0 : png.length);
+            if (format == FileFormat.SVG && isSvg(output)) {
+                log.info("PlantUML SVG 渲染成功: bytes={}", output.length);
+                return output;
+            }
+            log.warn("PlantUML 输出异常: format={}, bytes={}", format, output == null ? 0 : output.length);
         } catch (Exception e) {
             log.warn("PlantUML 渲染异常: {}", e.getMessage());
         }
@@ -377,8 +449,8 @@ public class PlantUmlImageRenderer {
 
     private byte[] createFallbackImage(String code) {
         try {
-            int width = 1400;
-            int height = 760;
+            int width = 2800;
+            int height = 1520;
             BufferedImage img = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
             Graphics2D g = img.createGraphics();
             g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
@@ -386,24 +458,24 @@ public class PlantUmlImageRenderer {
             g.setColor(Color.WHITE);
             g.fillRect(0, 0, width, height);
             g.setColor(new Color(230, 234, 242));
-            g.fillRoundRect(36, 36, width - 72, height - 72, 24, 24);
+            g.fillRoundRect(72, 72, width - 144, height - 144, 48, 48);
             g.setColor(new Color(255, 255, 255));
-            g.fillRoundRect(54, 54, width - 108, height - 108, 18, 18);
+            g.fillRoundRect(108, 108, width - 216, height - 216, 36, 36);
             g.setColor(new Color(84, 112, 198));
-            g.setFont(new Font("Microsoft YaHei", Font.BOLD, 28));
-            g.drawString("图表渲染失败，已保留 PlantUML 源码", 86, 106);
+            g.setFont(new Font("Microsoft YaHei", Font.BOLD, 56));
+            g.drawString("图表渲染失败，已保留 PlantUML 源码", 172, 212);
             g.setColor(new Color(90, 90, 90));
-            g.setFont(new Font("Microsoft YaHei", Font.PLAIN, 18));
-            g.drawString("通常是 PlantUML 语法中包含不兼容字符、过长标签或未闭合节点。", 86, 140);
+            g.setFont(new Font("Microsoft YaHei", Font.PLAIN, 36));
+            g.drawString("通常是 PlantUML 语法中包含不兼容字符、过长标签或未闭合节点。", 172, 280);
 
             g.setColor(new Color(245, 247, 250));
-            g.fillRoundRect(82, 176, width - 164, height - 244, 12, 12);
+            g.fillRoundRect(164, 352, width - 328, height - 488, 24, 24);
             g.setColor(new Color(90, 90, 90));
-            g.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 18));
-            int y = 216;
+            g.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 36));
+            int y = 432;
             for (String line : wrapCodeLines(code, 112, 20)) {
                 g.drawString(line, 110, y);
-                y += 26;
+                y += 52;
             }
             g.dispose();
 
@@ -447,14 +519,11 @@ public class PlantUmlImageRenderer {
         try {
             int[] wh = imageSize(png);
             if (wh == null || wh[0] <= 0 || wh[1] <= 0) return png;
-            double widthScale = (double) minWidth / wh[0];
-            double nativeTextPx = estimateNativeTextPx(source);
-            double textScale = nativeTextPx > 0 ? MIN_TEXT_HEIGHT_PX / nativeTextPx : 1.0;
-            double scale = Math.max(widthScale, textScale);
-            if (scale <= 1.0) return png;
-            scale = Math.min(scale, 3.0);
+            if (wh[0] >= minWidth) return png;
             BufferedImage src = ImageIO.read(new ByteArrayInputStream(png));
             if (src == null) return png;
+            double scale = Math.min((double) minWidth / src.getWidth(), 4.0);
+            if (scale <= 1.05) return png;
             int nw = (int) Math.round(src.getWidth() * scale);
             int nh = (int) Math.round(src.getHeight() * scale);
             BufferedImage dst = new BufferedImage(nw, nh, BufferedImage.TYPE_INT_RGB);
@@ -469,8 +538,8 @@ public class PlantUmlImageRenderer {
             ByteArrayOutputStream bos = new ByteArrayOutputStream();
             ImageIO.write(dst, "png", bos);
             byte[] out = bos.toByteArray();
-            log.info("PlantUML 图表放大到高清: {}x{} → {}x{} (scale={}, text={}px)", src.getWidth(), src.getHeight(), nw, nh,
-                    String.format("%.2f", scale), (int) Math.round(nativeTextPx * scale));
+            log.info("PlantUML 小图轻度放大: {}x{} -> {}x{} (scale={})",
+                    src.getWidth(), src.getHeight(), nw, nh, String.format("%.2f", scale));
             return out;
         } catch (Exception e) {
             log.warn("图片放大失败，使用原图: {}", e.getMessage());
@@ -478,11 +547,6 @@ public class PlantUmlImageRenderer {
         }
     }
 
-    /**
-     * 估算原生渲染（放大前）的文字像素高度。
-     * 标准注入管线 = defaultFontSize × scale 4 × (dpi 150 / 96)；
-     * 源码自带 skinparam 时未注入 scale/dpi，按 PlantUML 默认 dpi 96 估算。
-     */
     private double estimateNativeTextPx(String source) {
         int fontSize = 16;
         double dpi = 150;
@@ -501,15 +565,30 @@ public class PlantUmlImageRenderer {
         return fontSize * 4.0 * (dpi / 96.0);
     }
 
-    private void putCache(String key, byte[] png) {
-        if (cache.size() >= CACHE_MAX) {
+    private void putCache(Map<String, byte[]> targetCache, String key, byte[] png) {
+        if (targetCache.size() >= CACHE_MAX) {
             int i = 0;
-            for (String k : cache.keySet()) {
-                cache.remove(k);
+            for (String k : targetCache.keySet()) {
+                targetCache.remove(k);
                 if (++i >= CACHE_MAX / 2) break;
             }
         }
-        cache.put(key, png);
+        targetCache.put(key, png);
+    }
+
+    private void putCache(String key, byte[] png) {
+        putCache(cache, key, png);
+    }
+
+    private void putSvgCache(String key, byte[] svg) {
+        if (svgCache.size() >= CACHE_MAX) {
+            int i = 0;
+            for (String k : svgCache.keySet()) {
+                svgCache.remove(k);
+                if (++i >= CACHE_MAX / 2) break;
+            }
+        }
+        svgCache.put(key, svg);
     }
 
     private static String sha1(String s) {
@@ -531,6 +610,12 @@ public class PlantUmlImageRenderer {
                 && bytes[1] == 0x50
                 && bytes[2] == 0x4E
                 && bytes[3] == 0x47;
+    }
+
+    private static boolean isSvg(byte[] bytes) {
+        if (bytes == null || bytes.length == 0) return false;
+        String text = new String(bytes, StandardCharsets.UTF_8).trim();
+        return text.contains("<svg");
     }
 
     private static int[] imageSize(byte[] bytes) {

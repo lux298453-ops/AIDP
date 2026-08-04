@@ -63,8 +63,8 @@ public class WordExporter {
             "(?s)^\\s*[{\\[]\\s*\"(title|content|chapters|summary|type)\".*");
 
     /** Word 页面可显示最大宽度（英寸）≈ A4 可用宽 */
-    private static final double MAX_DISPLAY_INCHES = 6.0;
-    private static final double MAX_DISPLAY_HEIGHT_INCHES = 8.5;
+    private static final double MAX_DISPLAY_INCHES = 5.4;
+    private static final double MAX_DISPLAY_HEIGHT_INCHES = 7.6;
 
     private final PrdContentParser prdContentParser;
     private final MermaidImageRenderer mermaidImageRenderer;
@@ -257,7 +257,7 @@ public class WordExporter {
                     String key = (String) job[0];
                     String content = (String) job[1];
                     futures.add(pool.submit(() -> {
-                        byte[] png = mermaidImageRenderer.resolveChartPng(content);
+                        byte[] png = mermaidImageRenderer.resolveChartPng(content, true);
                         if (png != null) images.put(key, png);
                     }));
                 }
@@ -536,7 +536,7 @@ public class WordExporter {
         byte[] png = pngBytes;
 
         if ((png == null || png.length == 0) && mermaidImageRenderer.isEnabled()) {
-            png = mermaidImageRenderer.resolveChartPng(text);
+            png = mermaidImageRenderer.resolveChartPng(text, true);
         }
 
         if (png != null && png.length > 0) {
@@ -667,13 +667,23 @@ public class WordExporter {
                 List<String> tableLines = new ArrayList<>();
                 while (i < lines.length) {
                     if (isMarkdownTableLine(lines[i])) {
-                        tableLines.add(lines[i]);
+                        if (lastMarkdownRowNeedsContinuation(tableLines)) {
+                            mergeMarkdownTableContinuation(tableLines, lines[i]);
+                        } else {
+                            tableLines.add(lines[i]);
+                        }
                         i++;
                         continue;
                     }
                     if (lines[i].trim().isEmpty()
                             && i + 1 < lines.length
-                            && isMarkdownTableLine(lines[i + 1])) {
+                            && (isMarkdownTableLine(lines[i + 1])
+                            || isMarkdownTableContinuationLine(lines[i + 1], tableLines))) {
+                        i++;
+                        continue;
+                    }
+                    if (isMarkdownTableContinuationLine(lines[i], tableLines)) {
+                        mergeMarkdownTableContinuation(tableLines, lines[i]);
                         i++;
                         continue;
                     }
@@ -826,11 +836,23 @@ public class WordExporter {
     private String expandInlineNumberedItems(String text) {
         if (text == null || text.isBlank()) return "";
         String s = text.replace("\r\n", "\n").replace("\r", "\n");
-        // 常见 AI 输出会把 "1. xxx；2. yyy；3. zzz" 挤成一段，导出前拆成独立行。
-        s = s.replaceAll("([。；;])\\s*(?=\\d{1,2}[\\.、)]\\s*\\S)", "$1\n");
-        s = s.replaceAll("([。；;])\\s*(?=（\\d{1,2}）\\s*\\S)", "$1\n");
-        s = s.replaceAll("([^\\n])\\s+(?=\\d{1,2}[\\.、)]\\s+\\S)", "$1\n");
-        return s;
+        // 跳过表格行（以 | 开头），避免拆坏表格单元格内的编号
+        String[] lines = s.split("\n", -1);
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < lines.length; i++) {
+            if (i > 0) sb.append('\n');
+            String line = lines[i];
+            if (line.trim().startsWith("|")) {
+                sb.append(line);
+            } else {
+                String expanded = line
+                        .replaceAll("([。；;])\\s*(?=\\d{1,2}[\\.、)]\\s*\\S)", "$1\n")
+                        .replaceAll("([。；;])\\s*(?=（\\d{1,2}）\\s*\\S)", "$1\n")
+                        .replaceAll("([^\\n])\\s+(?=\\d{1,2}[\\.、)]\\s+\\S)", "$1\n");
+                sb.append(expanded);
+            }
+        }
+        return sb.toString();
     }
 
     private String prettyPrintJsonExample(String value) {
@@ -869,6 +891,38 @@ public class WordExporter {
             if (t.charAt(i) == '|') pipes++;
         }
         return pipes >= 2;
+    }
+
+    private boolean lastMarkdownRowNeedsContinuation(List<String> tableLines) {
+        if (tableLines == null || tableLines.size() < 2) return false;
+        int expectedCols = parseMarkdownTableRow(tableLines.get(0)).length;
+        String[] lastRow = parseMarkdownTableRow(tableLines.get(tableLines.size() - 1));
+        return !isMarkdownSeparatorRow(lastRow) && lastRow.length < expectedCols;
+    }
+
+    private boolean isMarkdownTableContinuationLine(String line, List<String> tableLines) {
+        if (line == null || line.isBlank()) return false;
+        if (!lastMarkdownRowNeedsContinuation(tableLines)) return false;
+        String trimmed = line.trim();
+        if (trimmed.startsWith("```") || trimmed.startsWith(">") || trimmed.startsWith("#")) return false;
+        if (HEADING_LINE.matcher(trimmed).matches()) return false;
+        if (LIST_LINE.matcher(line).matches()) return false;
+        return !trimmed.matches("^(-{3,}|\\*{3,}|_{3,})$");
+    }
+
+    private void mergeMarkdownTableContinuation(List<String> tableLines, String continuation) {
+        if (tableLines == null || tableLines.isEmpty() || continuation == null) return;
+        int lastIndex = tableLines.size() - 1;
+        String last = tableLines.get(lastIndex).replaceFirst("\\s*\\|\\s*$", "");
+        String next = continuation.trim();
+        if (isMarkdownTableLine(next)) {
+            next = next.replaceFirst("^\\|\\s*", "");
+        }
+        last = last + "\n" + next;
+        if (!last.trim().endsWith("|")) {
+            last = last + " |";
+        }
+        tableLines.set(lastIndex, last);
     }
 
     private void addMarkdownTable(XWPFDocument doc, List<String> tableLines) {
@@ -920,6 +974,9 @@ public class WordExporter {
         if (cell == null) return "";
         return MD_LINK.matcher(cell)
                 .replaceAll("$1（$2）")
+                .replace("<br>", "\n")
+                .replace("<br/>", "\n")
+                .replace("<br />", "\n")
                 .replaceAll("\\*\\*(.+?)\\*\\*", "$1")
                 .replaceAll("__(.+?)__", "$1")
                 .replaceAll("`([^`]+)`", "$1");
@@ -1063,15 +1120,20 @@ public class WordExporter {
             int pxW = wh != null ? wh[0] : 1200;
             int pxH = wh != null ? wh[1] : 800;
 
+            // 检测降级图：宽度远低于高清渲染基线（3600px），打印告警
+            if (pxW < 3000) {
+                log.warn("导出图片分辨率偏低 ({}x{}px)，可能是图表渲染失败后的降级占位图，请检查服务端 mmdc/PlantUML 状态", pxW, pxH);
+            }
+
             // 以 150 DPI 换算显示尺寸（比 96 DPI 更紧凑且清晰）
-            final double dpi = 150.0;
+            final double dpi = 180.0;
             double widthIn = pxW / dpi;
             double heightIn = pxH / dpi;
             double scale = Math.min(1.0,
                     Math.min(MAX_DISPLAY_INCHES / widthIn, MAX_DISPLAY_HEIGHT_INCHES / heightIn));
             // 过小图放大到至少 4 英寸宽（仍保持像素不拉伸超过 2x 显示）
-            if (widthIn * scale < 4.0) {
-                scale = Math.min(MAX_DISPLAY_INCHES / widthIn, 4.0 / widthIn);
+            if (widthIn * scale < 3.6) {
+                scale = Math.min(MAX_DISPLAY_INCHES / widthIn, 3.6 / widthIn);
             }
             widthIn *= scale;
             heightIn *= scale;
@@ -1314,13 +1376,21 @@ public class WordExporter {
 
     private void setCell(XWPFTableCell cell, String text, boolean bold, String bg) {
         cell.removeParagraph(0);
+        cell.setVerticalAlignment(XWPFTableCell.XWPFVertAlign.TOP);
         XWPFParagraph p = cell.addParagraph();
-        p.setAlignment(ParagraphAlignment.CENTER);
+        p.setAlignment(bold ? ParagraphAlignment.CENTER : ParagraphAlignment.LEFT);
+        p.setSpacingBefore(20);
+        p.setSpacingAfter(20);
         XWPFRun r = p.createRun();
-        r.setText(text);
         r.setFontFamily("微软雅黑");
         r.setFontSize(10);
         r.setBold(bold);
+        String normalized = text == null ? "" : text.replace("<br>", "\n").replace("<br/>", "\n").replace("<br />", "\n");
+        String[] lines = normalized.split("\\n", -1);
+        for (int i = 0; i < lines.length; i++) {
+            if (i > 0) r.addBreak();
+            r.setText(lines[i]);
+        }
         if (bg != null) cell.setColor(bg);
     }
 }

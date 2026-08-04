@@ -35,7 +35,11 @@ import java.util.regex.Pattern;
 @Component
 public class MermaidImageRenderer {
 
-    public static final int MIN_EXPORT_WIDTH = 3600;
+    public static final int MIN_EXPORT_WIDTH = 4200;
+
+    private static final double TARGET_TEXT_PX = 84.0;
+    private static final Pattern FONT_SIZE_PATTERN = Pattern.compile(
+            "(?i)fontSize\\s*[:=]\\s*['\"']?(\\d+(?:\\.\\d+)?)px");
 
     private static final Pattern MERMAID_FENCE = Pattern.compile(
             "```mermaid[ \\t]*\\n([\\s\\S]*?)```", Pattern.CASE_INSENSITIVE);
@@ -56,7 +60,7 @@ public class MermaidImageRenderer {
             %%{init: {
               'theme': 'base',
               'themeVariables': {
-                'fontSize': '20px',
+                'fontSize': '26px',
                 'fontFamily': 'Microsoft YaHei, PingFang SC, Noto Sans SC, Arial, sans-serif',
                 'primaryColor': '#e8f0fe',
                 'primaryTextColor': '#1a1a1a',
@@ -68,16 +72,16 @@ public class MermaidImageRenderer {
               'flowchart': {
                 'htmlLabels': false,
                 'curve': 'linear',
-                'nodeSpacing': 60,
-                'rankSpacing': 70,
-                'padding': 20,
-                'diagramPadding': 30
+                'nodeSpacing': 80,
+                'rankSpacing': 96,
+                'padding': 28,
+                'diagramPadding': 42
               },
               'sequence': {
-                'actorMargin': 60,
-                'messageMargin': 50,
+                'actorMargin': 72,
+                'messageMargin': 64,
                 'mirrorActors': false,
-                'boxMargin': 12
+                'boxMargin': 18
               }
             }}%%
             """;
@@ -93,6 +97,14 @@ public class MermaidImageRenderer {
             PlantUmlImageRenderer plantUmlImageRenderer) {
         this.enabled = enabled;
         this.plantUmlImageRenderer = plantUmlImageRenderer;
+        if (enabled) {
+            String mmdc = resolveMmdcCommand();
+            if (mmdc != null) {
+                log.info("Mermaid 渲染器就绪, mmdc={}", mmdc);
+            } else {
+                log.warn("Mermaid 渲染器: mmdc 未找到，请执行 npm install -g @mermaid-js/mermaid-cli 安装");
+            }
+        }
     }
 
     public boolean isEnabled() {
@@ -195,7 +207,7 @@ public class MermaidImageRenderer {
         }
         if (png == null) return null;
 
-        png = ensureMinWidth(png, MIN_EXPORT_WIDTH);
+        png = ensureReadableResolution(png, MIN_EXPORT_WIDTH, code);
         putCache(key, png);
         return png;
     }
@@ -205,9 +217,17 @@ public class MermaidImageRenderer {
      * 优先 PlantUML，其次 Mermaid（mmdc 兜底）。
      */
     public byte[] resolveChartPng(String content) {
+        return resolveChartPng(content, false);
+    }
+
+    /**
+     * 渲染章节 content 中的图表 → 高清 PNG。
+     * @param forExport true=导出模式（高 DPI + 放大到最小宽度），false=预览模式（标准 DPI）
+     */
+    public byte[] resolveChartPng(String content, boolean forExport) {
         String plantUml = extractPlantUml(content);
         if (plantUml != null) {
-            byte[] png = plantUmlImageRenderer.renderPlantUmlToPng(plantUml);
+            byte[] png = plantUmlImageRenderer.renderPlantUmlToPng(plantUml, forExport);
             if (png != null) return png;
         }
         String mermaid = extractMermaid(content);
@@ -239,6 +259,19 @@ public class MermaidImageRenderer {
             return renderMermaidToPng(code);
         }
         return renderCodeFence(lang.trim(), code);
+    }
+
+    public byte[] renderSvgByLang(String lang, String code) {
+        if (lang == null) {
+            if (code != null && (code.contains("@startuml") || code.contains("@enduml"))) {
+                return plantUmlImageRenderer.renderPlantUmlToSvg(code);
+            }
+            return null;
+        }
+        if ("plantuml".equalsIgnoreCase(lang.trim())) {
+            return plantUmlImageRenderer.renderPlantUmlToSvg(code);
+        }
+        return null;
     }
 
     /** 读取 PNG/JPEG 像素宽；失败返回 0 */
@@ -393,8 +426,9 @@ public class MermaidImageRenderer {
                     mmdcCmd,
                     "-i", tmpInput.toString(),
                     "-o", tmpOutput.toString(),
-                    "-w", "3600",
-                    "-H", "2400",
+                    "-w", "8000",
+                    "-H", "5600",
+                    "-s", "4",
                     "-b", "white",
                     "--puppeteerConfigFile", puppeteerCfg.toString()
             );
@@ -508,8 +542,8 @@ public class MermaidImageRenderer {
 
     private byte[] createFallbackImage(String code) {
         try {
-            int width = 1400;
-            int height = 760;
+            int width = 2800;
+            int height = 1520;
             BufferedImage img = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
             Graphics2D g = img.createGraphics();
             g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
@@ -517,24 +551,24 @@ public class MermaidImageRenderer {
             g.setColor(Color.WHITE);
             g.fillRect(0, 0, width, height);
             g.setColor(new Color(230, 234, 242));
-            g.fillRoundRect(36, 36, width - 72, height - 72, 24, 24);
+            g.fillRoundRect(72, 72, width - 144, height - 144, 48, 48);
             g.setColor(new Color(255, 255, 255));
-            g.fillRoundRect(54, 54, width - 108, height - 108, 18, 18);
+            g.fillRoundRect(108, 108, width - 216, height - 216, 36, 36);
             g.setColor(new Color(84, 112, 198));
-            g.setFont(new Font("Microsoft YaHei", Font.BOLD, 28));
-            g.drawString("图表渲染失败，已保留 Mermaid 源码", 86, 106);
+            g.setFont(new Font("Microsoft YaHei", Font.BOLD, 56));
+            g.drawString("图表渲染失败，已保留 Mermaid 源码", 172, 212);
             g.setColor(new Color(90, 90, 90));
-            g.setFont(new Font("Microsoft YaHei", Font.PLAIN, 18));
-            g.drawString("通常是 Mermaid 语法中包含服务端不兼容的字符、过长标签或未闭合节点。", 86, 140);
+            g.setFont(new Font("Microsoft YaHei", Font.PLAIN, 36));
+            g.drawString("通常是 Mermaid 语法中包含服务端不兼容的字符、过长标签或未闭合节点。", 172, 280);
 
             g.setColor(new Color(245, 247, 250));
-            g.fillRoundRect(82, 176, width - 164, height - 244, 12, 12);
+            g.fillRoundRect(164, 352, width - 328, height - 488, 24, 24);
             g.setColor(new Color(90, 90, 90));
-            g.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 18));
-            int y = 216;
+            g.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 36));
+            int y = 432;
             for (String line : wrapCodeLines(code, 112, 20)) {
                 g.drawString(line, 110, y);
-                y += 26;
+                y += 52;
             }
             g.dispose();
 
@@ -569,15 +603,15 @@ public class MermaidImageRenderer {
         return out;
     }
 
-    private byte[] ensureMinWidth(byte[] png, int minWidth) {
+    private byte[] ensureReadableResolution(byte[] png, int minWidth, String source) {
         try {
             int[] wh = imageSize(png);
-            if (wh == null || wh[0] >= minWidth) return png;
+            if (wh == null || wh[0] <= 0 || wh[1] <= 0) return png;
+            if (wh[0] >= minWidth) return png;
             BufferedImage src = ImageIO.read(new ByteArrayInputStream(png));
             if (src == null) return png;
-            double scale = (double) minWidth / src.getWidth();
-            // 最多放大 3 倍，避免糊成一片
-            scale = Math.min(scale, 3.0);
+            double scale = Math.min((double) minWidth / src.getWidth(), 4.0);
+            if (scale <= 1.05) return png;
             int nw = (int) Math.round(src.getWidth() * scale);
             int nh = (int) Math.round(src.getHeight() * scale);
             BufferedImage dst = new BufferedImage(nw, nh, BufferedImage.TYPE_INT_RGB);
@@ -592,12 +626,28 @@ public class MermaidImageRenderer {
             ByteArrayOutputStream bos = new ByteArrayOutputStream();
             ImageIO.write(dst, "png", bos);
             byte[] out = bos.toByteArray();
-            log.info("图表放大到高清: {}x{} → {}x{}", src.getWidth(), src.getHeight(), nw, nh);
+            log.info("Mermaid 小图轻度放大: {}x{} -> {}x{} (scale={})",
+                    src.getWidth(), src.getHeight(), nw, nh, String.format("%.2f", scale));
             return out;
         } catch (Exception e) {
             log.warn("图片放大失败，使用原图: {}", e.getMessage());
             return png;
         }
+    }
+
+    private double estimateNativeTextPx(String source) {
+        double fontSize = 26.0;
+        if (source != null) {
+            Matcher matcher = FONT_SIZE_PATTERN.matcher(source);
+            if (matcher.find()) {
+                try {
+                    fontSize = Double.parseDouble(matcher.group(1));
+                } catch (NumberFormatException ignored) {
+                    // keep default
+                }
+            }
+        }
+        return fontSize * 2.0;
     }
 
     private void putCache(String key, byte[] png) {

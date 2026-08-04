@@ -1,20 +1,19 @@
 /**
  * 图表（PlantUML / Mermaid）内容解析与渲染工具。
- * - 渲染统一走后端 /api/charts/render，保证页面展示与 Word 导出完全一致
- * - PlantUML 为主要格式，Mermaid 兼容旧文档
+ * - 预览统一走后端 /api/charts/render，保证页面展示与 Word 导出逻辑一致
+ * - PlantUML 是当前主格式，Mermaid 兼容旧文档
  */
 import client from '@/api/client'
 
 export type ChartLang = 'plantuml' | 'mermaid'
+export type ChartFormat = 'png' | 'svg'
 
-/** 判断源码语言 */
 export function detectChartLang(code: string): ChartLang {
   return code && (code.includes('@startuml') || code.includes('@enduml'))
     ? 'plantuml'
     : 'mermaid'
 }
 
-/** 判断 content 是否含图表及语言；无图表返回 null */
 export function detectContentLang(content: string): ChartLang | null {
   if (!content) return null
   const text = content.replace(/\r\n/g, '\n').replace(/\\n/g, '\n')
@@ -27,7 +26,6 @@ export function hasChart(content: string | undefined | null): boolean {
   return detectContentLang(content || '') !== null
 }
 
-/** 从章节 content 提取第一段图表源码 */
 export function extractChartCode(content: string): string | null {
   if (!content) return null
   const text = content.replace(/\r\n/g, '\n').replace(/\\n/g, '\n')
@@ -40,7 +38,6 @@ export function extractChartCode(content: string): string | null {
   const fence = text.match(/```mermaid[ \t]*\n([\s\S]*?)```/i)
   if (fence) return fence[1].trim()
 
-  // 裸 flowchart / sequenceDiagram
   const lines = text.split('\n')
   let start = -1
   for (let i = 0; i < lines.length; i++) {
@@ -50,13 +47,18 @@ export function extractChartCode(content: string): string | null {
     }
   }
   if (start < 0) return null
+
   const buf: string[] = []
   for (let i = start; i < lines.length; i++) {
     const t = lines[i].trim()
-    if (i > start && t && !/^(flowchart|graph|sequenceDiagram|--|==>|-->|\[|\]|\(|\)|subgraph|end|participant|Note|style |classDef|[A-Za-z][\w]*)/i.test(t)
-      && !/(--|==>|-->|\[|\]|\(|\))/.test(t)
-      && !/^[A-Za-z][\w]*([\[{(].*)?$/.test(t)
-      && !/^\s*$/.test(lines[i])) {
+    if (
+      i > start &&
+      t &&
+      !/^(flowchart|graph|sequenceDiagram|--|==>|-->|\[|\]|\(|\)|subgraph|end|participant|Note|style |classDef|[A-Za-z][\w]*)/i.test(t) &&
+      !/(--|==>|-->|\[|\]|\(|\))/.test(t) &&
+      !/^[A-Za-z][\w]*([\[{(].*)?$/.test(t) &&
+      !/^\s*$/.test(lines[i])
+    ) {
       if (buf.length > 2) break
     }
     buf.push(lines[i])
@@ -65,22 +67,22 @@ export function extractChartCode(content: string): string | null {
   return code || null
 }
 
-/** 去掉图表代码块后的说明文字 */
 export function extractChartCaption(content: string): string {
   if (!content) return ''
   const text = content.replace(/\r\n/g, '\n').replace(/\\n/g, '\n')
-  // 去掉 plantuml / mermaid 围栏
   let rest = text.replace(/```(?:plantuml|mermaid)[ \t]*\n[\s\S]*?```/gi, '').trim()
-  // 去掉裸 @startuml 块
   rest = rest.replace(/@startuml[\s\S]*?@enduml/gi, '').trim()
-  // 去掉裸 flowchart 块（粗略）
   if (/^\s*(flowchart|graph|sequenceDiagram)\b/i.test(rest)) {
     const lines = rest.split('\n')
     let i = 0
     while (i < lines.length) {
       const t = lines[i].trim()
-      if (i === 0 || /(--|==>|-->|subgraph|end|participant|Note|style |classDef)/i.test(t)
-        || /^[A-Za-z][\w]*([\[{(].*)?$/.test(t) || t === '') {
+      if (
+        i === 0 ||
+        /(--|==>|-->|subgraph|end|participant|Note|style |classDef)/i.test(t) ||
+        /^[A-Za-z][\w]*([\[{(].*)?$/.test(t) ||
+        t === ''
+      ) {
         i++
         continue
       }
@@ -91,21 +93,18 @@ export function extractChartCaption(content: string): string {
   return rest
 }
 
-/** 用新图表源码替换 content 中的图，保留说明文字 */
 export function replaceChartInContent(content: string, newCode: string): string {
   const lang = detectChartLang(newCode)
   const caption = extractChartCaption(content)
   const block = lang === 'plantuml'
-    ? '```plantuml\n' + newCode.trim() + '\n```'
-    : '```mermaid\n' + newCode.trim() + '\n```'
-  if (caption) return block + '\n\n' + caption
-  return block
+    ? `\`\`\`plantuml\n${newCode.trim()}\n\`\`\``
+    : `\`\`\`mermaid\n${newCode.trim()}\n\`\`\``
+  return caption ? `${block}\n\n${caption}` : block
 }
 
-/** 后端渲染图表 → blob 对象 URL（供 <img> 展示） */
-export async function renderChartImageUrl(code: string, lang: ChartLang): Promise<string | null> {
+export async function renderChartImageUrl(code: string, lang: ChartLang, format: ChartFormat = 'png'): Promise<string | null> {
   try {
-    const res = await client.post('/charts/render', { code, lang }, {
+    const res = await client.post('/charts/render', { code, lang, format }, {
       responseType: 'blob',
       silentError: true,
     } as any)
@@ -117,10 +116,27 @@ export async function renderChartImageUrl(code: string, lang: ChartLang): Promis
   }
 }
 
-/** 后端渲染图表 → PNG base64（供 Word 导出） */
+export async function renderChartSvgHtml(code: string, lang: ChartLang): Promise<string | null> {
+  try {
+    const res = await client.post('/charts/render', { code, lang, format: 'svg' }, {
+      responseType: 'blob',
+      silentError: true,
+    } as any)
+    if (res.status !== 200) return null
+    const raw = await (res.data as Blob).text()
+    return raw
+      .replace(/^\s*<\?xml[\s\S]*?\?>\s*/i, '')
+      .replace(/^\s*<!DOCTYPE[\s\S]*?>\s*/i, '')
+      .trim() || null
+  } catch (e) {
+    console.warn('renderChartSvgHtml failed', e)
+    return null
+  }
+}
+
 export async function chartToPngBase64(code: string, lang: ChartLang): Promise<string | null> {
   try {
-    const res = await client.post('/charts/render', { code, lang }, {
+    const res = await client.post('/charts/render', { code, lang, format: 'png' }, {
       responseType: 'blob',
       silentError: true,
     } as any)

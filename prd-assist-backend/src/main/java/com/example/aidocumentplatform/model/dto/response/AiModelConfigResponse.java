@@ -12,6 +12,7 @@ public class AiModelConfigResponse {
     private String baseUrl;
     private String maskedApiKey;
     private Boolean hasApiKey;
+    private Boolean apiKeyRequired;
     private String model;
     private String apiType;
     private Boolean appendApiPath;

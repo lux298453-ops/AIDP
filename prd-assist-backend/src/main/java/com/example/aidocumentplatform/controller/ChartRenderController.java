@@ -12,17 +12,13 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-/**
- * 图表渲染接口：前端详情页展示图表时调用，
- * 由后端统一渲染 PlantUML（优先）/ Mermaid（兜底）为 PNG。
- *
- * POST /api/charts/render → image/png
- */
 @Slf4j
 @RestController
 @RequestMapping("/api/charts")
 @RequiredArgsConstructor
 public class ChartRenderController {
+
+    private static final MediaType SVG_MEDIA_TYPE = MediaType.valueOf("image/svg+xml");
 
     private final MermaidImageRenderer mermaidImageRenderer;
 
@@ -31,14 +27,35 @@ public class ChartRenderController {
         if (!mermaidImageRenderer.isEnabled()) {
             return ResponseEntity.status(503).build();
         }
+
+        String format = normalizeFormat(request.getFormat());
+        if ("svg".equals(format)) {
+            byte[] svg = mermaidImageRenderer.renderSvgByLang(request.getLang(), request.getCode());
+            if (svg == null) {
+                log.warn("图表 SVG 渲染失败: lang={}, sourceLen={}",
+                        request.getLang(), request.getCode() == null ? 0 : request.getCode().length());
+                return ResponseEntity.status(422).build();
+            }
+            return ResponseEntity.ok()
+                    .contentType(SVG_MEDIA_TYPE)
+                    .body(svg);
+        }
+
         byte[] png = mermaidImageRenderer.renderByLang(request.getLang(), request.getCode());
         if (png == null) {
-            log.warn("图表渲染失败: lang={}, sourceLen={}",
+            log.warn("图表 PNG 渲染失败: lang={}, sourceLen={}",
                     request.getLang(), request.getCode() == null ? 0 : request.getCode().length());
             return ResponseEntity.status(422).build();
         }
         return ResponseEntity.ok()
                 .contentType(MediaType.IMAGE_PNG)
                 .body(png);
+    }
+
+    private String normalizeFormat(String format) {
+        if (format == null || format.isBlank()) {
+            return "png";
+        }
+        return format.trim().toLowerCase();
     }
 }

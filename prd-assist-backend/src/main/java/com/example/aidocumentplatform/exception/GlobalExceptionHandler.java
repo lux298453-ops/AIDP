@@ -1,80 +1,111 @@
 package com.example.aidocumentplatform.exception;
 
 import com.example.aidocumentplatform.model.dto.response.Result;
+import jakarta.validation.ConstraintViolationException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
 
 import java.util.stream.Collectors;
 
-/**
- * 全局异常处理器 —— 统一拦截各类异常，返回 Result 格式的错误响应。
- */
 @Slf4j
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
-    /**
-     * 业务异常处理。
-     * 如：用户名已存在、用户名或密码错误等，返回 400。
-     */
     @ExceptionHandler(BusinessException.class)
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     public Result<Void> handleBusinessException(BusinessException e) {
-        log.warn("业务异常: code={}, message={}", e.getCode(), e.getMessage());
+        log.warn("Business exception: code={}, message={}", e.getCode(), e.getMessage());
         return Result.fail(e.getCode(), e.getMessage());
     }
 
-    /**
-     * 参数校验异常处理（@Valid 校验失败时触发）。
-     * 收集所有字段的错误信息，合并为一条 message 返回。
-     */
     @ExceptionHandler(MethodArgumentNotValidException.class)
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     public Result<Void> handleValidationException(MethodArgumentNotValidException e) {
         String message = e.getBindingResult().getFieldErrors().stream()
                 .map(FieldError::getDefaultMessage)
                 .collect(Collectors.joining("; "));
-        log.warn("参数校验失败: {}", message);
+        log.warn("Validation failed: {}", message);
+        return Result.fail(400, message.isBlank() ? "请求参数校验失败" : message);
+    }
+
+    @ExceptionHandler(ConstraintViolationException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public Result<Void> handleConstraintViolation(ConstraintViolationException e) {
+        String message = e.getConstraintViolations().stream()
+                .map(violation -> violation.getMessage())
+                .collect(Collectors.joining("; "));
+        log.warn("Constraint violation: {}", message);
+        return Result.fail(400, message.isBlank() ? "请求参数不合法" : message);
+    }
+
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public Result<Void> handleNotReadable(HttpMessageNotReadableException e) {
+        log.warn("Request body parse failed: {}", e.getMessage());
+        return Result.fail(400, "请求体格式错误，请检查 JSON 内容和枚举值");
+    }
+
+    @ExceptionHandler(MissingServletRequestParameterException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public Result<Void> handleMissingParameter(MissingServletRequestParameterException e) {
+        String message = "缺少必填参数: " + e.getParameterName();
+        log.warn(message);
         return Result.fail(400, message);
     }
 
-    /**
-     * 非法参数（如自定义模板未上传、文件类型错误）。
-     */
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public Result<Void> handleTypeMismatch(MethodArgumentTypeMismatchException e) {
+        String message = "参数类型错误: " + e.getName();
+        log.warn("{}", message, e);
+        return Result.fail(400, message);
+    }
+
+    @ExceptionHandler(MaxUploadSizeExceededException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public Result<Void> handleMaxUpload(MaxUploadSizeExceededException e) {
+        log.warn("Upload too large: {}", e.getMessage());
+        return Result.fail(400, "上传文件过大，请压缩后重试");
+    }
+
+    @ExceptionHandler(AccessDeniedException.class)
+    @ResponseStatus(HttpStatus.FORBIDDEN)
+    public Result<Void> handleAccessDenied(AccessDeniedException e) {
+        log.warn("Access denied: {}", e.getMessage());
+        return Result.fail(403, "无权限访问该资源");
+    }
+
     @ExceptionHandler(IllegalArgumentException.class)
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     public Result<Void> handleIllegalArgument(IllegalArgumentException e) {
-        log.warn("非法参数: {}", e.getMessage());
+        log.warn("Illegal argument: {}", e.getMessage());
         return Result.fail(400, e.getMessage());
     }
 
-    /**
-     * 客户端断开（SSE/长连接）：响应通道已不可写，不能再返回 JSON Result，
-     * 否则会二次抛出 "No converter for Result with Content-Type text/event-stream"。
-     */
     @ExceptionHandler(AsyncRequestNotUsableException.class)
     public void handleAsyncRequestNotUsable(AsyncRequestNotUsableException e) {
-        log.debug("客户端已断开连接，忽略: {}", e.toString());
+        log.debug("Client disconnected, ignoring async response write: {}", e.toString());
     }
 
-    /**
-     * 兜底异常处理 —— 未预期的运行时异常统一返回 500。
-     */
     @ExceptionHandler(Exception.class)
     @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)
     public Result<Void> handleException(Exception e) {
-        // SSE/长连接客户端断开：不要写 JSON Result
         if (isClientDisconnect(e)) {
-            log.debug("客户端已断开连接（兜底），忽略: {}", e.toString());
+            log.debug("Client disconnected, ignoring terminal exception: {}", e.toString());
             return null;
         }
-        log.error("服务器内部错误", e);
+        log.error("Unexpected server error", e);
         return Result.fail(500, "服务器内部错误");
     }
 

@@ -8,6 +8,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
 import reactor.util.retry.Retry;
 
 import java.time.Duration;
@@ -15,14 +16,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
-/**
- * DeepSeek API 客户端 —— OpenAI 兼容格式。
- *
- * API 文档: https://platform.deepseek.com/api-docs
- * Endpoint: POST https://api.deepseek.com/chat/completions
- *
- * 激活方式: spring.profiles.active=deepseek
- */
 @Slf4j
 @Component
 @Profile("deepseek")
@@ -57,7 +50,7 @@ public class DeepSeekClient implements AiClient {
                 "temperature", 0.7
         );
 
-        log.info("DeepSeek API 调用: model={}, promptLen={}", model, userPrompt.length());
+        log.info("DeepSeek API call: model={}, promptLen={}", model, userPrompt.length());
 
         try {
             String response = webClient.post()
@@ -66,27 +59,61 @@ public class DeepSeekClient implements AiClient {
                     .bodyValue(body)
                     .retrieve()
                     .bodyToMono(String.class)
-                    .retryWhen(Retry.backoff(2, Duration.ofSeconds(2))
-                            .maxBackoff(Duration.ofSeconds(10)))
+                    .retryWhen(retrySpec())
                     .block();
 
-            // 提取 choices[0].message.content（OpenAI 兼容格式）
             String text = extractContent(response);
-            log.info("DeepSeek API 成功: model={}, textLen={}", model, text.length());
+            log.info("DeepSeek API success: model={}, textLen={}", model, text.length());
             return text;
         } catch (Exception e) {
-            log.error("DeepSeek API 失败: {}", e.getMessage());
+            log.error("DeepSeek API failed: {}", e.getMessage());
             throw new RuntimeException("DeepSeek API 调用失败: " + e.getMessage(), e);
         }
     }
 
-    /** 从 OpenAI 响应中提取 text 内容 */
+    private Retry retrySpec() {
+        return Retry.backoff(2, Duration.ofSeconds(2))
+                .maxBackoff(Duration.ofSeconds(10))
+                .filter(DeepSeekClient::isRetryableException)
+                .onRetryExhaustedThrow((spec, signal) -> signal.failure());
+    }
+
+    private static boolean isRetryableException(Throwable throwable) {
+        if (throwable instanceof WebClientResponseException responseException) {
+            return responseException.getStatusCode().is5xxServerError()
+                    || responseException.getStatusCode().value() == 408
+                    || responseException.getStatusCode().value() == 429;
+        }
+        return hasTransportFailureMarker(throwable);
+    }
+
+    private static boolean hasTransportFailureMarker(Throwable throwable) {
+        Throwable cursor = throwable;
+        while (cursor != null) {
+            String className = cursor.getClass().getName().toLowerCase();
+            String message = cursor.getMessage() == null ? "" : cursor.getMessage().toLowerCase();
+            if (className.contains("prematureclose")
+                    || className.contains("closedchannel")
+                    || className.contains("ssl")
+                    || className.contains("timeout")
+                    || message.contains("prematurely closed")
+                    || message.contains("connection reset")
+                    || message.contains("closed before response")
+                    || message.contains("timed out")
+                    || message.contains("ssl")) {
+                return true;
+            }
+            cursor = cursor.getCause();
+        }
+        return false;
+    }
+
     private String extractContent(String responseJson) {
         try {
             JsonNode root = objectMapper.readTree(responseJson);
             return root.path("choices").get(0).path("message").path("content").asText();
         } catch (Exception e) {
-            log.warn("DeepSeek 响应解析失败，返回原始文本: {}", e.getMessage());
+            log.warn("DeepSeek response parse failed, returning raw text: {}", e.getMessage());
             return responseJson;
         }
     }

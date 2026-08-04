@@ -30,10 +30,11 @@ public class AiModelConfigServiceImpl implements AiModelConfigService {
     public AiModelConfigResponse save(Long userId, AiModelConfigRequest request) {
         AiModelConfig config = repository.findByUserId(userId)
                 .orElseGet(() -> AiModelConfig.builder().userId(userId).build());
-        String nextProvider = normalize(request.getProvider(), "openai");
+        String nextProvider = normalize(request.getProvider(), "deepseek");
         String nextBaseUrl = trim(request.getBaseUrl());
         boolean nextOpenAiAuthEnabled = request.getOpenAiAuthEnabled() == null || request.getOpenAiAuthEnabled();
-        boolean keyRequired = isApiKeyRequired(nextProvider, nextOpenAiAuthEnabled);
+        String nextAuthHeaderType = normalizeAuthHeaderType(request.getAuthHeaderType());
+        boolean keyRequired = isApiKeyRequired(nextOpenAiAuthEnabled, nextAuthHeaderType);
         boolean hasNewApiKey = request.getApiKey() != null && !request.getApiKey().isBlank();
         boolean providerOrEndpointChanged = config.getId() != null
                 && (!normalize(config.getProvider(), "").equals(nextProvider)
@@ -51,7 +52,7 @@ public class AiModelConfigServiceImpl implements AiModelConfigService {
         config.setApiType(normalize(request.getApiType(), "responses"));
         config.setAppendApiPath(request.getAppendApiPath() == null || request.getAppendApiPath());
         config.setOpenAiAuthEnabled(nextOpenAiAuthEnabled);
-        config.setAuthHeaderType(normalizeAuthHeaderType(request.getAuthHeaderType()));
+        config.setAuthHeaderType(nextAuthHeaderType);
         config.setActorAuthorization(trimToNull(request.getActorAuthorization()));
         config.setReasoningEffort(trimToNull(request.getReasoningEffort()));
         config.setDisableResponseStorage(request.getDisableResponseStorage() == null || request.getDisableResponseStorage());
@@ -59,7 +60,7 @@ public class AiModelConfigServiceImpl implements AiModelConfigService {
         config.setImageDetail(normalize(request.getImageDetail(), "high"));
         config.setEnabled(request.getEnabled() == null || request.getEnabled());
 
-        if (request.getApiKey() != null && !request.getApiKey().isBlank()) {
+        if (hasNewApiKey) {
             config.setApiKey(request.getApiKey().trim());
         }
 
@@ -74,31 +75,37 @@ public class AiModelConfigServiceImpl implements AiModelConfigService {
     }
 
     private AiModelConfigResponse defaultResponse() {
+        boolean openAiAuthEnabled = true;
+        String authHeaderType = "bearer";
         return AiModelConfigResponse.builder()
-                .provider("openai")
-                .baseUrl("https://api.openai.com")
-                .model("gpt-5.1")
-                .apiType("responses")
+                .provider("deepseek")
+                .baseUrl("https://api.deepseek.com")
+                .model("deepseek-chat")
+                .apiType("chat-completions")
                 .appendApiPath(true)
-                .openAiAuthEnabled(true)
-                .authHeaderType("bearer")
+                .openAiAuthEnabled(openAiAuthEnabled)
+                .authHeaderType(authHeaderType)
                 .disableResponseStorage(true)
                 .maxOutputTokens(16384)
                 .imageDetail("high")
                 .enabled(true)
                 .hasApiKey(false)
+                .apiKeyRequired(isApiKeyRequired(openAiAuthEnabled, authHeaderType))
                 .maskedApiKey("")
                 .build();
     }
 
     private AiModelConfigResponse toResponse(AiModelConfig config) {
         String key = config.getApiKey();
+        boolean openAiAuthEnabled = Boolean.TRUE.equals(config.getOpenAiAuthEnabled());
+        String authHeaderType = normalizeAuthHeaderType(config.getAuthHeaderType());
         return AiModelConfigResponse.builder()
                 .id(config.getId())
                 .provider(config.getProvider())
                 .baseUrl(config.getBaseUrl())
                 .maskedApiKey(mask(key))
                 .hasApiKey(key != null && !key.isBlank())
+                .apiKeyRequired(isApiKeyRequired(openAiAuthEnabled, authHeaderType))
                 .model(config.getModel())
                 .apiType(config.getApiType())
                 .appendApiPath(config.getAppendApiPath())
@@ -142,8 +149,7 @@ public class AiModelConfigServiceImpl implements AiModelConfigService {
         };
     }
 
-    private static boolean isApiKeyRequired(String provider, boolean openAiAuthEnabled) {
-        return "claude".equals(provider) || openAiAuthEnabled;
+    private static boolean isApiKeyRequired(boolean openAiAuthEnabled, String authHeaderType) {
+        return openAiAuthEnabled && !"none".equals(normalizeAuthHeaderType(authHeaderType));
     }
-
 }

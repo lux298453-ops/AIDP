@@ -2,6 +2,7 @@ package com.example.aidocumentplatform.config;
 
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.aop.interceptor.AsyncUncaughtExceptionHandler;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.scheduling.annotation.AsyncConfigurer;
@@ -10,6 +11,7 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 
 import java.lang.reflect.Method;
 import java.util.concurrent.Executor;
+import java.util.concurrent.ThreadPoolExecutor;
 
 @Slf4j
 @Configuration
@@ -17,30 +19,33 @@ import java.util.concurrent.Executor;
 public class AsyncConfig implements AsyncConfigurer {
 
     @Bean(name = "asyncTaskExecutor")
-    public Executor asyncTaskExecutor() {
+    public Executor asyncTaskExecutor(
+            @Value("${app.async.core-pool-size:8}") int corePoolSize,
+            @Value("${app.async.max-pool-size:16}") int maxPoolSize,
+            @Value("${app.async.queue-capacity:200}") int queueCapacity,
+            @Value("${app.async.await-termination-seconds:30}") int awaitTerminationSeconds,
+            @Value("${app.async.allow-core-thread-timeout:false}") boolean allowCoreThreadTimeout) {
         ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
-        executor.setCorePoolSize(4);
-        executor.setMaxPoolSize(8);
-        executor.setQueueCapacity(100);
+        executor.setCorePoolSize(corePoolSize);
+        executor.setMaxPoolSize(maxPoolSize);
+        executor.setQueueCapacity(queueCapacity);
         executor.setThreadNamePrefix("async-task-");
         executor.setWaitForTasksToCompleteOnShutdown(true);
-        executor.setAwaitTerminationSeconds(30);
+        executor.setAwaitTerminationSeconds(awaitTerminationSeconds);
+        executor.setAllowCoreThreadTimeOut(allowCoreThreadTimeout);
+        executor.setRejectedExecutionHandler(new ThreadPoolExecutor.CallerRunsPolicy());
         executor.initialize();
         return executor;
     }
 
     @Override
     public Executor getAsyncExecutor() {
-        return asyncTaskExecutor();
+        return null;
     }
 
-    /**
-     * 全局异步异常处理器 —— 防止 @Async void 方法的异常被静默吞没。
-     */
     @Override
     public AsyncUncaughtExceptionHandler getAsyncUncaughtExceptionHandler() {
-        return (Throwable ex, Method method, Object... params) -> {
-            log.error("Async 方法执行异常: method={}, params={}", method.getName(), params, ex);
-        };
+        return (Throwable ex, Method method, Object... params) ->
+                log.error("Async method execution failed: method={}, params={}", method.getName(), params, ex);
     }
 }

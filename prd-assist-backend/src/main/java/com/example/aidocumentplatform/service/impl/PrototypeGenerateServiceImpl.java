@@ -8,12 +8,13 @@ import com.example.aidocumentplatform.model.entity.AsyncTask;
 import com.example.aidocumentplatform.model.entity.PrototypeResult;
 import com.example.aidocumentplatform.model.enums.Platform;
 import com.example.aidocumentplatform.model.enums.PrototypeType;
-import com.example.aidocumentplatform.model.enums.TaskStatus;
 import com.example.aidocumentplatform.model.enums.TaskType;
 import com.example.aidocumentplatform.repository.AsyncTaskRepository;
 import com.example.aidocumentplatform.repository.PrototypeResultRepository;
-import com.example.aidocumentplatform.util.JsonUtils;
+import com.example.aidocumentplatform.service.TaskService;
 import com.example.aidocumentplatform.service.PrototypeGenerateService;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationContext;
@@ -29,46 +30,51 @@ public class PrototypeGenerateServiceImpl implements PrototypeGenerateService {
     private final PrototypeResultRepository prototypeResultRepository;
     private final AiClient aiClient;
     private final PrototypePromptTemplate promptTemplate;
-    private final TaskServiceImpl taskService;
+    private final TaskService taskService;
     private final ApplicationContext applicationContext;
+    private final IdempotentTaskService idempotentTaskService;
+    private final AsyncTaskLifecycleService asyncTaskLifecycleService;
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Override
     public Long submit(PrototypeGenerateRequest request, Long userId) {
         boolean hasRef = request.getReferenceImageBase64() != null
                 && !request.getReferenceImageBase64().isBlank();
-        StringBuilder input = new StringBuilder();
-        input.append("{\"platform\":\"").append(request.getPlatform().name()).append("\"")
-                .append(",\"prototypeType\":\"").append(request.getPrototypeType().name()).append("\"")
-                .append(",\"description\":\"").append(JsonUtils.escapeJsonString(request.getDescription())).append("\"")
-                .append(",\"hasReferenceImage\":").append(hasRef);
-        if (hasRef && request.getReferenceImageFileName() != null) {
-            input.append(",\"referenceImageFileName\":\"")
-                    .append(JsonUtils.escapeJsonString(request.getReferenceImageFileName())).append("\"");
-        }
-        if (request.getReferenceImagePath() != null) {
-            input.append(",\"referenceImagePath\":\"")
-                    .append(JsonUtils.escapeJsonString(request.getReferenceImagePath())).append("\"");
-        }
-        input.append("}");
-
-        AsyncTask task = AsyncTask.builder()
-                .userId(userId).taskType(TaskType.PROTOTYPE).status(TaskStatus.PENDING)
-                .inputParams(input.toString())
-                .build();
-        task = asyncTaskRepository.save(task);
+        IdempotentTaskService.TaskReservation reservation =
+                idempotentTaskService.createOrReuseTask(userId, TaskType.PROTOTYPE, buildTaskInput(request, hasRef));
+        AsyncTask task = reservation.task();
         log.info("原型生成任务: taskId={}, type={}, platform={}, hasRef={}",
                 task.getId(), request.getPrototypeType(), request.getPlatform(), hasRef);
-        applicationContext.getBean(PrototypeGenerateServiceImpl.class)
-                .execute(task.getId(), request, userId);
+        if (reservation.created()) {
+            applicationContext.getBean(PrototypeGenerateServiceImpl.class)
+                    .execute(task.getId(), request, userId);
+        }
         return task.getId();
     }
 
+    private String buildTaskInput(PrototypeGenerateRequest request, boolean hasRef) {
+        try {
+            ObjectNode root = objectMapper.createObjectNode();
+            root.put("platform", request.getPlatform().name());
+            root.put("prototypeType", request.getPrototypeType().name());
+            root.put("description", request.getDescription());
+            root.put("hasReferenceImage", hasRef);
+            if (hasRef && request.getReferenceImageFileName() != null) {
+                root.put("referenceImageFileName", request.getReferenceImageFileName());
+            }
+            if (request.getReferenceImagePath() != null) {
+                root.put("referenceImagePath", request.getReferenceImagePath());
+            }
+            return objectMapper.writeValueAsString(root);
+        } catch (Exception e) {
+            throw new IllegalStateException("构建原型任务参数失败", e);
+        }
+    }
     @Async("asyncTaskExecutor")
     public void execute(Long taskId, PrototypeGenerateRequest request, Long userId) {
-        AsyncTask task = asyncTaskRepository.findById(taskId).orElse(null);
-        if (task == null) return;
+        if (asyncTaskRepository.findById(taskId).isEmpty()) return;
         try {
-            task.setStatus(TaskStatus.RUNNING); asyncTaskRepository.save(task);
+            asyncTaskLifecycleService.markRunning(taskId);
             boolean hasRef = request.getReferenceImageBase64() != null
                     && !request.getReferenceImageBase64().isBlank();
             taskService.pushProgress(taskId, 15,
@@ -109,20 +115,14 @@ public class PrototypeGenerateServiceImpl implements PrototypeGenerateService {
                     .userId(userId).taskId(taskId).prdDocumentId(request.getPrdDocumentId())
                     .prototypeType(request.getPrototypeType()).platform(request.getPlatform())
                     .content(content).build();
-            proto = prototypeResultRepository.save(proto);
-
-            task.setResultRefId(proto.getId());
-            task.setStatus(TaskStatus.SUCCESS);
-            asyncTaskRepository.save(task);
+            proto = asyncTaskLifecycleService.savePrototypeResultAndMarkSuccess(taskId, proto);
             taskService.pushProgress(taskId, 100, "原型生成完成");
             log.info("原型生成成功: taskId={}, resultId={}, type={}, hasRef={}, len={}",
                     taskId, proto.getId(), request.getPrototypeType(), hasRef, content.length());
 
         } catch (Exception e) {
             log.error("原型生成失败: taskId={}", taskId, e);
-            task.setStatus(TaskStatus.FAILED);
-            task.setErrorMessage(truncate(e.getMessage(), 500));
-            asyncTaskRepository.save(task);
+            asyncTaskLifecycleService.markFailed(taskId, truncate(e.getMessage(), 500));
             taskService.pushProgress(taskId, 0, "生成失败: " + e.getMessage());
         }
     }

@@ -4,7 +4,9 @@ import com.example.aidocumentplatform.model.entity.AsyncTask;
 import com.example.aidocumentplatform.model.enums.TaskStatus;
 import com.example.aidocumentplatform.repository.AsyncTaskRepository;
 import com.example.aidocumentplatform.service.AiService;
-import com.example.aidocumentplatform.service.impl.TaskServiceImpl;
+import com.example.aidocumentplatform.service.TaskService;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Async;
@@ -16,8 +18,9 @@ import org.springframework.stereotype.Component;
 public class TaskExecutor {
 
     private final AsyncTaskRepository asyncTaskRepository;
-    private final TaskServiceImpl taskService;
+    private final TaskService taskService;
     private final AiService aiService;
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Async("asyncTaskExecutor")
     public void executeTask(Long taskId) {
@@ -41,20 +44,17 @@ public class TaskExecutor {
                 }
                 case PRD_REVIEW -> aiService.reviewPrd(task.getInputParams());
                 case PROTOTYPE -> aiService.generatePrototype(task.getInputParams());
-                // 审查修订走 PrdReviewServiceImpl.submitFix / executeFix，不经过此通用执行器
                 case PRD_REVIEW_FIX -> throw new UnsupportedOperationException(
                         "PRD_REVIEW_FIX 应由 PrdReviewService 异步执行，不支持通用 TaskExecutor");
-                // 原型局部修改走 PrototypeAiEditServiceImpl.submitStreamEdit / executeStreamEdit
                 case PROTOTYPE_AI_EDIT -> throw new UnsupportedOperationException(
                         "PROTOTYPE_AI_EDIT 应由 PrototypeAiEditService 异步执行，不支持通用 TaskExecutor");
             };
 
-            // 先落库再推 SSE，避免进度推送异常影响任务状态
             task.setStatus(TaskStatus.SUCCESS);
             asyncTaskRepository.save(task);
 
             taskService.pushProgress(taskId, 100, "任务完成");
-            log.info("任务执行成功: {}", taskId);
+            log.info("任务执行成功: {}, resultLen={}", taskId, result == null ? 0 : result.length());
 
         } catch (Exception e) {
             log.error("任务执行失败: {}", taskId, e);
@@ -66,18 +66,16 @@ public class TaskExecutor {
     }
 
     private String extractJsonField(String json, String field) {
-        if (json == null || json.isBlank()) return "";
+        if (json == null || json.isBlank() || field == null || field.isBlank()) {
+            return "";
+        }
         try {
-            String key = "\"" + field + "\"";
-            int start = json.indexOf(key);
-            if (start < 0) return json;
-            start = json.indexOf("\"", start + key.length() + 1);
-            if (start < 0) return "";
-            int end = json.indexOf("\"", start + 1);
-            if (end < 0) return "";
-            return json.substring(start + 1, end);
+            JsonNode root = objectMapper.readTree(json);
+            JsonNode node = root.path(field);
+            return node.isMissingNode() || node.isNull() ? "" : node.asText("");
         } catch (Exception e) {
-            return json;
+            log.warn("提取任务字段失败: field={}, cause={}", field, e.getMessage());
+            return "";
         }
     }
 }

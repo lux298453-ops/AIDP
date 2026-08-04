@@ -9,10 +9,10 @@ import com.example.aidocumentplatform.model.dto.response.PrototypeAiEditResponse
 import com.example.aidocumentplatform.model.entity.AsyncTask;
 import com.example.aidocumentplatform.model.entity.PrototypeResult;
 import com.example.aidocumentplatform.model.enums.PrototypeType;
-import com.example.aidocumentplatform.model.enums.TaskStatus;
 import com.example.aidocumentplatform.model.enums.TaskType;
 import com.example.aidocumentplatform.repository.AsyncTaskRepository;
 import com.example.aidocumentplatform.repository.PrototypeResultRepository;
+import com.example.aidocumentplatform.service.TaskService;
 import com.example.aidocumentplatform.service.PrototypeAiEditService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -44,8 +44,10 @@ public class PrototypeAiEditServiceImpl implements PrototypeAiEditService {
     private final PrototypeResultRepository prototypeResultRepository;
     private final PrototypePromptTemplate promptTemplate;
     private final AiClient aiClient;
-    private final TaskServiceImpl taskService;
+    private final TaskService taskService;
     private final ApplicationContext applicationContext;
+    private final IdempotentTaskService idempotentTaskService;
+    private final AsyncTaskLifecycleService asyncTaskLifecycleService;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Override
@@ -93,25 +95,21 @@ public class PrototypeAiEditServiceImpl implements PrototypeAiEditService {
     public Long submitStreamEdit(Long prototypeId, Long userId, PrototypeAiEditRequest request) {
         loadOwnedPrototype(prototypeId, userId);
 
-        AsyncTask task = AsyncTask.builder()
-                .userId(userId)
-                .taskType(TaskType.PROTOTYPE_AI_EDIT)
-                .status(TaskStatus.PENDING)
-                .inputParams(buildStreamInputParams(prototypeId, request))
-                .build();
-        task = asyncTaskRepository.save(task);
-        applicationContext.getBean(PrototypeAiEditServiceImpl.class)
-                .executeStreamEdit(task.getId(), prototypeId, userId, request);
+        IdempotentTaskService.TaskReservation reservation = idempotentTaskService.createOrReuseTask(
+                userId, TaskType.PROTOTYPE_AI_EDIT, buildStreamInputParams(prototypeId, request));
+        AsyncTask task = reservation.task();
+        if (reservation.created()) {
+            applicationContext.getBean(PrototypeAiEditServiceImpl.class)
+                    .executeStreamEdit(task.getId(), prototypeId, userId, request);
+        }
         return task.getId();
     }
 
     @Async("asyncTaskExecutor")
     public void executeStreamEdit(Long taskId, Long prototypeId, Long userId, PrototypeAiEditRequest request) {
-        AsyncTask task = asyncTaskRepository.findById(taskId).orElse(null);
-        if (task == null) return;
+        if (asyncTaskRepository.findById(taskId).isEmpty()) return;
         try {
-            task.setStatus(TaskStatus.RUNNING);
-            asyncTaskRepository.save(task);
+            asyncTaskLifecycleService.markRunning(taskId);
             taskService.pushProgress(taskId, 10, "AI 正在分析原型修改需求...");
 
             PrototypeResult proto = loadOwnedPrototype(prototypeId, userId);
@@ -137,9 +135,7 @@ public class PrototypeAiEditServiceImpl implements PrototypeAiEditService {
                 throw new RuntimeException("AI 未返回可执行的原型修改指令");
             }
 
-            task.setResultRefId(prototypeId);
-            task.setStatus(TaskStatus.SUCCESS);
-            asyncTaskRepository.save(task);
+            asyncTaskLifecycleService.markSuccess(taskId, prototypeId);
             String message = accumulator.summary().isBlank()
                     ? "原型修改完成"
                     : accumulator.summary();
@@ -148,9 +144,7 @@ public class PrototypeAiEditServiceImpl implements PrototypeAiEditService {
                     taskId, prototypeId, accumulator.patchCount());
         } catch (Exception e) {
             log.error("原型 AI 流式修改失败: taskId={}, prototypeId={}", taskId, prototypeId, e);
-            task.setStatus(TaskStatus.FAILED);
-            task.setErrorMessage(truncate(e.getMessage(), 500));
-            asyncTaskRepository.save(task);
+            asyncTaskLifecycleService.markFailed(taskId, truncate(e.getMessage(), 500));
             taskService.pushProgress(taskId, 0, "AI 修改失败: " + e.getMessage());
         }
     }

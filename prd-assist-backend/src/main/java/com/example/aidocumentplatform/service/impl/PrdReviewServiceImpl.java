@@ -11,12 +11,12 @@ import com.example.aidocumentplatform.model.entity.PrdDocument;
 import com.example.aidocumentplatform.model.entity.ReviewReport;
 import com.example.aidocumentplatform.model.enums.DetailLevel;
 import com.example.aidocumentplatform.model.enums.DocumentSourceType;
-import com.example.aidocumentplatform.model.enums.TaskStatus;
 import com.example.aidocumentplatform.model.enums.TaskType;
 import com.example.aidocumentplatform.model.enums.TemplateType;
 import com.example.aidocumentplatform.repository.AsyncTaskRepository;
 import com.example.aidocumentplatform.repository.PrdDocumentRepository;
 import com.example.aidocumentplatform.repository.ReviewReportRepository;
+import com.example.aidocumentplatform.service.TaskService;
 import com.example.aidocumentplatform.service.PrdReviewService;
 import com.example.aidocumentplatform.util.JsonUtils;
 import com.example.aidocumentplatform.util.PrdContentParser;
@@ -51,9 +51,11 @@ public class PrdReviewServiceImpl implements PrdReviewService {
     private final AiClient aiClient;
     private final PrdReviewPromptTemplate promptTemplate;
     private final PrdReviewFixPromptTemplate fixPromptTemplate;
-    private final TaskServiceImpl taskService;
+    private final TaskService taskService;
     private final PrdContentParser prdContentParser;
     private final ApplicationContext applicationContext;
+    private final IdempotentTaskService idempotentTaskService;
+    private final AsyncTaskLifecycleService asyncTaskLifecycleService;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     // ======================== 提交审查 ========================
@@ -65,37 +67,47 @@ public class PrdReviewServiceImpl implements PrdReviewService {
 
         List<String> dims = request.getDimensions() != null ? request.getDimensions() : List.of();
         String dimsJson = toJson(dims);
+        String inputParams = buildReviewTaskInput(resolved.prdDocId(), dims,
+                request.getRequirement(), truncate(resolved.reviewText(), 4000));
 
-        String inputParams = "{\"prdDocumentId\":" + resolved.prdDocId()
-                + ",\"dimensions\":" + dimsJson
-                + ",\"requirement\":\"" + JsonUtils.escapeJsonString(
-                request.getRequirement() != null ? request.getRequirement() : "") + "\""
-                + ",\"prdContent\":\"" + JsonUtils.escapeJsonString(truncate(resolved.reviewText(), 4000)) + "\"}";
-
-        AsyncTask task = AsyncTask.builder()
-                .userId(userId)
-                .taskType(TaskType.PRD_REVIEW)
-                .status(TaskStatus.PENDING)
-                .inputParams(inputParams)
-                .build();
-        task = asyncTaskRepository.save(task);
+        IdempotentTaskService.TaskReservation reservation =
+                idempotentTaskService.createOrReuseTask(userId, TaskType.PRD_REVIEW, inputParams);
+        AsyncTask task = reservation.task();
         log.info("PRD审查任务已创建: taskId={}, userId={}, prdDocId={}, dimensions={}",
                 task.getId(), userId, resolved.prdDocId(), dims);
 
-        applicationContext.getBean(PrdReviewServiceImpl.class)
-                .execute(task.getId(), resolved.reviewText(), dims, request.getRequirement(),
-                        userId, resolved.prdDocId(), resolved.contentJson());
+        if (reservation.created()) {
+            applicationContext.getBean(PrdReviewServiceImpl.class)
+                    .execute(task.getId(), resolved.reviewText(), dims, request.getRequirement(),
+                            userId, resolved.prdDocId(), resolved.contentJson());
+        }
         return task.getId();
     }
 
+    private String buildReviewTaskInput(Long prdDocumentId, List<String> dimensions,
+                                        String requirement, String prdContent) {
+        try {
+            ObjectNode root = objectMapper.createObjectNode();
+            root.put("prdDocumentId", prdDocumentId);
+            ArrayNode dimensionArray = root.putArray("dimensions");
+            if (dimensions != null) {
+                for (String dimension : dimensions) {
+                    dimensionArray.add(dimension);
+                }
+            }
+            root.put("requirement", requirement == null ? "" : requirement);
+            root.put("prdContent", prdContent == null ? "" : prdContent);
+            return objectMapper.writeValueAsString(root);
+        } catch (Exception e) {
+            throw new IllegalStateException("构建 PRD 审查任务参数失败", e);
+        }
+    }
     @Async("asyncTaskExecutor")
     public void execute(Long taskId, String prdContent, List<String> dimensions, String requirement,
                         Long userId, Long prdDocId, String contentJson) {
-        AsyncTask task = asyncTaskRepository.findById(taskId).orElse(null);
-        if (task == null) return;
+        if (asyncTaskRepository.findById(taskId).isEmpty()) return;
         try {
-            task.setStatus(TaskStatus.RUNNING);
-            asyncTaskRepository.save(task);
+            asyncTaskLifecycleService.markRunning(taskId);
             taskService.pushProgress(taskId, 10, "AI 正在审查 PRD...");
 
             List<ChapterAnchor> chapterAnchors = extractChapterAnchors(contentJson);
@@ -123,18 +135,12 @@ public class PrdReviewServiceImpl implements PrdReviewService {
                     .dimensions(dimsJson)
                     .issues(json)
                     .build();
-            report = reviewReportRepository.save(report);
-
-            task.setResultRefId(report.getId());
-            task.setStatus(TaskStatus.SUCCESS);
-            asyncTaskRepository.save(task);
+            report = asyncTaskLifecycleService.saveReviewReportAndMarkSuccess(taskId, report);
             taskService.pushProgress(taskId, 100, "审查完成");
             log.info("PRD审查成功: taskId={}, reportId={}, prdDocId={}", taskId, report.getId(), prdDocId);
         } catch (Exception e) {
             log.error("PRD审查失败: taskId={}", taskId, e);
-            task.setStatus(TaskStatus.FAILED);
-            task.setErrorMessage(truncate(e.getMessage(), 500));
-            asyncTaskRepository.save(task);
+            asyncTaskLifecycleService.markFailed(taskId, truncate(e.getMessage(), 500));
             taskService.pushProgress(taskId, 0, "审查失败: " + e.getMessage());
         }
     }
@@ -173,28 +179,24 @@ public class PrdReviewServiceImpl implements PrdReviewService {
                 + ",\"issueCount\":" + selectedIssues.size()
                 + ",\"fixMode\":\"" + (localChapterFix ? "LOCAL_CHAPTER" : "FULL_DOCUMENT") + "\"}";
 
-        AsyncTask task = AsyncTask.builder()
-                .userId(userId)
-                .taskType(TaskType.PRD_REVIEW_FIX)
-                .status(TaskStatus.PENDING)
-                .inputParams(inputParams)
-                .build();
-        task = asyncTaskRepository.save(task);
+        IdempotentTaskService.TaskReservation reservation =
+                idempotentTaskService.createOrReuseTask(userId, TaskType.PRD_REVIEW_FIX, inputParams);
+        AsyncTask task = reservation.task();
         log.info("PRD审查修复任务已创建: taskId={}, reportId={}, issues={}, mode={}",
                 task.getId(), reportId, selectedIssues.size(), localChapterFix ? "LOCAL_CHAPTER" : "FULL_DOCUMENT");
 
-        applicationContext.getBean(PrdReviewServiceImpl.class)
-                .executeFix(task.getId(), source, issuesJson, userId, localChapterFix);
+        if (reservation.created()) {
+            applicationContext.getBean(PrdReviewServiceImpl.class)
+                    .executeFix(task.getId(), source, issuesJson, userId, localChapterFix);
+        }
         return task.getId();
     }
 
     @Async("asyncTaskExecutor")
     public void executeFix(Long taskId, PrdDocument source, String issuesJson, Long userId, boolean localChapterFix) {
-        AsyncTask task = asyncTaskRepository.findById(taskId).orElse(null);
-        if (task == null) return;
+        if (asyncTaskRepository.findById(taskId).isEmpty()) return;
         try {
-            task.setStatus(TaskStatus.RUNNING);
-            asyncTaskRepository.save(task);
+            asyncTaskLifecycleService.markRunning(taskId);
             taskService.pushProgress(taskId, 10,
                     localChapterFix ? "AI 正在修复该问题对应章节..." : "AI 正在根据审查意见修订 PRD...");
 
@@ -214,19 +216,13 @@ public class PrdReviewServiceImpl implements PrdReviewService {
             }
 
             PrdDocument fixed = buildFixedPrdDocument(source, taskId, userId, jsonContent);
-            fixed = prdDocumentRepository.save(fixed);
-
-            task.setResultRefId(fixed.getId());
-            task.setStatus(TaskStatus.SUCCESS);
-            asyncTaskRepository.save(task);
+            fixed = asyncTaskLifecycleService.savePrdDocumentAndMarkSuccess(taskId, fixed);
             taskService.pushProgress(taskId, 100, localChapterFix ? "该问题对应章节修复完成" : "修订完成");
             log.info("PRD审查修复成功: taskId={}, newPrdId={}, sourcePrdId={}, mode={}",
                     taskId, fixed.getId(), source.getId(), localChapterFix ? "LOCAL_CHAPTER" : "FULL_DOCUMENT");
         } catch (Exception e) {
             log.error("PRD审查修复失败: taskId={}", taskId, e);
-            task.setStatus(TaskStatus.FAILED);
-            task.setErrorMessage(truncate(e.getMessage(), 500));
-            asyncTaskRepository.save(task);
+            asyncTaskLifecycleService.markFailed(taskId, truncate(e.getMessage(), 500));
             taskService.pushProgress(taskId, 0, "修复失败: " + e.getMessage());
         }
     }

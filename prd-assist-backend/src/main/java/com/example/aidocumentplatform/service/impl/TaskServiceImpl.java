@@ -9,6 +9,9 @@ import com.example.aidocumentplatform.repository.AsyncTaskRepository;
 import com.example.aidocumentplatform.service.TaskService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
@@ -24,20 +27,19 @@ import java.util.concurrent.ConcurrentHashMap;
 public class TaskServiceImpl implements TaskService {
 
     private final AsyncTaskRepository asyncTaskRepository;
+    private final IdempotentTaskService idempotentTaskService;
+
+    @Value("${app.sse.emitter-timeout-ms:1800000}")
+    private long sseEmitterTimeoutMs;
+
     private final Map<Long, SseEmitter> sseRegistry = new ConcurrentHashMap<>();
+    private final Map<Long, ProgressSnapshot> progressSnapshots = new ConcurrentHashMap<>();
     private final Map<Long, StringBuilder> contentBuffers = new ConcurrentHashMap<>();
     private final Map<Long, List<BufferedSseEvent>> customEventBuffers = new ConcurrentHashMap<>();
 
     @Override
     public AsyncTask createTask(TaskCreateRequest request, Long userId) {
-        AsyncTask task = AsyncTask.builder()
-                .userId(userId)
-                .taskType(request.getTaskType())
-                .status(TaskStatus.PENDING)
-                .inputParams(request.getInputData())
-                .build();
-
-        return asyncTaskRepository.save(task);
+        return idempotentTaskService.createOrReuseTask(userId, request.getTaskType(), request.getInputData()).task();
     }
 
     @Override
@@ -53,25 +55,26 @@ public class TaskServiceImpl implements TaskService {
     }
 
     @Override
-    public List<AsyncTask> listByUser(Long userId) {
-        return asyncTaskRepository.findByUserIdOrderByCreatedAtDesc(userId);
+    public Page<AsyncTask> listByUser(Long userId, Pageable pageable) {
+        return asyncTaskRepository.findByUserIdOrderByCreatedAtDesc(userId, pageable);
     }
 
     @Override
     public SseEmitter subscribeTaskProgress(Long taskId, Long userId) {
         AsyncTask task = getTask(taskId, userId);
-        SseEmitter emitter = new SseEmitter(30 * 60 * 1000L);
+        SseEmitter emitter = new SseEmitter(sseEmitterTimeoutMs);
+        ProgressSnapshot snapshot = progressSnapshots.get(taskId);
 
         if (task.getStatus() == TaskStatus.SUCCESS) {
             replayCustomEvents(emitter, taskId);
-            customEventBuffers.remove(taskId);
-            safeSendAndComplete(emitter, taskId, 100, "任务已完成");
+            safeSendAndComplete(emitter, taskId, 100, terminalMessage(task, snapshot, "任务已完成"));
+            cleanupTaskBuffers(taskId, true);
             return emitter;
         }
         if (task.getStatus() == TaskStatus.FAILED) {
-            customEventBuffers.remove(taskId);
-            String failMessage = "任务失败: " + (task.getErrorMessage() != null ? task.getErrorMessage() : "未知错误");
-            safeSendAndComplete(emitter, taskId, 0, failMessage);
+            String fallback = "任务失败: " + (task.getErrorMessage() != null ? task.getErrorMessage() : "未知错误");
+            safeSendAndComplete(emitter, taskId, 0, terminalMessage(task, snapshot, fallback));
+            cleanupTaskBuffers(taskId, true);
             return emitter;
         }
 
@@ -79,12 +82,14 @@ public class TaskServiceImpl implements TaskService {
         emitter.onCompletion(() -> sseRegistry.remove(taskId));
         emitter.onTimeout(() -> {
             sseRegistry.remove(taskId);
-            log.debug("SSE timeout, taskId={}", taskId);
+            log.info("SSE timeout, taskId={}", taskId);
         });
         emitter.onError(e -> {
             sseRegistry.remove(taskId);
-            log.debug("SSE connection error, taskId={}, cause={}", taskId, e.toString());
+            log.warn("SSE connection error, taskId={}, cause={}", taskId, e.toString());
         });
+
+        replayProgressSnapshot(emitter, taskId, snapshot);
 
         StringBuilder buffered = contentBuffers.get(taskId);
         if (buffered != null && !buffered.isEmpty()) {
@@ -96,22 +101,18 @@ public class TaskServiceImpl implements TaskService {
     }
 
     public void pushProgress(Long taskId, int progress, String message) {
+        progressSnapshots.put(taskId, new ProgressSnapshot(progress, message));
         SseEmitter emitter = sseRegistry.get(taskId);
         if (emitter == null) {
             log.debug("SSE emitter missing, taskId={}, progress={}", taskId, progress);
-            if (progress >= 100 || progress <= 0) contentBuffers.remove(taskId);
-            if (progress <= 0) customEventBuffers.remove(taskId);
+            if (progress >= 100 || progress <= 0) {
+                cleanupTaskBuffers(taskId, false);
+            }
             return;
         }
 
-        try {
-            emitter.send(SseEmitter.event()
-                    .name("progress")
-                    .data(Map.of("taskId", taskId, "progress", progress, "message", message)));
-        } catch (Exception e) {
+        if (!sendProgressEvent(emitter, taskId, progress, message)) {
             sseRegistry.remove(taskId);
-            log.warn("SSE progress push failed and ignored, taskId={}, progress={}, cause={}",
-                    taskId, progress, e.toString());
             return;
         }
 
@@ -121,8 +122,7 @@ public class TaskServiceImpl implements TaskService {
             } catch (Exception ignored) {
             }
             sseRegistry.remove(taskId);
-            contentBuffers.remove(taskId);
-            customEventBuffers.remove(taskId);
+            cleanupTaskBuffers(taskId, true);
         }
     }
 
@@ -148,7 +148,7 @@ public class TaskServiceImpl implements TaskService {
                     .data(Map.of("taskId", taskId, "delta", delta, "snapshot", snapshot)));
         } catch (Exception e) {
             sseRegistry.remove(taskId);
-            log.warn("SSE content push failed and ignored, taskId={}, cause={}", taskId, e.toString());
+            log.warn("SSE content push failed, taskId={}, cause={}", taskId, e.toString());
         }
     }
 
@@ -174,7 +174,7 @@ public class TaskServiceImpl implements TaskService {
             emitter.send(SseEmitter.event().name(eventName).data(data));
         } catch (Exception e) {
             sseRegistry.remove(taskId);
-            log.warn("SSE custom event push failed and ignored, taskId={}, event={}, cause={}",
+            log.warn("SSE custom event push failed, taskId={}, event={}, cause={}",
                     taskId, eventName, e.toString());
         }
     }
@@ -199,6 +199,26 @@ public class TaskServiceImpl implements TaskService {
         }
     }
 
+    private void replayProgressSnapshot(SseEmitter emitter, Long taskId, ProgressSnapshot snapshot) {
+        if (snapshot == null) {
+            return;
+        }
+        sendProgressEvent(emitter, taskId, snapshot.progress(), snapshot.message());
+    }
+
+    private boolean sendProgressEvent(SseEmitter emitter, Long taskId, int progress, String message) {
+        try {
+            emitter.send(SseEmitter.event()
+                    .name("progress")
+                    .data(Map.of("taskId", taskId, "progress", progress, "message", message)));
+            return true;
+        } catch (Exception e) {
+            log.warn("SSE progress push failed, taskId={}, progress={}, cause={}",
+                    taskId, progress, e.toString());
+            return false;
+        }
+    }
+
     private void safeSendAndComplete(SseEmitter emitter, Long taskId, int progress, String message) {
         try {
             emitter.send(SseEmitter.event().name("progress")
@@ -213,6 +233,27 @@ public class TaskServiceImpl implements TaskService {
         }
     }
 
+    private String terminalMessage(AsyncTask task, ProgressSnapshot snapshot, String fallback) {
+        if (snapshot != null && snapshot.message() != null && !snapshot.message().isBlank()) {
+            return snapshot.message();
+        }
+        if (task.getErrorMessage() != null && !task.getErrorMessage().isBlank()) {
+            return task.getStatus() == TaskStatus.FAILED ? "任务失败: " + task.getErrorMessage() : fallback;
+        }
+        return fallback;
+    }
+
+    private void cleanupTaskBuffers(Long taskId, boolean clearProgressSnapshot) {
+        contentBuffers.remove(taskId);
+        customEventBuffers.remove(taskId);
+        if (clearProgressSnapshot) {
+            progressSnapshots.remove(taskId);
+        }
+    }
+
     private record BufferedSseEvent(String name, Object data) {
+    }
+
+    private record ProgressSnapshot(int progress, String message) {
     }
 }

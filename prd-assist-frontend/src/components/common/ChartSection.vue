@@ -1,10 +1,4 @@
 <script setup lang="ts">
-/**
- * 图表章节交互区
- * - 默认：渲染图表（PlantUML 走后端 / Mermaid 浏览器端）+ 下方说明文字
- * - 代码模式：可编辑源码 + 重新渲染
- * - AI 修改：自然语言修订图表
- */
 import { ref, computed, watch, onMounted, nextTick } from 'vue'
 import { ElMessage } from 'element-plus'
 import {
@@ -12,18 +6,14 @@ import {
   extractChartCode,
   extractChartCaption,
   replaceChartInContent,
-  renderChartImageUrl,
+  renderChartSvgHtml,
 } from '@/utils/chart'
 import client from '@/api/client'
 
 const props = defineProps<{
-  /** 章节完整 content（含图表 + 说明） */
   modelValue: string
-  /** 章节类型 structure / flow / 其他 */
   chartType?: string
-  /** PRD 文档 id，用于 AI 改图 */
   prdId?: number
-  /** 章节下标 */
   chapterIndex?: number
   title?: string
 }>()
@@ -38,7 +28,6 @@ const code = ref('')
 const caption = ref('')
 const draftCode = ref('')
 const containerRef = ref<HTMLElement | null>(null)
-const plantumlUrl = ref<string | null>(null)
 const rendering = ref(false)
 const errorMsg = ref('')
 const aiDialog = ref(false)
@@ -68,21 +57,25 @@ function emitContent(chartCode: string) {
 async function renderChart(source?: string) {
   const src = (source ?? code.value ?? '').trim()
   errorMsg.value = ''
-  plantumlUrl.value = null
+  if (containerRef.value) containerRef.value.innerHTML = ''
   if (!src) {
     errorMsg.value = '暂无图表源码'
     return
   }
   if (!containerRef.value) return
+
   rendering.value = true
   const seq = ++renderSeq
-
   const lang = detectChartLang(src)
+
   if (lang === 'plantuml') {
-    const url = await renderChartImageUrl(src, lang)
+    const svg = await renderChartSvgHtml(src, lang)
     if (seq !== renderSeq) return
-    if (url) {
-      plantumlUrl.value = url
+    if (svg) {
+      await nextTick()
+      if (containerRef.value) {
+        containerRef.value.innerHTML = svg
+      }
     } else {
       errorMsg.value = '图表渲染失败，请检查 PlantUML 语法'
     }
@@ -99,16 +92,16 @@ async function renderChart(source?: string) {
       suppressErrorRendering: true,
       theme: 'base',
       themeVariables: {
-        primaryColor: '#e6e5e0',
-        primaryTextColor: '#26251e',
-        primaryBorderColor: 'rgba(38,37,30,0.25)',
-        lineColor: 'rgba(38,37,30,0.45)',
+        primaryColor: '#e8f0fe',
+        primaryTextColor: '#1a1a1a',
+        primaryBorderColor: 'rgba(91,124,250,0.45)',
+        lineColor: 'rgba(38,37,30,0.60)',
         secondaryColor: '#f7f7f4',
-        tertiaryColor: '#f2f1ed',
-        fontFamily: 'system-ui, -apple-system, "Segoe UI", sans-serif',
-        fontSize: '14px',
+        tertiaryColor: '#ffffff',
+        fontFamily: 'Microsoft YaHei, PingFang SC, Noto Sans SC, Arial, sans-serif',
+        fontSize: '18px',
       },
-      flowchart: { curve: 'basis', htmlLabels: true, padding: 12 },
+      flowchart: { curve: 'linear', htmlLabels: false, padding: 20, nodeSpacing: 72, rankSpacing: 88 },
     } as any)
     const id = `chart-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
     const { svg, bindFunctions } = await mermaid.render(id, src)
@@ -191,7 +184,7 @@ async function submitAiRevise() {
     mode.value = 'preview'
     await nextTick()
     await renderChart()
-    ElMessage.success('图表已更新（已自动保存到服务端）')
+    ElMessage.success('图表已更新并自动保存')
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.message || e?.message || 'AI 修改失败')
   } finally {
@@ -199,7 +192,6 @@ async function submitAiRevise() {
   }
 }
 
-/** 供父组件导出时获取当前 SVG */
 function getSvgHtml(): string | null {
   return containerRef.value?.innerHTML || null
 }
@@ -211,7 +203,6 @@ onMounted(() => {
 
 watch(() => props.modelValue, (v, old) => {
   if (v === old) return
-  // 外部更新时同步（避免编辑框自己触发的循环：比较图表源码）
   const nextCode = extractChartCode(v || '') || ''
   if (nextCode !== code.value) {
     syncFromModel()
@@ -241,24 +232,17 @@ defineExpose({ getSvgHtml, getChartCode: () => code.value, renderChart })
       </div>
     </div>
 
-    <!-- 预览模式 -->
     <div v-show="mode === 'preview'" class="chart-preview-body">
-      <div v-if="rendering" class="chart-loading">图表渲染中…</div>
+      <div v-if="rendering" class="chart-loading">图表渲染中...</div>
       <div v-if="errorMsg" class="chart-error">
         <p class="err-title">图表暂时无法显示</p>
         <p class="err-desc">{{ errorMsg }}</p>
         <el-button size="small" @click="mode = 'code'">去代码模式修复</el-button>
       </div>
       <div
-        v-if="plantumlUrl"
-        class="chart-img"
-      >
-        <img :src="plantumlUrl" alt="图表" />
-      </div>
-      <div
         ref="containerRef"
         class="chart-svg"
-        :class="{ hidden: !!errorMsg || !!plantumlUrl }"
+        :class="{ hidden: !!errorMsg }"
       />
       <div v-if="caption" class="chart-caption">
         <div class="caption-label">说明</div>
@@ -266,14 +250,13 @@ defineExpose({ getSvgHtml, getChartCode: () => code.value, renderChart })
       </div>
     </div>
 
-    <!-- 代码模式 -->
     <div v-show="mode === 'code'" class="chart-code-body">
       <el-input
         v-model="draftCode"
         type="textarea"
         :rows="14"
         class="code-input"
-        placeholder="在此编辑图表源码（PlantUML / Mermaid）…"
+        placeholder="在此编辑图表源码（PlantUML / Mermaid）..."
       />
       <div class="code-actions">
         <el-button type="primary" @click="applyCodeAndRender">重新渲染</el-button>
@@ -281,7 +264,6 @@ defineExpose({ getSvgHtml, getChartCode: () => code.value, renderChart })
       </div>
     </div>
 
-    <!-- AI 修改对话框 -->
     <el-dialog
       v-model="aiDialog"
       title="用 AI 修改图表"
@@ -289,14 +271,14 @@ defineExpose({ getSvgHtml, getChartCode: () => code.value, renderChart })
       align-center
       destroy-on-close
     >
-      <p class="ai-hint">用自然语言描述修改需求，例如：「把登录模块移到顶部」「增加异常分支」</p>
+      <p class="ai-hint">用自然语言描述修改需求，例如“把登录模块移到顶部”“增加异常分支”。</p>
       <el-input
         v-model="aiInstruction"
         type="textarea"
         :rows="4"
         maxlength="500"
         show-word-limit
-        placeholder="描述你希望图表如何变化…"
+        placeholder="描述你希望图表如何变化..."
       />
       <template #footer>
         <el-button @click="aiDialog = false">取消</el-button>
@@ -346,7 +328,6 @@ defineExpose({ getSvgHtml, getChartCode: () => code.value, renderChart })
   flex-wrap: wrap;
   gap: 6px;
 }
-
 .chart-preview-body { padding: 8px 12px 16px; }
 .chart-loading {
   padding: 28px;
@@ -373,15 +354,6 @@ defineExpose({ getSvgHtml, getChartCode: () => code.value, renderChart })
   max-width: 100%;
   height: auto;
 }
-.chart-img {
-  padding: 12px;
-  overflow-x: auto;
-  text-align: center;
-}
-.chart-img img {
-  max-width: 100%;
-  height: auto;
-}
 .chart-caption {
   margin: 8px 8px 0;
   padding: 12px 14px;
@@ -401,7 +373,6 @@ defineExpose({ getSvgHtml, getChartCode: () => code.value, renderChart })
   color: rgba(38, 37, 30, 0.8);
   white-space: pre-wrap;
 }
-
 .chart-code-body { padding: 12px 14px 16px; }
 .code-input :deep(textarea) {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
@@ -413,7 +384,6 @@ defineExpose({ getSvgHtml, getChartCode: () => code.value, renderChart })
   gap: 8px;
   margin-top: 10px;
 }
-
 .ai-hint {
   margin: 0 0 12px;
   font-size: 13px;

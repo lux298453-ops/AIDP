@@ -1,14 +1,15 @@
 import client from './client'
 import type { TaskCreateRequest, TaskItem } from '@/types/task'
 import type { Result } from '@/types/api'
+import type { PageResult } from '@/types/document'
 import { getStoredToken, handleSessionExpired, isJwtExpired } from '@/utils/session'
 
 export function createTask(data: TaskCreateRequest) {
   return client.post<Result<TaskItem>>('/tasks', data)
 }
 
-export function getTasks() {
-  return client.get<Result<TaskItem[]>>('/tasks')
+export function getTasks(params?: { page?: number; size?: number }) {
+  return client.get<Result<PageResult<TaskItem>>>('/tasks', { params })
 }
 
 export function getTaskById(id: number) {

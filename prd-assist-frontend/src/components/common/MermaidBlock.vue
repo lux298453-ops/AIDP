@@ -1,12 +1,6 @@
 <script setup lang="ts">
-/**
- * 渲染单个图表（PlantUML / Mermaid）。
- * - PlantUML 走后端 /api/charts/render 渲染为 PNG 展示（保证与 Word 导出一致）
- * - Mermaid 保留浏览器端渲染；失败时静默隐藏，避免原始错误污染页面
- * - 主题贴近平台暖色浅色风格
- */
 import { ref, watch, onMounted, nextTick } from 'vue'
-import { detectChartLang, renderChartImageUrl } from '@/utils/chart'
+import { detectChartLang, renderChartSvgHtml } from '@/utils/chart'
 
 const props = defineProps<{
   code: string
@@ -16,13 +10,12 @@ const props = defineProps<{
 const containerRef = ref<HTMLElement | null>(null)
 const errorMsg = ref('')
 const rendering = ref(false)
-const plantumlUrl = ref<string | null>(null)
 let renderSeq = 0
 
 async function render() {
   const code = (props.code || '').trim()
   errorMsg.value = ''
-  plantumlUrl.value = null
+  if (containerRef.value) containerRef.value.innerHTML = ''
   if (!code) {
     errorMsg.value = '图表源码为空'
     return
@@ -33,10 +26,13 @@ async function render() {
   if (lang === 'plantuml') {
     rendering.value = true
     const seq = ++renderSeq
-    const url = await renderChartImageUrl(code, lang)
+    const svg = await renderChartSvgHtml(code, lang)
     if (seq !== renderSeq) return
-    if (url) {
-      plantumlUrl.value = url
+    if (svg) {
+      await nextTick()
+      if (containerRef.value) {
+        containerRef.value.innerHTML = svg
+      }
     } else {
       errorMsg.value = '图表渲染失败'
     }
@@ -55,21 +51,21 @@ async function render() {
       suppressErrorRendering: true,
       theme: 'base',
       themeVariables: {
-        primaryColor: '#e6e5e0',
-        primaryTextColor: '#26251e',
-        primaryBorderColor: 'rgba(38,37,30,0.25)',
-        lineColor: 'rgba(38,37,30,0.45)',
+        primaryColor: '#e8f0fe',
+        primaryTextColor: '#1a1a1a',
+        primaryBorderColor: 'rgba(91,124,250,0.45)',
+        lineColor: 'rgba(38,37,30,0.60)',
         secondaryColor: '#f7f7f4',
-        tertiaryColor: '#f2f1ed',
-        fontFamily: 'system-ui, -apple-system, "Segoe UI", sans-serif',
-        fontSize: '14px',
+        tertiaryColor: '#ffffff',
+        fontFamily: 'Microsoft YaHei, PingFang SC, Noto Sans SC, Arial, sans-serif',
+        fontSize: '18px',
       },
-      flowchart: { curve: 'basis', htmlLabels: true, padding: 12 },
+      flowchart: { curve: 'linear', htmlLabels: false, padding: 20, nodeSpacing: 72, rankSpacing: 88 },
     } as any)
 
     const id = `mmd-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
     const { svg, bindFunctions } = await mermaid.render(id, code)
-    if (seq !== renderSeq) return // 过期渲染
+    if (seq !== renderSeq) return
     await nextTick()
     if (containerRef.value) {
       containerRef.value.innerHTML = svg
@@ -95,10 +91,7 @@ watch(() => props.code, () => { render() })
       <span class="mermaid-label">{{ title || '图表' }}</span>
     </div>
 
-    <div v-if="rendering" class="mermaid-loading">图表渲染中…</div>
-    <div v-else-if="plantumlUrl" class="plantuml-img">
-      <img :src="plantumlUrl" alt="图表" />
-    </div>
+    <div v-if="rendering" class="mermaid-loading">图表渲染中...</div>
     <div v-else ref="containerRef" class="mermaid-svg" />
   </div>
 </template>
@@ -137,15 +130,6 @@ watch(() => props.code, () => { render() })
   text-align: center;
 }
 .mermaid-svg :deep(svg) {
-  max-width: 100%;
-  height: auto;
-}
-.plantuml-img {
-  padding: 12px;
-  overflow-x: auto;
-  text-align: center;
-}
-.plantuml-img img {
   max-width: 100%;
   height: auto;
 }

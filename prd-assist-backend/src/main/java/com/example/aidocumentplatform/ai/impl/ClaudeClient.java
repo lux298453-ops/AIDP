@@ -8,6 +8,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
 import reactor.util.retry.Retry;
 
 import java.time.Duration;
@@ -16,13 +17,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-/**
- * Claude API 客户端 —— 通过 WebClient 调用 Anthropic Messages API。
- *
- * API 文档: https://docs.anthropic.com/en/api/messages
- * 当 profile 不含 "deepseek" 时激活（默认）。
- * 支持 generateWithImage 多模态（风格参考图）。
- */
 @Slf4j
 @Component
 @Profile("!deepseek & !openai")
@@ -63,7 +57,6 @@ public class ClaudeClient implements AiClient {
         }
         String mediaType = normalizeMime(imageMime);
 
-        // Anthropic Messages：content 为多模态数组
         List<Map<String, Object>> content = new ArrayList<>();
         Map<String, Object> imageBlock = new LinkedHashMap<>();
         imageBlock.put("type", "image");
@@ -81,12 +74,12 @@ public class ClaudeClient implements AiClient {
         body.put("system", systemPrompt);
         body.put("messages", List.of(Map.of("role", "user", "content", content)));
 
-        log.info("Claude 多模态调用: model={}, imageMime={}, b64Len={}", model, mediaType, imageBase64.length());
+        log.info("Claude multimodal request: model={}, imageMime={}, b64Len={}", model, mediaType, imageBase64.length());
         return call(body, userPrompt.length(), true);
     }
 
     private String call(Map<String, Object> body, int promptLen, boolean withImage) {
-        log.info("Claude API 调用: model={}, promptLen={}, withImage={}", model, promptLen, withImage);
+        log.info("Claude API call: model={}, promptLen={}, withImage={}", model, promptLen, withImage);
         try {
             String response = webClient.post()
                     .uri(apiUrl)
@@ -95,17 +88,53 @@ public class ClaudeClient implements AiClient {
                     .bodyValue(body)
                     .retrieve()
                     .bodyToMono(String.class)
-                    .retryWhen(Retry.backoff(2, Duration.ofSeconds(2))
-                            .maxBackoff(Duration.ofSeconds(10)))
+                    .retryWhen(retrySpec())
                     .block();
 
             String text = extractContent(response);
-            log.info("Claude API 成功: model={}, textLen={}", model, text.length());
+            log.info("Claude API success: model={}, textLen={}", model, text.length());
             return text;
         } catch (Exception e) {
-            log.error("Claude API 失败: {}", e.getMessage());
+            log.error("Claude API failed: {}", e.getMessage());
             throw new RuntimeException("Claude API 调用失败: " + e.getMessage(), e);
         }
+    }
+
+    private Retry retrySpec() {
+        return Retry.backoff(2, Duration.ofSeconds(2))
+                .maxBackoff(Duration.ofSeconds(10))
+                .filter(ClaudeClient::isRetryableException)
+                .onRetryExhaustedThrow((spec, signal) -> signal.failure());
+    }
+
+    private static boolean isRetryableException(Throwable throwable) {
+        if (throwable instanceof WebClientResponseException responseException) {
+            return responseException.getStatusCode().is5xxServerError()
+                    || responseException.getStatusCode().value() == 408
+                    || responseException.getStatusCode().value() == 429;
+        }
+        return hasTransportFailureMarker(throwable);
+    }
+
+    private static boolean hasTransportFailureMarker(Throwable throwable) {
+        Throwable cursor = throwable;
+        while (cursor != null) {
+            String className = cursor.getClass().getName().toLowerCase();
+            String message = cursor.getMessage() == null ? "" : cursor.getMessage().toLowerCase();
+            if (className.contains("prematureclose")
+                    || className.contains("closedchannel")
+                    || className.contains("ssl")
+                    || className.contains("timeout")
+                    || message.contains("prematurely closed")
+                    || message.contains("connection reset")
+                    || message.contains("closed before response")
+                    || message.contains("timed out")
+                    || message.contains("ssl")) {
+                return true;
+            }
+            cursor = cursor.getCause();
+        }
+        return false;
     }
 
     private static String normalizeMime(String mime) {
@@ -125,7 +154,7 @@ public class ClaudeClient implements AiClient {
             JsonNode root = objectMapper.readTree(responseJson);
             return root.path("content").get(0).path("text").asText();
         } catch (Exception e) {
-            log.warn("Claude 响应解析失败，返回原始文本: {}", e.getMessage());
+            log.warn("Claude response parse failed, returning raw text: {}", e.getMessage());
             return responseJson;
         }
     }

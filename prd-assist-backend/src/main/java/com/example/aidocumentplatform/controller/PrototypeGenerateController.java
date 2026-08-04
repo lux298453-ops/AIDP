@@ -114,18 +114,18 @@ public class PrototypeGenerateController {
     }
 
     private PrototypeType parsePrototypeType(String value) {
-        try {
-            return PrototypeType.valueOf(value);
-        } catch (Exception e) {
-            return PrototypeType.SINGLE_PAGE;
-        }
+        return parseEnum(PrototypeType.class, value, "prototypeType");
     }
 
     private Platform parsePlatform(String value) {
+        return parseEnum(Platform.class, value, "platform");
+    }
+
+    private <E extends Enum<E>> E parseEnum(Class<E> enumClass, String value, String fieldName) {
         try {
-            return Platform.valueOf(value);
+            return Enum.valueOf(enumClass, value.trim().toUpperCase(java.util.Locale.ROOT));
         } catch (Exception e) {
-            return Platform.APP;
+            throw new IllegalArgumentException("参数 " + fieldName + " 无效: " + value);
         }
     }
 
