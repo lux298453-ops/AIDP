@@ -111,36 +111,68 @@ async function handleRegister() {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #f2f1ed;
+  background: linear-gradient(135deg, #f2f1ed 0%, #d6d0c4 50%, #f2f1ed 100%);
+  position: relative;
+  overflow: hidden;
+}
+.auth-container::before {
+  content: '';
+  position: absolute;
+  width: 800px;
+  height: 800px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(245,78,0,0.12) 0%, rgba(245,78,0,0.04) 40%, transparent 70%);
+  top: -300px;
+  right: -250px;
+  pointer-events: none;
+}
+.auth-container::after {
+  content: '';
+  position: absolute;
+  width: 700px;
+  height: 700px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(207,45,86,0.1) 0%, rgba(207,45,86,0.03) 40%, transparent 70%);
+  bottom: -300px;
+  left: -250px;
+  pointer-events: none;
 }
 .auth-card {
   width: 420px;
   max-width: calc(100vw - 48px);
-  padding: 44px 42px 36px;
-  background: #fff;
-  border-radius: 10px;
-  box-shadow: rgba(0, 0, 0, 0.14) 0px 28px 70px, rgba(0, 0, 0, 0.1) 0px 14px 32px, rgba(38, 37, 30, 0.1) 0px 0px 0px 1px;
+  padding: 48px 42px 40px;
+  background: rgba(255,255,255,0.92);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-radius: 20px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.06), 0 8px 32px rgba(0,0,0,0.08);
+  position: relative;
+  z-index: 1;
+  border: 1px solid rgba(255,255,255,0.6);
 }
 .auth-form {
-  margin-top: 26px;
+  margin-top: 28px;
 }
 .auth-actions {
-  margin-top: 22px;
+  margin-top: 24px;
   margin-bottom: 10px;
 }
 :deep(.auth-actions .el-form-item__content) {
   justify-content: center;
 }
 .auth-submit {
-  width: 180px;
-  min-width: 180px;
+  width: 100%;
+  height: 48px;
+  border-radius: 20px;
+  font-size: 16px;
+  font-weight: 500;
 }
 .auth-card h2 {
   text-align: center;
   margin-bottom: 4px;
   color: #26251e;
   font-size: 26px;
-  font-weight: 400;
+  font-weight: 500;
   letter-spacing: -0.325px;
 }
 .subtitle {

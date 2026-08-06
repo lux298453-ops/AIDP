@@ -57,7 +57,7 @@ public class TaskController {
         return ApiResponse.success(task);
     }
 
-    @GetMapping(value = "/{id}/progress", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    @GetMapping(value = "/{id}/progress", produces = "text/event-stream;charset=UTF-8")
     public SseEmitter streamProgress(@PathVariable Long id) {
         Long userId = getCurrentUserId();
         return taskService.subscribeTaskProgress(id, userId);

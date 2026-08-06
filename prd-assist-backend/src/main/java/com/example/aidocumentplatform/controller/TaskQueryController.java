@@ -32,7 +32,7 @@ public class TaskQueryController {
     }
 
     /** SSE 实时推送任务进度 */
-    @GetMapping(value = "/{taskId}/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    @GetMapping(value = "/{taskId}/stream", produces = "text/event-stream;charset=UTF-8")
     public SseEmitter stream(@PathVariable Long taskId) {
         Long userId = getCurrentUserId();
         return taskService.subscribeTaskProgress(taskId, userId);

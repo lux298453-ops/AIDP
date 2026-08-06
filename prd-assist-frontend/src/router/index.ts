@@ -73,12 +73,12 @@ const router = createRouter({
           component: () => import('@/views/PrototypeView.vue'),
           meta: { title: '原型预览' },
         },
-        {
-          path: 'settings/ai',
-          name: 'AiSettings',
-          component: () => import('@/views/settings/AiSettingsView.vue'),
-          meta: { title: '模型设置' },
-        },
+        // {
+        //   path: 'settings/ai',
+        //   name: 'AiSettings',
+        //   component: () => import('@/views/settings/AiSettingsView.vue'),
+        //   meta: { title: '模型设置' },
+        // },
       ],
     },
   ],

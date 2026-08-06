@@ -57,7 +57,7 @@ public class PrdGenerateServiceImpl implements PrdGenerateService {
 
         try {
             asyncTaskLifecycleService.markRunning(taskId);
-            taskService.pushProgress(taskId, 10, "AI 姝ｅ湪鐢熸垚 PRD...");
+            taskService.pushProgress(taskId, 10, "AI 正在生成 PRD...");
 
             String systemPrompt = promptTemplate.getSystemPrompt();
             String userPrompt = promptTemplate.buildUserPrompt(
@@ -94,12 +94,12 @@ public class PrdGenerateServiceImpl implements PrdGenerateService {
                     .build();
             doc = asyncTaskLifecycleService.savePrdDocumentAndMarkSuccess(taskId, doc);
 
-            taskService.pushProgress(taskId, 100, "PRD 鐢熸垚瀹屾垚");
+            taskService.pushProgress(taskId, 100, "PRD 生成完成");
             log.info("PRD generation finished: taskId={}, documentId={}", taskId, doc.getId());
         } catch (Exception e) {
             log.error("PRD generation failed: taskId={}", taskId, e);
             asyncTaskLifecycleService.markFailed(taskId, truncate(e.getMessage(), 500));
-            taskService.pushProgress(taskId, 0, "鐢熸垚澶辫触: " + e.getMessage());
+            taskService.pushProgress(taskId, 0, "生成失败: " + e.getMessage());
         }
     }
 

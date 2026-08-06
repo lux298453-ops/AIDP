@@ -67,17 +67,6 @@ function handleLogout() {
 
     <!-- 右侧用户区 -->
     <div class="header-right">
-      <el-tooltip content="模型设置" placement="bottom">
-        <button
-          class="icon-button"
-          :class="{ active: route.path.startsWith('/settings/ai') }"
-          type="button"
-          aria-label="模型设置"
-          @click="goSettings"
-        >
-          <el-icon size="17"><Setting /></el-icon>
-        </button>
-      </el-tooltip>
       <span class="username">{{ user.nickname || user.username }}</span>
       <span class="logout-link" @click="handleLogout">退出</span>
     </div>
