@@ -1,0 +1,341 @@
+# ui-design-aitool-plus
+
+**One Person, One Design Company -- The God-Tier Skill That Gives You an Entire Design Department**
+
+[![Version](https://img.shields.io/badge/version-2.0.0-blue.svg)](https://github.com/aitool-plus/ui-design-aitool-plus)
+[![Author](https://img.shields.io/badge/author-aitool.plus-orange.svg)](https://aitool.plus)
+[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![中文文档](https://img.shields.io/badge/README-%E4%B8%AD%E6%96%87-red.svg)](README.md)
+
+---
+
+> What if a single person could output UI designs that rival an entire design department? What if one command could generate pixel-perfect interfaces matching not just any major platform's design language, but also the visual DNA of 100 world-class tech companies? What if switching between Apple, Google, Stripe, Vercel, Tesla -- or any of 100 top brands -- took seconds instead of weeks?
+>
+> This is that skill.
+>
+> **Why you need this Skill instead of asking AI to "just design something":**
+>
+> Common pitfalls of letting AI design products directly:
+> - **Style Frankenstein**: iOS rounded cards mixed with Material Design FABs, HarmonyOS service cards paired with Windows acrylic -- a Frankenstein "design" that fits nowhere
+> - **Made-up parameters**: 16px or 8px corner radius? 16dp or 24dp spacing? AI "guesses" values that deviate massively from official specs, making them impossible for developers to implement
+> - **Platform ignorance**: Unaware of iOS's 4pt grid, Material Design's 8dp baseline, or HarmonyOS's 8vp grid -- designs that feel alien on their target platforms
+> - **Missing component states**: Only default states rendered, ignoring hover/pressed/disabled/loading/error states -- front-end developers receive unusable mockups
+> - **Accessibility blind spots**: Insufficient contrast ratios, undersized touch targets, missing accessibility labels -- leading to post-launch user complaints
+> - **Exploding multi-platform costs**: Same requirement redesigned repeatedly for different platforms with inconsistent styles, doubling maintenance overhead
+>
+> **How this Skill solves these problems:**
+> - **Official specs & brand DNA, deeply encoded**: Complete internalization of 11 platform design specifications + 100 top tech company brand design languages -- colors, type scales, radii, spacing, motion curves sourced directly from Apple HIG, Material Design 3, and other authoritative documents. No "close enough"
+> - **Strict style locking**: Choose iOS and you will never see a Material Design element. 100% style purity guaranteed
+> - **Complete component coverage**: 5 interaction states × 2 themes × 3 sizes per platform. Production-ready out of the box
+> - **Automatic accessibility compliance**: WCAG 2.1 AA standards built-in -- contrast ratios, touch targets, and labels handled automatically
+> - **One-click platform & brand switching**: Same requirement rendered in 11 platform styles or 100 brand styles in seconds, with side-by-side comparison for informed decisions. Development costs don't multiply
+>
+> ui-design-aitool-plus is not a template library. It is not a component kit. It is a **cognitive design system** -- 11 platform design specifications plus 100 top tech company brand design languages, deeply encoded and ready to execute. You describe what you want; it delivers factory-grade UI with surgical precision. No guessing. No approximations. No "close enough."
+>
+> One person. Eleven platforms. One hundred brands. Zero compromises.
+
+---
+
+## Core Highlights
+
+### Why This Skill Is Called "God-Tier"
+
+1. **11 Platform Design Systems, Fully Covered** -- From Apple iOS to WeChat Mini Program, every major mobile OS plus Windows desktop. Nine mobile operating systems, one desktop system, one mini-program framework. The most comprehensive multi-platform UI skill in existence.
+
+2. **Factory-Grade 1:1 Restoration** -- Every parameter comes from official design specifications, not guesswork. Color values, font scales, corner radii, spacing grids, motion curves -- all sourced from Apple HIG, Material Design 3, One UI Design, HarmonyOS Design, and each manufacturer's official design documentation. What you see is what the platform ships.
+
+3. **One-Command Style Switching** -- The same product requirement can be instantly re-rendered in a completely different platform style. iOS today, HarmonyOS tomorrow, Material Design the day after. No re-analysis. No starting over. Switch and deliver.
+
+4. **Mobile + Desktop + Mini Program, All Domains** -- Phones, foldables, tablets, desktops, mini programs. Three device categories, one unified workflow. Every design adapts across breakpoints automatically.
+
+5. **Complete Component Library** -- Every component ships with 5 interaction states (default, hover/pressed, disabled, loading, error), 2 theme variants (light/dark), and 3 size variants per platform specification. Not a sketch. A production-ready system.
+
+6. **High-Fidelity HTML Demos** -- Every platform style has a runnable, interactive HTML demo with dual-theme switching and responsive breakpoints. Not screenshots. Not mockups. Working prototypes.
+
+7. **Cross-Platform Comparison Mode** -- Select 2-3 platforms and instantly generate a side-by-side comparison of the same requirement across different design systems. Color systems, typography scales, spacing grids, interaction paradigms -- all laid out for informed decision-making.
+
+8. **Zero Design Background Required** -- No design degree needed. No Figma skills needed. Describe what you want in plain language, and get professional-grade UI output. The skill encodes decades of platform design expertise into every response.
+
+9. **100 Global Tech Brand Design Languages** -- From Apple, Google, and OpenAI to ByteDance, Tencent, and Alibaba; from Stripe and Vercel to Tesla and Spotify. 100 world-class tech companies' design languages deeply encoded. Not limited to OS specs -- directly target the visual DNA of top products. One click to select a brand style, output high-fidelity UI matching that brand's design language.
+
+10. **Multi-Platform Design Tool Export** -- Not just HTML prototypes. Export directly to Figma, MasterGo, JsDesign, MockingBot, Lanhu, Pixso, and more. Generate design platform plugin scripts with one click, import directly into your team's collaboration tools, and deliver designs seamlessly.
+
+---
+
+## Supported Platforms
+
+| Platform | Design System | Core Characteristics | Best For |
+|:---|:---|:---|:---|
+| Apple iOS | Human Interface Guidelines | SF typeface, large titles, blur materials, 4pt grid, rounded cards | Premium consumer apps, global market |
+| Google Android | Material Design 3 | Material You dynamic color, responsive grid, 8dp baseline, elevation system | International apps, cross-device experiences |
+| Samsung One UI | One UI Design Language | Large rounded corners, one-handed zone, gaussian blur, foldable optimization | Global market, foldable devices, enterprise |
+| Huawei HarmonyOS | HarmonyOS Design | Service cards, elastic dynamics, distributed layout, 8vp grid | HarmonyOS ecosystem, government, enterprise |
+| Xiaomi HyperOS | HyperOS Design System | Youthful palette, high-density info cards, ecosystem interconnection | Xiaomi ecosystem users, utility apps, lifestyle |
+| Honor MagicOS | MagicOS Design Specification | Professional texture, balanced restraint, efficient interaction | Business, enterprise services, productivity |
+| OPPO ColorOS | ColorOS Design System | Vibrant energy, borderless design, smart components, ripple effects | Young users, social, content consumption |
+| vivo OriginOS | OriginOS Design Language | Huarong grid layout, atomic components, 3D depth, personalization | Personalization-focused, creative, niche apps |
+| Meizu Flyme | Flyme Design Specification | Minimalist restraint, generous whitespace, elegant refinement, 8px grid | Refined tools, artistic, niche verticals |
+| Windows 11 | Fluent Design System | Acrylic materials, depth & layering, Mica, WinUI 3 components | Desktop applications, enterprise software |
+| WeChat Mini Program | WeUI | WeChat-native components, standardized interaction, mini-program constraints | WeChat ecosystem, lightweight services |
+
+---
+
+## Supported Brand Styles (100 Companies)
+
+Beyond 11 platform design specifications, this Skill also supports 100 global tech company brand design styles. Users can choose to design by platform type OR by brand style -- and even combine both with platform+brand hybrid mode.
+
+| Category | Representative Brands | Core Style Characteristics | Best For |
+|:---|:---|:---|:---|
+| Chinese Internet Giants | Tencent, Alibaba, ByteDance, Huawei, Xiaomi, JD, Meituan, DiDi, NetEase, Bilibili, Douyin, WeChat, Alipay, Taobao, Pinduoduo | Social oasis, business orange, algorithm rainbow, all-scenario red, surging orange, quality red | Chinese market apps, social, e-commerce, local services |
+| Chinese AI & Tech Innovators | Baidu, DeepSeek, Kimi, Zhipu, Qwen, Doubao, Yuanbao, Tiangong, SenseTime, iFlytek, MiniMax | Deep blue-purple, long-context blue, academic blue-green, Tongyi purple, vibrant orange, visual purple | AI products, LLM apps, intelligent assistants |
+| Chinese E-commerce & Local Life | Temu, SHEIN, Vipshop, Ele.me, Dianping, Xiaohongshu, Dewu, Fliggy, Ctrip | Global orange-red, fashion black, planting red, trend black-green, travel orange-yellow | E-commerce, local services, consumer decisions |
+| Chinese Fintech & Payments | Ant Group, WeBank, CITIC, Ping An, UnionPay, JD Finance, CMB | Inclusive blue, steady blue-green, finance blue, micro-bank blue, CITIC red, Ping An orange | Finance apps, payment tools, wealth management |
+| Chinese SaaS & Enterprise | Feishu, DingTalk, Yuque, WPS, Kingdee, Huawei Cloud, Alibaba Cloud | Collaboration purple, efficiency blue, knowledge green, office blue, management blue, cloud red | Enterprise collaboration, SaaS, cloud services |
+| Chinese Media & Content | Weibo, Zhihu, Kuaishou, Toutiao, iQIYI, NetEase Music, CSDN | Hot-search red, knowledge blue, embrace orange, info red, entertainment green, music red | Content platforms, social squares, tech communities |
+| Chinese Mobility & Automotive | NIO, BYD, XPeng, Li Auto, Geely, Baidu Apollo, Amap | User blue, new-energy red, smart-driving blue, family green, vision blue, auto-driving blue | Automotive websites, mobility apps, EV |
+| Global Tech & Brands | Apple, Google, Microsoft, OpenAI, Stripe, Vercel, GitHub, Spotify, Netflix, Tesla, Figma, Notion | Minimalist whitespace, dynamic color, fluent acrylic, academic minimal, purple elegance | International products, developer tools, global market |
+
+---
+
+## Quick Start
+
+### 3 Steps to Professional UI
+
+**Step 1: Install the Skill**
+
+Add this skill to your AI coding assistant (Trae, Cursor, Windsurf, etc.) via skill marketplace or manual configuration.
+
+**Step 2: Tell AI What You Want**
+
+Describe your UI requirement and specify the target platform style.
+
+**Step 3: Get Factory-Grade UI**
+
+Receive a complete design system, component specifications, and interactive HTML prototypes matching the official design language.
+
+### Usage Examples
+
+**Example 1:**
+
+```
+"Design an e-commerce app homepage using iOS style"
+```
+
+Output: Complete iOS-style homepage with SF Pro typography, iOS system colors, 4pt grid, native navigation bar, tab bar, product cards, search field, and banner -- all matching Apple HIG specification. Includes light/dark theme and 375dp/768dp responsive breakpoints.
+
+**Example 2:**
+
+```
+"Compare the settings page design between iOS and HarmonyOS"
+```
+
+Output: Two independent design proposals with a cross-platform comparison table covering color systems, typography, spacing grids, corner radii, component styles, interaction paradigms, and motion characteristics -- plus platform selection recommendations.
+
+**Example 3:**
+
+```
+"Design a foldable note-taking app using Samsung One UI style"
+```
+
+Output: Dual-state One UI prototype covering 375dp phone mode and 768dp unfolded mode, with one-handed zone components, split-pane layouts, and foldable adaptation specifications.
+
+**Example 4:**
+
+```
+"Design a beauty recommendation community homepage using Xiaohongshu style"
+```
+
+Output: Beauty community homepage matching Xiaohongshu's brand design language -- signature red #FF2442, waterfall dual-column card layout, recommendation note cards, user avatars and nicknames, like/save interactions. Delivers Xiaohongshu's signature "planting grass" vibe with high visual density, content-driven layout, and young female audience orientation.
+
+**Example 5:**
+
+```
+"Design a payment confirmation page using Stripe style"
+```
+
+Output: Payment confirmation page matching Stripe's design language -- signature purple gradient #635BFF, weight-300 elegant typography, financial data table styling, clear payment info cards. Spacing precise to decimal points, no rounding -- Stripe-level pixel precision.
+
+**Example 6:**
+
+```
+"Design a team collaboration app using iOS platform style + Feishu brand style hybrid"
+```
+
+Output: iOS as platform base (4pt grid, frosted glass navigation, rounded cards) overlaid with Feishu brand style (collaboration purple primary, efficient information architecture, document card components, schedule timeline), with code comments marking each element's source platform/brand.
+
+---
+
+## Workflow
+
+The skill follows a rigorous 8-step workflow to ensure every output meets platform-grade quality:
+
+```
+Step 1              Step 2              Step 3              Step 4
+Requirement  -->  Style        -->  Design System  -->  Component
+Analysis          Confirmation        Generation           Specification
+
+Step 5              Step 6              Step 7              Step 8
+Page          -->  Review &     -->  Final          -->  Demo
+Prototype          Iteration           Delivery             Generation
+```
+
+**Step 1: Requirement Analysis** -- Parse target OS, page type, functional modules, user demographics, and device form factors.
+
+**Step 2: Style Confirmation** -- Present matched OS style summary, confirm single-style or multi-style comparison mode.
+
+**Step 3: Design System Generation** -- Load OS specification, generate complete Design Token system (colors, typography, spacing, radii, shadows, motion).
+
+**Step 4: Component Specification** -- Output component specs with 5 states, 2 themes, 3 sizes per platform requirements.
+
+**Step 5: Page Prototype** -- Assemble design system + components into interactive HTML prototype with dual-theme and responsive breakpoints.
+
+**Step 6: Review & Iteration** -- Check restoration fidelity against official specs across 7 dimensions, output score and iteration suggestions.
+
+**Step 7: Final Delivery** -- Users choose their output format: HTML interactive prototype (default), Figma design file, MasterGo design file, JsDesign file, MockingBot prototype, Lanhu design annotation, Pixso design file, or pure Markdown design specification. Regardless of format, the delivery package always includes design specification document + component library + frontend style reference.
+
+**Step 8: Demo Generation** -- Generate standalone HTML demo for each platform style with dual-theme switching and responsive layout.
+
+---
+
+## Output Formats
+
+This Skill supports 8 output formats. Users can freely choose based on their team's toolchain:
+
+| Output Format | Description | Best For |
+|:---|:---|:---|
+| **HTML Prototype** | Single-file interactive high-fidelity prototype with dual-theme + responsive | Quick preview, dev reference, product demos |
+| **Figma Design** | Figma Plugin API script, importable into Figma | Professional design collaboration, team delivery |
+| **MasterGo Design** | MasterGo plugin script, importable into MasterGo | Chinese design teams, domestic design tools |
+| **JsDesign** | JsDesign plugin script, importable into JsDesign | Chinese design teams, online design tools |
+| **MockingBot** | MockingBot-importable interactive prototype format | Rapid prototyping, PM collaboration |
+| **Lanhu** | Lanhu-importable design annotation format | Design-to-dev handoff, design annotation |
+| **Pixso Design** | Pixso plugin script, importable into Pixso | Chinese design teams, domestic design tools |
+| **Design Specification** | Pure Markdown document (Design Token + Component specs) | Documentation archival, spec handoff, no-tool scenarios |
+
+> HTML prototype is the default output. To export to a specific design platform, simply specify it in your request, e.g.: "Design a homepage using iOS style, output as Figma design file".
+
+---
+
+## Demo Showcase
+
+Each platform style includes an interactive HTML demo located in the `demo/` directory:
+
+| Demo | Preview | Path | Description |
+|:---|:---|:---|:---|
+| Apple iOS | [Preview](https://raw.githack.com/aitool-plus/ui-design-aitool-plus/main/demo/apple-ios/index.html) | `demo/apple-ios/` | iOS-style homepage with SF Pro, blur materials, and iOS navigation patterns |
+| Google Android | [Preview](https://raw.githack.com/aitool-plus/ui-design-aitool-plus/main/demo/google-android/index.html) | `demo/google-android/` | Material Design 3 homepage with dynamic color and elevation system |
+| Samsung One UI | [Preview](https://raw.githack.com/aitool-plus/ui-design-aitool-plus/main/demo/samsung-one-ui/index.html) | `demo/samsung-one-ui/` | One UI homepage with large corners and foldable dual-state layout |
+| Huawei HarmonyOS | [Preview](https://raw.githack.com/aitool-plus/ui-design-aitool-plus/main/demo/huawei-harmonyos/index.html) | `demo/huawei-harmonyos/` | HarmonyOS homepage with service cards and elastic dynamics |
+| Xiaomi HyperOS | [Preview](https://raw.githack.com/aitool-plus/ui-design-aitool-plus/main/demo/xiaomi-hyperos/index.html) | `demo/xiaomi-hyperos/` | HyperOS homepage with youthful palette and high-density info cards |
+| Honor MagicOS | [Preview](https://raw.githack.com/aitool-plus/ui-design-aitool-plus/main/demo/honor-magicos/index.html) | `demo/honor-magicos/` | MagicOS homepage with professional texture and balanced layout |
+| OPPO ColorOS | [Preview](https://raw.githack.com/aitool-plus/ui-design-aitool-plus/main/demo/oppo-coloros/index.html) | `demo/oppo-coloros/` | ColorOS homepage with vibrant energy and borderless design |
+| vivo OriginOS | [Preview](https://raw.githack.com/aitool-plus/ui-design-aitool-plus/main/demo/vivo-originos/index.html) | `demo/vivo-originos/` | OriginOS homepage with Huarong grid and atomic components |
+| Meizu Flyme | [Preview](https://raw.githack.com/aitool-plus/ui-design-aitool-plus/main/demo/meizu-flyme/index.html) | `demo/meizu-flyme/` | Flyme homepage with minimalist restraint and generous whitespace |
+| Windows Fluent | [Preview](https://raw.githack.com/aitool-plus/ui-design-aitool-plus/main/demo/windows-fluent/index.html) | `demo/windows-fluent/` | Windows 11 desktop app with Fluent Design and WinUI 3 components |
+| WeChat Mini Program | [Preview](https://raw.githack.com/aitool-plus/ui-design-aitool-plus/main/demo/wechat-miniprogram/index.html) | `demo/wechat-miniprogram/` | WeChat mini program with WeUI components and standardized interaction |
+
+---
+
+## Directory Structure
+
+```
+ui-design-aitool-plus/
+├── SKILL.md                    # Skill master control file
+├── README.md                   # Project documentation (Chinese)
+├── README.en.md                # Project documentation (English)
+├── references/
+│   ├── styles/                 # 11 platform design specifications
+│   │   ├── apple-ios.md
+│   │   ├── google-android.md
+│   │   ├── samsung-one-ui.md
+│   │   ├── huawei-harmonyos.md
+│   │   ├── xiaomi-hyperos.md
+│   │   ├── honor-magicos.md
+│   │   ├── oppo-coloros.md
+│   │   ├── vivo-originos.md
+│   │   ├── meizu-flyme.md
+│   │   ├── windows-fluent.md
+│   │   └── wechat-miniprogram.md
+│   ├── brands/                 # 100 company brand style registry
+│   │   └── registry.md         # Brand slug + names + style description + primary color + fetch method
+│   ├── components/             # Universal component specifications
+│   │   ├── navigation.md       # Navigation components
+│   │   ├── input-controls.md   # Buttons, inputs, switches, sliders
+│   │   ├── data-display.md     # Lists, cards, chips, tables, avatars
+│   │   ├── feedback.md         # Dialogs, toast, progress, empty state
+│   │   └── media.md            # Images, icons, illustrations, banners
+│   ├── workflow/               # Workflow & confirmation templates
+│   │   ├── analysis-framework.md
+│   │   ├── confirmation.md
+│   │   ├── output-template.md
+│   │   └── iteration-guide.md
+│   ├── design-tokens/          # Design token architecture
+│   │   ├── token-architecture.md
+│   │   ├── color-system.md
+│   │   ├── typography-system.md
+│   │   └── spacing-layout.md
+│   └── config/                 # Configuration & preferences
+│       ├── preferences-schema.md
+│       └── first-time-setup.md
+├── demo/                       # Interactive HTML demos per style
+│   ├── apple-ios/
+│   ├── google-android/
+│   ├── samsung-one-ui/
+│   ├── huawei-harmonyos/
+│   ├── xiaomi-hyperos/
+│   ├── honor-magicos/
+│   ├── oppo-coloros/
+│   ├── vivo-originos/
+│   ├── meizu-flyme/
+│   ├── windows-fluent/
+│   └── wechat-miniprogram/
+└── memory/                     # Work logs
+```
+
+---
+
+## Who Is This For
+
+- **UI/UX Designers** -- Stop manually checking official specs for every parameter. Output platform-accurate designs in minutes, not hours.
+- **Product Managers** -- Generate high-fidelity prototypes for requirement reviews, user research, and stakeholder presentations without waiting for design team bandwidth.
+- **Frontend Developers** -- Get pixel-accurate style references and CSS variables that match platform conventions, improving implementation fidelity and development speed.
+- **Solo Developers & Entrepreneurs** -- Zero design background? No problem. Describe your app, get professional-grade UI that looks like a dedicated design team built it.
+- **Design Team Leads** -- Standardize your team's output across platforms. Ensure consistency and platform compliance at scale.
+
+---
+
+## License
+
+This project is licensed under the [MIT License](LICENSE).
+
+---
+
+## Acknowledgments & References
+
+This skill is built upon the official design specifications and documentation from the following organizations. All design parameters are sourced from these authoritative references:
+
+- [Apple Human Interface Guidelines](https://developer.apple.com/design/human-interface-guidelines/)
+- [Google Material Design 3](https://m3.material.io/)
+- [Samsung One UI Design](https://design.samsung.com/)
+- [HarmonyOS Design](https://developer.huawei.com/consumer/cn/design/)
+- [Xiaomi HyperOS Design](https://hyperos.mi.com/)
+- [Honor MagicOS Design](https://www.honor.com/)
+- [OPPO ColorOS Design](https://design.oppo.com/)
+- [vivo OriginOS Design](https://www.vivo.com.cn/originos/)
+- [Meizu Flyme Design](https://www.flyme.com/)
+- [Microsoft Fluent Design System](https://fluent2.microsoft.design/)
+- [WeChat WeUI](https://weui.io/)
+
+Special thanks to the open-source community and all contributors who make design knowledge accessible.
+
+### Brand Design Style References
+
+100 brand style data sourced from:
+- [awesome-design-md](https://github.com/VoltAgent/awesome-design-md) -- 73 brand DESIGN.md design system documents
+- [brand-design-md](https://github.com/zephyrwang6/brand-design-md) -- Brand design specification fetch tool
+- [Google Stitch DESIGN.md](https://stitch.withgoogle.com/docs/design-md/specification/) -- DESIGN.md format specification
+- Each brand's official design system and brand guidelines
+
+---
+
+> *One person. Eleven platforms. One hundred brands. Factory-grade UI. No compromises.*

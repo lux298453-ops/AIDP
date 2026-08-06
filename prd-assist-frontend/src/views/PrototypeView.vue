@@ -29,6 +29,17 @@ const platforms = [
   { key: 'PAD', label: 'Pad', icon: Platform },
 ]
 
+// 页面形态：控制 AI 生成的骨架结构（弹窗/组件特写等不生成页面外壳）
+const pageMorphology = ref('FULL_PAGE')
+const morphologies = [
+  { key: 'FULL_PAGE', label: '完整页面', desc: '含导航栏/标签栏/页面外壳' },
+  { key: 'MODAL_POPUP', label: '弹窗浮层', desc: '仅弹窗组件，居中展示' },
+  { key: 'LIST_FEED', label: '列表信息流', desc: '列表/卡片流为主' },
+  { key: 'FORM_FLOW', label: '表单流程', desc: '表单输入为主' },
+  { key: 'COMPONENT_ONLY', label: '组件特写', desc: '只生成单个组件' },
+  { key: 'AUTO', label: '自由模式', desc: 'AI 根据描述自行判断' },
+]
+
 // ==================== 风格参考图 ====================
 const imageInput = ref<HTMLInputElement | null>(null)
 const referenceImage = ref<File | null>(null)
@@ -190,6 +201,7 @@ async function handleGenerate() {
       fd.append('description', description.value)
       fd.append('prototypeType', prototypeType)
       fd.append('platform', platform.value)
+      fd.append('pageMorphology', pageMorphology.value)
       fd.append('referenceImage', referenceImage.value)
       res = await client.post('/prototype/generate', fd, {
         headers: { 'Content-Type': 'multipart/form-data' },
@@ -201,6 +213,7 @@ async function handleGenerate() {
         description: description.value,
         prototypeType,
         platform: platform.value,
+        pageMorphology: pageMorphology.value,
       })
     }
     taskId = res.data.data.taskId
@@ -438,6 +451,22 @@ watch(
         </div>
 
         <div class="form-group">
+          <label class="form-label">页面形态</label>
+          <div class="morphology-grid">
+            <div
+              v-for="m in morphologies"
+              :key="m.key"
+              class="morphology-card"
+              :class="{ active: pageMorphology === m.key }"
+              @click="pageMorphology = m.key"
+            >
+              <span class="morphology-label">{{ m.label }}</span>
+              <span class="morphology-desc">{{ m.desc }}</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="form-group">
           <label class="form-label">功能描述 <span class="required">*</span></label>
           <el-input
             v-model="description"
@@ -598,6 +627,25 @@ watch(
 .platform-card { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 18px 8px; border: 1.5px solid rgba(38, 37, 30, 0.1); border-radius: 8px; cursor: pointer; background: #f7f7f4; color: rgba(38, 37, 30, 0.55); font-size: 13px; transition: all .15s; }
 .platform-card:hover { border-color: #f54e00; color: #f54e00; }
 .platform-card.active { border-color: #26251e; background: rgba(38, 37, 30, 0.05); color: #26251e; }
+
+.morphology-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.morphology-card {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 10px 10px;
+  border: 1.5px solid rgba(38, 37, 30, 0.1);
+  border-radius: 8px;
+  cursor: pointer;
+  background: #f7f7f4;
+  color: rgba(38, 37, 30, 0.55);
+  transition: all .15s;
+  user-select: none;
+}
+.morphology-card:hover { border-color: #f54e00; color: #f54e00; }
+.morphology-card.active { border-color: #26251e; background: rgba(38, 37, 30, 0.05); color: #26251e; }
+.morphology-label { font-size: 13px; font-weight: 500; line-height: 1.3; }
+.morphology-desc { font-size: 11px; line-height: 1.4; opacity: 0.75; }
 
 /* 上传区 —— 与 PRD 生成页一致 */
 .upload-zone {

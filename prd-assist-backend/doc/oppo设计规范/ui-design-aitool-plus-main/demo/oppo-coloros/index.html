@@ -1,0 +1,529 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ColorOS Demo - ui-design-aitool-plus</title>
+  <style>
+    :root {
+      --c-primary: #1BA784;
+      --c-primary-light: #2DD4A8;
+      --c-secondary: #FF6B6B;
+      --c-success: #00C853;
+      --c-danger: #FF1744;
+      --c-bg: #F5F7FA;
+      --c-surface: #FFFFFF;
+      --c-text: #000000;
+      --c-text2: #999999;
+      --c-border: #E8E8E8;
+      --font: 'OPPO Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      --r-sm: 8px;
+      --r-md: 16px;
+      --r-lg: 24px;
+    }
+    [data-theme="dark"] {
+      --c-bg: #0A0A0A;
+      --c-surface: #1A1A1A;
+      --c-text: #FFFFFF;
+      --c-text2: #999999;
+      --c-border: #2A2A2A;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: var(--font); background: var(--c-bg); color: var(--c-text); min-height: 100vh; padding-bottom: 76px; }
+    
+    
+    /* 导航栏 */
+    .navbar { background: var(--c-surface); box-shadow: 0 1px 3px rgba(0,0,0,0.06); height: 56px; display: flex; align-items: center; padding: 0 16px; position: sticky; top: 0; z-index: 100;  }
+    .navbar-back { display: flex; align-items: center; color: var(--c-primary); font-size: 16px; cursor: pointer; gap: 4px; }
+    .navbar-back svg { width: 20px; height: 20px; }
+    .navbar-title { font-size: 18px; font-weight: 600; flex: 1; text-align: center; }
+    .navbar-actions { display: flex; gap: 12px; color: var(--c-primary); cursor: pointer; }
+    .navbar-actions svg { width: 22px; height: 22px; }
+    
+    /* 搜索栏 */
+    .search-bar { margin: 8px 16px 16px; position: relative; }
+    .search-bar input { width: 100%; height: 40px; border-radius: 16px; border: none; background: var(--c-surface); color: var(--c-text); font-size: 14px; font-family: var(--font); padding: 0 36px 0 36px; outline: none; box-shadow: 0 1px 3px rgba(0,0,0,0.06); transition: box-shadow 0.2s; }
+    .search-bar input:focus { box-shadow: 0 2px 8px rgba(0,0,0,0.12); }
+    .search-bar input::placeholder { color: var(--c-text2); }
+    .search-icon { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: var(--c-text2); }
+    .search-icon svg { width: 16px; height: 16px; }
+    .search-clear { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); width: 18px; height: 18px; border-radius: 50%; background: var(--c-text2); color: #fff; font-size: 10px; display: none; align-items: center; justify-content: center; cursor: pointer; }
+    .search-bar input:not(:placeholder-shown) ~ .search-clear { display: flex; }
+    /* 轮播 */
+    .carousel { margin: 0 16px 16px; border-radius: 16px; overflow: hidden; position: relative; height: 150px; }
+    .carousel-track { display: flex; transition: transform 0.4s cubic-bezier(0.25,0.1,0.25,1); height: 100%; }
+    .carousel-slide { min-width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 18px; font-weight: 600; padding: 24px; }
+    .carousel-slide:nth-child(1) { background: linear-gradient(135deg, #1BA784, #2DD4A8); }
+    .carousel-slide:nth-child(2) { background: linear-gradient(135deg, #FF6B6B, #1BA784); }
+    .carousel-slide:nth-child(3) { background: linear-gradient(135deg, #00C853, #2DD4A8); }
+    .carousel-dots { position: absolute; bottom: 10px; left: 50%; transform: translateX(-50%); display: flex; gap: 6px; }
+    .carousel-dot { width: 6px; height: 6px; border-radius: 50%; background: rgba(255,255,255,0.5); cursor: pointer; transition: all 0.3s; }
+    .carousel-dot.active { background: #fff; width: 18px; border-radius: 3px; }
+    /* 功能网格 */
+    .grid-section { background: var(--c-surface); border-radius: 16px; margin: 0 16px 16px; padding: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.04); }
+    .grid-container { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+    .grid-item { display: flex; flex-direction: column; align-items: center; gap: 6px; cursor: pointer; transition: transform 0.15s; }
+    .grid-item:active { transform: scale(0.9); }
+    .grid-icon { overflow:hidden; width: 48px; height: 48px; border-radius: 16px; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 20px; }
+    .grid-label { font-size: 12px; color: var(--c-text2); text-align: center; }
+    /* 信息卡片 */
+    .card-row { display: flex; gap: 12px; margin: 0 16px 16px; overflow-x: auto; -webkit-overflow-scrolling: touch; padding-bottom: 4px; }
+    .info-card { min-width: 220px; background: var(--c-surface); border-radius: 16px; overflow: hidden; flex-shrink: 0; box-shadow: 0 1px 3px rgba(0,0,0,0.04); }
+    .info-card-img { height: 110px; background: linear-gradient(135deg, #1BA784, #2DD4A8); display: flex; align-items: center; justify-content: center; color: #fff; font-size: 16px; font-weight: 500; }
+    .info-card-body { padding: 12px; }
+    .info-card-title { font-size: 14px; font-weight: 600; margin-bottom: 4px; }
+    .info-card-desc { font-size: 12px; color: var(--c-text2); line-height: 1.4; margin-bottom: 8px; }
+    .info-card-tags { display: flex; gap: 4px; margin-bottom: 6px; }
+    .info-card-tag { font-size: 10px; padding: 2px 6px; border-radius: 4px; background: rgba(0,0,0,0.06); color: var(--c-primary); }
+    .info-card-time { font-size: 10px; color: var(--c-text2); }
+    /* 列表 */
+    .section-label { font-size: 12px; color: var(--c-text2); padding: 8px 16px; text-transform: uppercase; letter-spacing: 0.5px; }
+    .list { background: var(--c-surface); border-radius: 16px; margin: 0 16px 16px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.04); }
+    .list-item { display: flex; align-items: center; padding: 14px 16px; border-bottom: 1px solid var(--c-border); cursor: pointer; transition: background 0.15s; min-height: 48px; }
+    .list-item:last-child { border-bottom: none; }
+    .list-item:active { background: rgba(0,0,0,0.04); }
+    .list-item-icon { width: 36px; height: 36px; border-radius: 8px; display: flex; align-items: center; justify-content: center; margin-right: 12px; color: #fff; font-size: 16px; flex-shrink: 0; }
+    .list-item-content { flex: 1; }
+    .list-item-title { font-size: 15px; font-weight: 500; }
+    .list-item-subtitle { font-size: 12px; color: var(--c-text2); margin-top: 2px; }
+    .list-item-arrow { color: var(--c-text2); font-size: 16px; margin-left: 8px; }
+    /* 按钮 */
+    .btn-section { margin: 0 16px 16px; }
+    .btn-row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+    .btn { padding: 10px 20px; border-radius: 16px; border: none; font-size: 14px; font-weight: 500; cursor: pointer; font-family: var(--font); transition: opacity 0.15s, transform 0.1s; }
+    .btn:active { opacity: 0.7; transform: scale(0.97); }
+    .btn-primary { background: linear-gradient(135deg, var(--c-primary), var(--c-primary-light)); color: #fff; }
+    .btn-secondary { background: var(--c-surface); color: var(--c-primary); border: 1px solid var(--c-border); }
+    .btn-text { background: none; color: var(--c-primary); padding: 10px 12px; }
+    .btn-danger { background: var(--c-danger); color: #fff; }
+    .btn-disabled { background: rgba(0,0,0,0.08); color: rgba(0,0,0,0.3); cursor: not-allowed; }
+    /* 输入框 */
+    .input-section { background: var(--c-surface); border-radius: 16px; margin: 0 16px 16px; padding: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.04); }
+    .input-group { margin-bottom: 12px; }
+    .input-group:last-child { margin-bottom: 0; }
+    .input-label { font-size: 12px; color: var(--c-text2); margin-bottom: 4px; }
+    .input { width: 100%; height: 40px; border-radius: 8px; border: 1px solid var(--c-border); background: var(--c-bg); color: var(--c-text); font-size: 14px; font-family: var(--font); padding: 0 12px; outline: none; transition: border-color 0.2s; }
+    .input:focus { border-color: var(--c-primary); }
+    .input::placeholder { color: var(--c-text2); }
+    .input-icon-wrap { position: relative; }
+    .input-icon-wrap .input { padding-left: 36px; }
+    .input-icon { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--c-text2); }
+    .input-icon svg { width: 16px; height: 16px; }
+    /* 开关 */
+    .switch-section { background: var(--c-surface); border-radius: 16px; margin: 0 16px 16px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.04); }
+    .switch-item { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px; border-bottom: 1px solid var(--c-border); }
+    .switch-item:last-child { border-bottom: none; }
+    .switch-label { font-size: 15px; }
+    .toggle { width: 51px; height: 31px; background: rgba(0,0,0,0.15); border-radius: 15.5px; position: relative; cursor: pointer; transition: background 0.3s; flex-shrink: 0; }
+    .toggle.active { background: var(--c-success); }
+    .toggle::after { content: ''; position: absolute; top: 2px; left: 2px; width: 27px; height: 27px; background: #fff; border-radius: 50%; box-shadow: 0 1px 3px rgba(0,0,0,0.2); transition: transform 0.3s cubic-bezier(0.4,0,0.2,1); }
+    .toggle.active::after { transform: translateX(20px); }
+    /* 进度条 */
+    .progress-section { margin: 0 16px 16px; }
+    .progress-row { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+    .progress-row:last-child { margin-bottom: 0; }
+    .progress-bar { flex: 1; height: 6px; background: rgba(0,0,0,0.08); border-radius: 3px; overflow: hidden; }
+    .progress-fill { height: 100%; border-radius: 3px; background: var(--c-primary); transition: width 0.6s; }
+    .progress-label { font-size: 12px; color: var(--c-text2); min-width: 36px; }
+    .circular-progress { width: 56px; height: 56px; position: relative; }
+    .circular-progress svg { transform: rotate(-90deg); }
+    .circular-progress-value { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); font-size: 12px; font-weight: 600; }
+    /* TabBar */
+    .tabbar { position: fixed; bottom: 0; left: 0; right: 0; height: 56px; background: var(--c-surface); display: flex; justify-content: space-around; align-items: center; z-index: 100; box-shadow: 0 -1px 3px rgba(0,0,0,0.06);  }
+    .tabbar-item { display: flex; flex-direction: column; align-items: center; color: var(--c-text2); font-size: 10px; cursor: pointer; gap: 2px; }
+    .tabbar-item.active { color: var(--c-primary); }
+    .tabbar-item svg { width: 22px; height: 22px; }
+    /* 弹窗 */
+    .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.4); z-index: 200; display: none; align-items: center; justify-content: center; padding: 24px; }
+    .modal-overlay.show { display: flex; }
+    .modal { background: var(--c-surface); border-radius: 24px; width: 100%; max-width: 280px; overflow: hidden; animation: modalIn 0.2s; }
+    @keyframes modalIn { from { transform: scale(0.9); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+    .modal-body { padding: 24px; text-align: center; }
+    .modal-title { font-size: 16px; font-weight: 600; margin-bottom: 8px; }
+    .modal-text { font-size: 14px; color: var(--c-text2); line-height: 1.5; }
+    .modal-actions { display: flex; border-top: 1px solid var(--c-border); }
+    .modal-btn { flex: 1; padding: 12px; border: none; background: none; font-size: 15px; font-family: var(--font); cursor: pointer; color: var(--c-primary); font-weight: 500; }
+    .modal-btn:active { background: rgba(0,0,0,0.04); }
+    .modal-btn + .modal-btn { border-left: 1px solid var(--c-border); }
+    .modal-btn.confirm { font-weight: 600; }
+    .modal-btn.destructive { color: var(--c-danger); }
+    /* Toast */
+    .toast { position: fixed; top: 50%; left: 50%; transform: translate(-50%,-50%) scale(0.8); background: rgba(0,0,0,0.75); color: #fff; padding: 12px 24px; border-radius: 8px; font-size: 14px; z-index: 300; opacity: 0; pointer-events: none; transition: all 0.3s; text-align: center; }
+    .toast.show { opacity: 1; transform: translate(-50%,-50%) scale(1); }
+    /* 下拉刷新 */
+    .pull-refresh { position: relative; overflow: hidden; }
+    .pull-indicator { position: absolute; top: -40px; left: 50%; transform: translateX(-50%); height: 40px; display: flex; align-items: center; justify-content: center; color: var(--c-text2); font-size: 12px; transition: top 0.3s; }
+    .pull-indicator.refreshing { top: 0; }
+    .pull-indicator svg { width: 20px; height: 20px; }
+    .pull-indicator.refreshing svg { animation: spin 0.8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    /* 主题切换 */
+    .theme-toggle { position: fixed; bottom: 68px; right: 16px; width: 44px; height: 44px; border-radius: 50%; background: var(--c-surface); border: none; box-shadow: 0 2px 8px rgba(0,0,0,0.15); display: flex; align-items: center; justify-content: center; cursor: pointer; z-index: 101; color: var(--c-text); }
+    .theme-toggle svg { width: 20px; height: 20px; }
+  
+/* ===== 新增交互组件（跨平台通用，变量回退自动适配深浅色） ===== */
+:root{
+  --pc: var(--c-primary, var(--color-primary, #007AFF));
+  --surf: var(--c-surface, var(--color-surface, #ffffff));
+  --bd: var(--c-border, var(--color-border, #e5e5ea));
+  --txt: var(--c-text, var(--color-text, #1c1c1e));
+  --txt2: var(--c-text2, var(--color-text-secondary, #8e8e93));
+  --bg: var(--c-bg, #f2f2f7);
+}
+/* 弹窗关闭按钮（平台拟真 + 无障碍） */
+.modal, .md-dialog { position: relative; }
+.modal-close {
+  position: absolute; top: 6px; right: 6px;
+  width: 30px; height: 30px; padding: 0;
+  border: none; border-radius: 50%;
+  background: var(--close-bg, rgba(120,120,128,0.16));
+  color: var(--close-fg, #3a3a3c);
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; z-index: 6;
+  -webkit-tap-highlight-color: transparent;
+  transition: background .15s ease, transform .1s ease;
+}
+.modal-close svg { width: 15px; height: 15px; display: block; }
+.modal-close:hover { background: rgba(120,120,128,0.26); }
+.modal-close:active { transform: scale(0.9); }
+.modal-close:focus-visible { outline: 2px solid var(--pc); outline-offset: 2px; }
+@media (pointer: coarse){
+  .modal-close{ width:38px; height:38px; top:4px; right:4px; }
+  .modal-close svg{ width:18px; height:18px; }
+}
+/* 更多交互组件容器 */
+.more-grid{ display:grid; grid-template-columns:1fr 1fr; gap:12px; padding:0 16px 8px; }
+.card-block{ background:var(--surf); border:1px solid var(--bd); border-radius:14px; padding:14px; }
+.block-title{ font-size:14px; font-weight:600; color:var(--txt); margin-bottom:10px; display:flex; align-items:center; justify-content:space-between; }
+.block-val{ color:var(--pc); font-weight:700; }
+.block-hint{ font-size:12px; color:var(--txt2); margin-top:8px; }
+/* 分段控件 */
+.segmented{ display:flex; background:var(--bg); border-radius:10px; padding:3px; gap:2px; }
+.seg-item{ flex:1; border:none; background:none; padding:7px 0; font-size:13px; font-family:inherit; color:var(--txt2); border-radius:8px; cursor:pointer; transition:all .18s; }
+.seg-item.active{ background:var(--surf); color:var(--txt); font-weight:600; box-shadow:0 1px 3px rgba(0,0,0,.12); }
+/* 滑块 */
+.slider{ -webkit-appearance:none; appearance:none; width:100%; height:6px; border-radius:3px; background:var(--bd); outline:none; margin:8px 0; }
+.slider::-webkit-slider-thumb{ -webkit-appearance:none; width:22px; height:22px; border-radius:50%; background:var(--pc); border:3px solid var(--surf); box-shadow:0 1px 4px rgba(0,0,0,.25); cursor:pointer; }
+.slider::-moz-range-thumb{ width:18px; height:18px; border-radius:50%; background:var(--pc); border:3px solid var(--surf); cursor:pointer; }
+/* 步进器 */
+.stepper{ display:inline-flex; align-items:center; border:1px solid var(--bd); border-radius:10px; overflow:hidden; }
+.step-btn{ width:40px; height:36px; border:none; background:var(--surf); color:var(--pc); font-size:20px; cursor:pointer; font-family:inherit; }
+.step-btn:active{ background:var(--bg); }
+.step-val{ min-width:42px; text-align:center; font-size:15px; font-weight:600; color:var(--txt); border-left:1px solid var(--bd); border-right:1px solid var(--bd); height:36px; line-height:36px; }
+/* 提示气泡 */
+.tooltip{ position:relative; display:inline-block; }
+.tip-bubble{ position:absolute; bottom:calc(100% + 8px); left:50%; transform:translateX(-50%) translateY(4px); background:#1c1c1e; color:#fff; font-size:12px; padding:6px 10px; border-radius:8px; white-space:nowrap; opacity:0; pointer-events:none; transition:all .18s; z-index:50; }
+.tip-bubble::after{ content:""; position:absolute; top:100%; left:50%; transform:translateX(-50%); border:5px solid transparent; border-top-color:#1c1c1e; }
+.tooltip:hover .tip-bubble, .tooltip:focus-within .tip-bubble{ opacity:1; transform:translateX(-50%) translateY(0); }
+/* 菜单 */
+.menu-wrap{ position:relative; display:inline-block; }
+.ctx-menu{ position:absolute; top:calc(100% + 6px); left:0; min-width:160px; background:var(--surf); border:1px solid var(--bd); border-radius:12px; box-shadow:0 8px 24px rgba(0,0,0,.16); padding:6px; display:none; z-index:120; }
+.ctx-menu.show{ display:block; animation:ctxIn .16s ease; }
+@keyframes ctxIn{ from{opacity:0; transform:translateY(-6px);} to{opacity:1; transform:translateY(0);} }
+.ctx-item{ padding:10px 12px; font-size:14px; color:var(--txt); border-radius:8px; cursor:pointer; font-family:inherit; }
+.ctx-item:hover{ background:var(--bg); }
+.ctx-item.danger{ color:#ff3b30; }
+/* 实时搜索 */
+.live-search{ margin-bottom:10px; }
+.ls-input{ width:100%; box-sizing:border-box; padding:9px 12px; border:1px solid var(--bd); border-radius:10px; font-size:14px; font-family:inherit; background:var(--bg); color:var(--txt); outline:none; }
+.ls-input:focus{ border-color:var(--pc); }
+.filter-list{ display:flex; flex-direction:column; gap:6px; max-height:160px; overflow:auto; }
+.fl-item{ padding:9px 12px; background:var(--bg); border-radius:8px; font-size:13px; color:var(--txt); }
+/* 动作面板（底部上滑） */
+.sheet-mask{ position:fixed; inset:0; background:rgba(0,0,0,0.4); z-index:250; opacity:0; pointer-events:none; transition:opacity .25s; }
+.sheet-mask.show{ opacity:1; pointer-events:auto; }
+.action-sheet{ position:fixed; left:0; right:0; bottom:0; z-index:260; background:var(--surf); border-radius:18px 18px 0 0; padding:10px 12px calc(12px + env(safe-area-inset-bottom)); transform:translateY(100%); transition:transform .3s cubic-bezier(0.3,0.8,0.3,1); max-width:480px; margin:0 auto; }
+.action-sheet.show{ transform:translateY(0); }
+.sheet-handle{ width:38px; height:5px; border-radius:3px; background:var(--bd); margin:6px auto 12px; }
+.sheet-title{ text-align:center; font-size:13px; color:var(--txt2); margin-bottom:8px; }
+.sheet-item{ display:block; width:100%; border:none; background:none; padding:15px; font-size:17px; color:var(--txt); text-align:center; border-radius:12px; cursor:pointer; font-family:inherit; }
+.sheet-item:active{ background:var(--bg); }
+.sheet-item.destructive{ color:#ff3b30; }
+.sheet-cancel{ margin-top:6px; font-weight:600; border-top:1px solid var(--bd); }
+
+.modal-close{--close-bg:rgba(0,0,0,0.06);--close-fg:#1a1a1a;}.modal-close:hover{background:rgba(0,0,0,0.12);}[data-theme="dark"] .modal-close{--close-bg:rgba(255,255,255,0.14);--close-fg:#fff;}
+</style>
+</head>
+<body>
+  
+  <nav class="navbar">
+    <div class="navbar-back" onclick="showToast('返回')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 19l-7-7 7-7"/></svg>
+      返回
+    </div>
+    <div class="navbar-title">ColorOS</div>
+    <div class="navbar-actions" onclick="showToast('更多')">
+      <svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/></svg>
+    </div>
+  </nav>
+  <div class="pull-refresh" id="pullRefresh">
+    <div class="pull-indicator" id="pullIndicator">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 4v16m0 0l-6-6m6 6l6-6"/></svg>
+      <span style="margin-left:6px">下拉刷新</span>
+    </div>
+    <div class="search-bar">
+      <div class="search-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg></div>
+      <input type="text" placeholder="搜索" id="searchInput">
+      <div class="search-clear" onclick="document.getElementById('searchInput').value=''">x</div>
+    </div>
+    <div class="carousel" id="carousel">
+      <div class="carousel-track" id="carouselTrack">
+        <div class="carousel-slide">ColorOS 15 全新体验</div>
+        <div class="carousel-slide">AI智慧功能</div>
+        <div class="carousel-slide">灵动岛交互</div>
+      </div>
+      <div class="carousel-dots" id="carouselDots">
+        <div class="carousel-dot active" onclick="goSlide(0)"></div>
+        <div class="carousel-dot" onclick="goSlide(1)"></div>
+        <div class="carousel-dot" onclick="goSlide(2)"></div>
+      </div>
+    </div>
+    <div style="background:linear-gradient(135deg,#1BA784,#2DD4A8);color:#fff;padding:16px;border-radius:24px;margin:0 16px 16px;position:relative;overflow:hidden;box-shadow:0 4px 16px rgba(27,167,132,0.3)"><div style="position:absolute;top:-50%;right:-20%;width:200px;height:200px;background:radial-gradient(circle,rgba(255,255,255,0.15) 0%,transparent 70%);border-radius:50%"></div><div style="font-weight:600;margin-bottom:4px;position:relative;z-index:1">无边框卡片</div><div style="font-size:13px;opacity:0.9;line-height:1.5;position:relative;z-index:1">ColorOS 特色无边框卡片，灵动活力，OPPO绿</div></div>
+    <div class="grid-section">
+      <div class="grid-container">
+        <div class="grid-item" onclick="showToast('相机')"><div class="grid-icon" style="background:linear-gradient(135deg,#54545A,#2C2C2E)"><svg viewBox="0 0 48 48" style="width:100%;height:100%;display:block" xmlns="http://www.w3.org/2000/svg"><rect x="9" y="16" width="30" height="20" rx="5" fill="#ffffff"/><rect x="19" y="12" width="10" height="5" rx="2.5" fill="#ffffff"/><circle cx="24" cy="26" r="7.5" fill="#2C2C2E"/><circle cx="24" cy="26" r="5" fill="#3AA0E0"/><circle cx="24" cy="26" r="2.4" fill="#1C1C1E" opacity="0.55"/><circle cx="14" cy="21" r="1.7" fill="#FFCC00"/></svg></div><span class="grid-label">相机</span></div>
+        <div class="grid-item" onclick="showToast('照片')"><div class="grid-icon" style="background:linear-gradient(135deg,#FFFFFF,#F2F2F7)"><svg viewBox="0 0 48 48" style="width:100%;height:100%;display:block" xmlns="http://www.w3.org/2000/svg"><g><ellipse cx="24" cy="13" rx="4.2" ry="8" fill="#FF3B30" transform="rotate(0 24 24)"/><ellipse cx="24" cy="13" rx="4.2" ry="8" fill="#FF9500" transform="rotate(45 24 24)"/><ellipse cx="24" cy="13" rx="4.2" ry="8" fill="#FFCC00" transform="rotate(90 24 24)"/><ellipse cx="24" cy="13" rx="4.2" ry="8" fill="#34C759" transform="rotate(135 24 24)"/><ellipse cx="24" cy="13" rx="4.2" ry="8" fill="#30D158" transform="rotate(180 24 24)"/><ellipse cx="24" cy="13" rx="4.2" ry="8" fill="#00C7BE" transform="rotate(225 24 24)"/><ellipse cx="24" cy="13" rx="4.2" ry="8" fill="#007AFF" transform="rotate(270 24 24)"/><ellipse cx="24" cy="13" rx="4.2" ry="8" fill="#5856D6" transform="rotate(315 24 24)"/></g><circle cx="24" cy="24" r="5" fill="#ECECF0"/></svg></div><span class="grid-label">照片</span></div>
+        <div class="grid-item" onclick="showToast('地图')"><div class="grid-icon" style="background:linear-gradient(135deg,#34AADC,#007AFF)"><svg viewBox="0 0 48 48" style="width:100%;height:100%;display:block" xmlns="http://www.w3.org/2000/svg"><path d="M9 14 L20 11 L29 14 L39 11 L39 36 L29 39 L20 36 L9 39 Z" fill="#ffffff" opacity="0.95"/><path d="M20 11 L20 36 M29 14 L29 39" stroke="#C7C7CC" stroke-width="1.2"/><path d="M9 14 L39 11 M9 39 L39 36" stroke="#C7C7CC" stroke-width="1.2"/><path d="M30 27 c-3.2 0 -5.5 2.3 -5.5 5.4 c0 4 5.5 9.6 5.5 9.6 c0 0 5.5 -5.6 5.5 -9.6 c0 -3.1 -2.3 -5.4 -5.5 -5.4 z" fill="#FF3B30"/><circle cx="30" cy="32" r="2.1" fill="#ffffff"/></svg></div><span class="grid-label">地图</span></div>
+        <div class="grid-item" onclick="showToast('天气')"><div class="grid-icon" style="background:linear-gradient(135deg,#4BA3E8,#1A6FC4)"><svg viewBox="0 0 48 48" style="width:100%;height:100%;display:block" xmlns="http://www.w3.org/2000/svg"><circle cx="33" cy="17" r="6" fill="#FFD60A"/><g stroke="#FFD60A" stroke-width="2" stroke-linecap="round"><line x1="33" y1="6" x2="33" y2="9"/><line x1="33" y1="25" x2="33" y2="28"/><line x1="22" y1="17" x2="25" y2="17"/><line x1="41" y1="17" x2="44" y2="17"/><line x1="25" y1="9" x2="27" y2="11"/><line x1="39" y1="23" x2="41" y2="25"/><line x1="25" y1="25" x2="27" y2="23"/><line x1="39" y1="11" x2="41" y2="9"/></g><g fill="#ffffff"><circle cx="18" cy="30" r="6"/><circle cx="26" cy="27" r="7.5"/><circle cx="32" cy="31" r="5.5"/><rect x="16" y="30" width="18" height="7" rx="3.5"/></g></svg></div><span class="grid-label">天气</span></div>
+        <div class="grid-item" onclick="showToast('联系人')"><div class="grid-icon" style="background:linear-gradient(135deg,#5E5CE6,#3A3A9E)"><svg viewBox="0 0 48 48" style="width:100%;height:100%;display:block" xmlns="http://www.w3.org/2000/svg"><circle cx="24" cy="19" r="7" fill="#ffffff"/><path d="M11 40 c0 -8.5 26 -8.5 26 0 z" fill="#ffffff"/></svg></div><span class="grid-label">联系人</span></div>
+        <div class="grid-item" onclick="showToast('时钟')"><div class="grid-icon" style="background:linear-gradient(135deg,#1C1C1E,#000000)"><svg viewBox="0 0 48 48" style="width:100%;height:100%;display:block" xmlns="http://www.w3.org/2000/svg"><circle cx="24" cy="24" r="17" fill="none" stroke="#8E8E93" stroke-width="2"/><g stroke="#C7C7CC" stroke-width="1.6" stroke-linecap="round"><line x1="24" y1="9" x2="24" y2="12"/><line x1="24" y1="36" x2="24" y2="39"/><line x1="9" y1="24" x2="12" y2="24"/><line x1="36" y1="24" x2="39" y2="24"/></g><line x1="24" y1="24" x2="24" y2="14" stroke="#ffffff" stroke-width="2.6" stroke-linecap="round"/><line x1="24" y1="24" x2="33" y2="24" stroke="#ffffff" stroke-width="2.6" stroke-linecap="round"/><line x1="24" y1="24" x2="24" y2="33" stroke="#FF3B30" stroke-width="1.6" stroke-linecap="round"/><circle cx="24" cy="24" r="1.8" fill="#ffffff"/></svg></div><span class="grid-label">时钟</span></div>
+        <div class="grid-item" onclick="showToast('备忘录')"><div class="grid-icon" style="background:linear-gradient(135deg,#FFE07A,#FFCC00)"><svg viewBox="0 0 48 48" style="width:100%;height:100%;display:block" xmlns="http://www.w3.org/2000/svg"><rect x="11" y="8" width="26" height="32" rx="3" fill="#ffffff"/><rect x="11" y="8" width="26" height="7" rx="3" fill="#FF9500"/><g stroke="#D9D9DE" stroke-width="1.4"><line x1="15" y1="20" x2="33" y2="20"/><line x1="15" y1="25" x2="33" y2="25"/><line x1="15" y1="30" x2="33" y2="30"/><line x1="15" y1="35" x2="28" y2="35"/></g><line x1="18" y1="8" x2="18" y2="40" stroke="#FF3B30" stroke-width="1.2" opacity="0.6"/></svg></div><span class="grid-label">备忘录</span></div>
+        <div class="grid-item" onclick="showToast('计算器')"><div class="grid-icon" style="background:linear-gradient(135deg,#3A3A3C,#1C1C1E)"><svg viewBox="0 0 48 48" style="width:100%;height:100%;display:block" xmlns="http://www.w3.org/2000/svg"><rect x="10" y="7" width="28" height="34" rx="4" fill="#48484A"/><rect x="13" y="10" width="22" height="7" rx="2" fill="#1C1C1E"/><g fill="#9A9AA0"><circle cx="16" cy="23" r="2.4"/><circle cx="24" cy="23" r="2.4"/><circle cx="32" cy="23" r="2.4"/><circle cx="16" cy="30" r="2.4"/><circle cx="24" cy="30" r="2.4"/><circle cx="32" cy="30" r="2.4"/><circle cx="16" cy="37" r="2.4"/><circle cx="24" cy="37" r="2.4"/></g><circle cx="32" cy="37" r="2.4" fill="#FF9500"/></svg></div><span class="grid-label">计算器</span></div>
+        <div class="grid-item" onclick="showToast('设置')"><div class="grid-icon" style="background:linear-gradient(135deg,#B0B0B5,#8A8A8E)"><svg viewBox="0 0 48 48" style="width:100%;height:100%;display:block" xmlns="http://www.w3.org/2000/svg"><g fill="#ffffff"><circle cx="24" cy="24" r="8.5"/><rect x="22.2" y="10" width="3.6" height="5.5" rx="1" transform="rotate(0 24 24)"/><rect x="22.2" y="10" width="3.6" height="5.5" rx="1" transform="rotate(45 24 24)"/><rect x="22.2" y="10" width="3.6" height="5.5" rx="1" transform="rotate(90 24 24)"/><rect x="22.2" y="10" width="3.6" height="5.5" rx="1" transform="rotate(135 24 24)"/><rect x="22.2" y="10" width="3.6" height="5.5" rx="1" transform="rotate(180 24 24)"/><rect x="22.2" y="10" width="3.6" height="5.5" rx="1" transform="rotate(225 24 24)"/><rect x="22.2" y="10" width="3.6" height="5.5" rx="1" transform="rotate(270 24 24)"/><rect x="22.2" y="10" width="3.6" height="5.5" rx="1" transform="rotate(315 24 24)"/></g><circle cx="24" cy="24" r="3.6" fill="#8A8A8E"/></svg></div><span class="grid-label">设置</span></div>
+      </div>
+      </div>
+    </div>
+    <div class="section-label">推荐内容</div>
+    <div class="card-row">
+      <div class="info-card"><div class="info-card-img" style="background:linear-gradient(135deg,#1BA784,#2DD4A8)">新功能发布</div><div class="info-card-body"><div class="info-card-title">新功能发布</div><div class="info-card-desc">探索最新功能与改进</div><div class="info-card-tags"><span class="info-card-tag">功能</span><span class="info-card-tag">更新</span></div><div class="info-card-time">2小时前</div></div></div>
+      <div class="info-card"><div class="info-card-img" style="background:linear-gradient(135deg,#FF6B6B,#1BA784)">使用指南</div><div class="info-card-body"><div class="info-card-title">使用指南</div><div class="info-card-desc">快速上手完整教程</div><div class="info-card-tags"><span class="info-card-tag">教程</span><span class="info-card-tag">指南</span></div><div class="info-card-time">1天前</div></div></div>
+      <div class="info-card"><div class="info-card-img" style="background:linear-gradient(135deg,#00C853,#2DD4A8)">社区动态</div><div class="info-card-body"><div class="info-card-title">社区动态</div><div class="info-card-desc">查看最新社区活动</div><div class="info-card-tags"><span class="info-card-tag">社区</span><span class="info-card-tag">活动</span></div><div class="info-card-time">3天前</div></div></div>
+    </div>
+    <div class="section-label">功能列表</div>
+    <div class="list">
+      <div class="list-item" onclick="showToast('Wi-Fi')"><div class="list-item-icon" style="background:#1BA784">W</div><div class="list-item-content"><div class="list-item-title">Wi-Fi</div><div class="list-item-subtitle">已连接 OPPO-5G</div></div><span class="list-item-arrow">></span></div>
+      <div class="list-item" onclick="showToast('蓝牙')"><div class="list-item-icon" style="background:#2DD4A8">蓝</div><div class="list-item-content"><div class="list-item-title">蓝牙</div><div class="list-item-subtitle">已开启</div></div><span class="list-item-arrow">></span></div>
+      <div class="list-item" onclick="showToast('移动网络')"><div class="list-item-icon" style="background:#4FC3F7">移</div><div class="list-item-content"><div class="list-item-title">移动网络</div><div class="list-item-subtitle">5G</div></div><span class="list-item-arrow">></span></div>
+      <div class="list-item" onclick="showToast('电池')"><div class="list-item-icon" style="background:#FFB74D">电</div><div class="list-item-content"><div class="list-item-title">电池</div><div class="list-item-subtitle">85% - SUPERVOOC</div></div><span class="list-item-arrow">></span></div>
+      <div class="list-item" onclick="showToast('显示与亮度')"><div class="list-item-icon" style="background:#BA68C8">显</div><div class="list-item-content"><div class="list-item-title">显示与亮度</div><div class="list-item-subtitle">O-Sync超频响应</div></div><span class="list-item-arrow">></span></div>
+    </div>
+    <div class="section-label">按钮样式</div>
+    <div class="btn-section">
+      <div class="btn-row">
+        <button class="btn btn-primary" onclick="showModal()">主要按钮</button>
+        <button class="btn btn-secondary" onclick="showToast('次要按钮')">次要按钮</button>
+      </div>
+      <div class="btn-row">
+        <button class="btn btn-text" onclick="showToast('文字按钮')">文字按钮</button>
+        <button class="btn btn-danger" onclick="showModal('destructive')">危险按钮</button>
+        <button class="btn btn-disabled" disabled>禁用按钮</button>
+      </div>
+    </div>
+    <div class="section-label">输入框</div>
+    <div class="input-section">
+      <div class="input-group"><div class="input-label">用户名</div><input class="input" type="text" placeholder="请输入用户名"></div>
+      <div class="input-group"><div class="input-label">搜索</div><div class="input-icon-wrap"><div class="input-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg></div><input class="input" type="text" placeholder="搜索内容" style="padding-left:36px"></div></div>
+      <div class="input-group"><div class="input-label">邮箱</div><input class="input" type="email" placeholder="example@email.com"></div>
+    </div>
+    <div class="section-label">开关控件</div>
+    <div class="switch-section">
+      <div class="switch-item"><span class="switch-label">Wi-Fi</span><div class="toggle active" onclick="this.classList.toggle('active')"></div></div>
+      <div class="switch-item"><span class="switch-label">蓝牙</span><div class="toggle active" onclick="this.classList.toggle('active')"></div></div>
+      <div class="switch-item"><span class="switch-label">飞行模式</span><div class="toggle" onclick="this.classList.toggle('active')"></div></div>
+    </div>
+    <div class="section-label">进度指示</div>
+    <div class="progress-section">
+      <div class="progress-row"><span class="progress-label">存储</span><div class="progress-bar"><div class="progress-fill" style="width:68%"></div></div><span class="progress-label">68%</span></div>
+      <div class="progress-row"><span class="progress-label">电量</span><div class="progress-bar"><div class="progress-fill" style="width:85%;background:var(--c-success)"></div></div><span class="progress-label">85%</span></div>
+      <div class="progress-row"><span class="progress-label">同步</span><div class="progress-bar"><div class="progress-fill" id="syncProgress" style="width:0%"></div></div><span class="progress-label" id="syncLabel">0%</span></div>
+      <div class="progress-row" style="justify-content:center;gap:24px">
+        <div class="circular-progress"><svg width="56" height="56" viewBox="0 0 56 56"><circle cx="28" cy="28" r="22" fill="none" stroke="rgba(0,0,0,0.08)" stroke-width="4"/><circle cx="28" cy="28" r="22" fill="none" stroke="var(--c-primary)" stroke-width="4" stroke-dasharray="138.2" stroke-dashoffset="41.5" stroke-linecap="round"/></svg><span class="circular-progress-value">70%</span></div>
+        <div class="circular-progress"><svg width="56" height="56" viewBox="0 0 56 56"><circle cx="28" cy="28" r="22" fill="none" stroke="rgba(0,0,0,0.08)" stroke-width="4"/><circle cx="28" cy="28" r="22" fill="none" stroke="var(--c-success)" stroke-width="4" stroke-dasharray="138.2" stroke-dashoffset="20.7" stroke-linecap="round"/></svg><span class="circular-progress-value">85%</span></div>
+      </div>
+    </div>
+    <div style="height:16px"></div>
+  </div>
+  
+  <nav class="tabbar" id="tabbar">
+    <div class="tabbar-item active" onclick="switchTab(this)"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>首页</div>
+    <div class="tabbar-item" onclick="switchTab(this)"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>发现</div>
+    <div class="tabbar-item" onclick="switchTab(this)"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z"/></svg>消息</div>
+    <div class="tabbar-item" onclick="switchTab(this)"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>我的</div>
+  </nav>
+  <button class="theme-toggle" onclick="toggleTheme()" id="themeBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" id="themeIcon"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg></button>
+  
+  <!-- 更多交互组件 -->
+  <div class="section-header">更多交互组件</div>
+  <div class="more-grid" id="moreGrid">
+
+    <div class="card-block">
+      <div class="block-title">分段控件 <span class="block-val">Segmented</span></div>
+      <div class="segmented" id="seg">
+        <button class="seg-item active" onclick="setSeg(this,'日')">日</button>
+        <button class="seg-item" onclick="setSeg(this,'周')">周</button>
+        <button class="seg-item" onclick="setSeg(this,'月')">月</button>
+      </div>
+      <div class="block-hint" id="segHint">当前视图：日</div>
+    </div>
+
+    <div class="card-block">
+      <div class="block-title">滑块 <span class="block-val" id="sliderVal">50</span></div>
+      <input type="range" class="slider" min="0" max="100" value="50" oninput="updSlider(this)" aria-label="数值滑块">
+    </div>
+
+    <div class="card-block">
+      <div class="block-title">步进器 <span class="block-val">Stepper</span></div>
+      <div class="stepper">
+        <button class="step-btn" aria-label="减少" onclick="step(-1)">&minus;</button>
+        <span class="step-val" id="stepVal">1</span>
+        <button class="step-btn" aria-label="增加" onclick="step(1)">+</button>
+      </div>
+    </div>
+
+    <div class="card-block">
+      <div class="block-title">提示气泡 <span class="block-val">Tooltip</span></div>
+      <span class="tooltip">
+        <button class="btn btn-secondary" onclick="safeToast('已复制链接')">悬停 / 聚焦我</button>
+        <span class="tip-bubble" role="tooltip">这是一段提示气泡</span>
+      </span>
+    </div>
+
+    <div class="card-block">
+      <div class="block-title">动作面板 <span class="block-val">Sheet</span></div>
+      <button class="btn btn-primary" style="width:100%" onclick="openSheet()">显示操作面板</button>
+    </div>
+
+    <div class="card-block">
+      <div class="block-title">菜单 <span class="block-val">Menu</span></div>
+      <div class="menu-wrap">
+        <button class="btn btn-secondary" id="menuBtn" style="width:100%" onclick="toggleMenu()">显示菜单 &#9662;</button>
+        <div class="ctx-menu" id="ctxMenu" role="menu">
+          <div class="ctx-item" role="menuitem" onclick="pickMenu('编辑')">编辑</div>
+          <div class="ctx-item" role="menuitem" onclick="pickMenu('分享')">分享</div>
+          <div class="ctx-item danger" role="menuitem" onclick="pickMenu('删除')">删除</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card-block" style="grid-column:1 / -1">
+      <div class="block-title">实时搜索 <span class="block-val">Live Search</span></div>
+      <div class="live-search">
+        <input class="ls-input" id="lsInput" placeholder="输入文字过滤下方列表…" oninput="filterList(this)" aria-label="实时搜索">
+      </div>
+      <div class="filter-list" id="filterList">
+        <div class="fl-item">相机 Camera</div>
+        <div class="fl-item">照片 Photos</div>
+        <div class="fl-item">地图 Maps</div>
+        <div class="fl-item">天气 Weather</div>
+        <div class="fl-item">时钟 Clock</div>
+        <div class="fl-item">备忘录 Notes</div>
+        <div class="fl-item">计算器 Calculator</div>
+        <div class="fl-item">设置 Settings</div>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="modal-overlay" id="modalOverlay" onclick="closeModal(event)">
+    <div class="modal" id="modal">
+      <button class="modal-close" aria-label="关闭弹窗" onclick="closeModal()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+      <div class="modal-body"><div class="modal-title" id="modalTitle">确认操作</div><div class="modal-text" id="modalText">您确定要执行此操作吗？</div></div>
+      <div class="modal-actions"><button class="modal-btn" onclick="closeModal()">取消</button><button class="modal-btn confirm" id="modalConfirm" onclick="closeModal();showToast('已确认')">确认</button></div>
+    </div>
+  </div>
+  <div class="toast" id="toast"></div>
+  <script>
+    function toggleTheme(){var h=document.documentElement,c=h.getAttribute('data-theme');h.setAttribute('data-theme',c==='dark'?'light':'dark');var i=document.getElementById('themeIcon');i.innerHTML=c==='dark'?'<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>':'<circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>';}
+    var cs=0,at;function goSlide(n){cs=n;document.getElementById('carouselTrack').style.transform='translateX(-'+n*100+'%)';document.querySelectorAll('.carousel-dot').forEach(function(d,i){d.classList.toggle('active',i===n)});}function nextSlide(){goSlide((cs+1)%3);}at=setInterval(nextSlide,3000);
+    function switchTab(el){document.querySelectorAll('.tabbar-item').forEach(function(t){t.classList.remove('active')});el.classList.add('active');showToast(el.textContent.trim());}
+    var tt;function showToast(m){var t=document.getElementById('toast');t.textContent=m;t.classList.add('show');clearTimeout(tt);tt=setTimeout(function(){t.classList.remove('show')},2000);}
+    function showModal(type){var o=document.getElementById('modalOverlay'),t=document.getElementById('modalTitle'),x=document.getElementById('modalText'),c=document.getElementById('modalConfirm');if(type==='destructive'){t.textContent='删除确认';x.textContent='此操作将永久删除该数据，无法恢复。';c.className='modal-btn confirm destructive';c.textContent='删除';}else{t.textContent='确认操作';x.textContent='您确定要执行此操作吗？';c.className='modal-btn confirm';c.textContent='确认';}o.classList.add('show');}
+    function closeModal(e){if(e&&e.target!==e.currentTarget)return;document.getElementById('modalOverlay').classList.remove('show');}
+    var py=0,pg=false,pr=document.getElementById('pullRefresh'),pi=document.getElementById('pullIndicator');
+    pr.addEventListener('touchstart',function(e){if(pr.scrollTop===0){py=e.touches[0].clientY;pg=true;}});
+    pr.addEventListener('touchmove',function(e){if(!pg)return;var d=e.touches[0].clientY-py;if(d>60){pi.style.top='0px';pi.querySelector('span').textContent='释放刷新';}else if(d>0){pi.style.top=(d-40)+'px';}});
+    pr.addEventListener('touchend',function(){if(!pg)return;pg=false;if(parseInt(pi.style.top||'-40')>-20){pi.classList.add('refreshing');pi.querySelector('span').textContent='刷新中...';setTimeout(function(){pi.classList.remove('refreshing');pi.style.top='-40px';pi.querySelector('span').textContent='下拉刷新';showToast('刷新成功');},1500);}else{pi.style.top='-40px';}});
+    var sv=0;setInterval(function(){sv=(sv+5)%105;if(sv>100)sv=0;document.getElementById('syncProgress').style.width=sv+'%';document.getElementById('syncLabel').textContent=sv+'%';},300);
+  </script>
+
+  <!-- 动作面板 -->
+  <div class="sheet-mask" id="sheetMask" onclick="closeSheet()"></div>
+  <div class="action-sheet" id="actionSheet" role="dialog" aria-label="操作面板">
+    <div class="sheet-handle"></div>
+    <div class="sheet-title">请选择操作</div>
+    <button class="sheet-item" onclick="closeSheet();safeToast('已选择：拍照')">拍照</button>
+    <button class="sheet-item" onclick="closeSheet();safeToast('已选择：从相册选择')">从相册选择</button>
+    <button class="sheet-item" onclick="closeSheet();safeToast('已选择：扫描文档')">扫描文档</button>
+    <button class="sheet-item destructive" onclick="closeSheet();safeToast('已选择：删除')">删除</button>
+    <button class="sheet-item sheet-cancel" onclick="closeSheet()">取消</button>
+  </div>
+
+  <script>
+  /* ===== 新增交互组件逻辑 ===== */
+  // 兼容 Android(showSnackbar) 与其它(showToast)
+  if (typeof showToast !== 'function' && typeof showSnackbar === 'function') {
+    window.showToast = function(m){ showSnackbar(m); };
+  }
+  function safeToast(m){ if (typeof showToast === 'function') showToast(m); }
+
+  function setSeg(el, label){
+    var items = document.querySelectorAll('#seg .seg-item');
+    for (var i=0;i<items.length;i++) items[i].classList.remove('active');
+    el.classList.add('active');
+    document.getElementById('segHint').textContent = '当前视图：' + label;
+  }
+  function updSlider(el){ document.getElementById('sliderVal').textContent = el.value; }
+  var _step = 1;
+  function step(d){
+    _step = Math.max(0, Math.min(99, _step + d));
+    document.getElementById('stepVal').textContent = _step;
+  }
+  function openSheet(){
+    document.getElementById('sheetMask').classList.add('show');
+    document.getElementById('actionSheet').classList.add('show');
+  }
+  function closeSheet(){
+    document.getElementById('sheetMask').classList.remove('show');
+    document.getElementById('actionSheet').classList.remove('show');
+  }
+  function toggleMenu(){ document.getElementById('ctxMenu').classList.toggle('show'); }
+  function pickMenu(v){
+    document.getElementById('ctxMenu').classList.remove('show');
+    safeToast('已选择：' + v);
+  }
+  document.addEventListener('click', function(e){
+    var m = document.getElementById('ctxMenu');
+    if (m && m.classList.contains('show') && !e.target.closest('.menu-wrap')) m.classList.remove('show');
+  });
+  function filterList(el){
+    var q = el.value.trim().toLowerCase();
+    var items = document.querySelectorAll('#filterList .fl-item');
+    for (var i=0;i<items.length;i++){
+      var t = items[i].textContent.toLowerCase();
+      items[i].style.display = (t.indexOf(q) > -1) ? '' : 'none';
+    }
+  }
+  /* Esc 关闭弹窗 / 面板 / 菜单（无障碍） */
+  document.addEventListener('keydown', function(e){
+    if (e.key === 'Escape') {
+      closeSheet();
+      var cm = document.getElementById('ctxMenu'); if (cm) cm.classList.remove('show');
+      if (document.getElementById('modalOverlay')) {
+        if (typeof closeModal === 'function') closeModal();
+        else if (typeof closeDialog === 'function') closeDialog();
+      }
+    }
+  });
+  /* 弹窗打开时自动聚焦关闭按钮 */
+  if (typeof showModal === 'function') {
+    var _sm = showModal;
+    showModal = function(t){ _sm(t); var c = document.querySelector('.modal-close'); if (c) setTimeout(function(){ c.focus(); }, 60); };
+  }
+  if (typeof showDialog === 'function') {
+    var _sd = showDialog;
+    showDialog = function(t){ _sd(t); var c = document.querySelector('.modal-close'); if (c) setTimeout(function(){ c.focus(); }, 60); };
+  }
+  </script>
+
+</body>
+</html>

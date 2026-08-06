@@ -60,6 +60,7 @@ public class PrototypeGenerateController {
             @RequestParam("description") String description,
             @RequestParam(value = "prototypeType", defaultValue = "SINGLE_PAGE") String prototypeType,
             @RequestParam(value = "platform", defaultValue = "APP") String platform,
+            @RequestParam(value = "pageMorphology", defaultValue = "FULL_PAGE") String pageMorphology,
             @RequestParam(value = "prdDocumentId", required = false) Long prdDocumentId,
             @RequestParam(value = "referenceImage", required = false) MultipartFile referenceImage
     ) {
@@ -74,6 +75,7 @@ public class PrototypeGenerateController {
         request.setDescription(description.trim());
         request.setPrototypeType(parsePrototypeType(prototypeType));
         request.setPlatform(parsePlatform(platform));
+        request.setPageMorphology(parseMorphology(pageMorphology));
         request.setPrdDocumentId(prdDocumentId);
 
         if (referenceImage != null && !referenceImage.isEmpty()) {
@@ -119,6 +121,10 @@ public class PrototypeGenerateController {
 
     private Platform parsePlatform(String value) {
         return parseEnum(Platform.class, value, "platform");
+    }
+
+    private com.example.aidocumentplatform.model.enums.PageMorphology parseMorphology(String value) {
+        return parseEnum(com.example.aidocumentplatform.model.enums.PageMorphology.class, value, "pageMorphology");
     }
 
     private <E extends Enum<E>> E parseEnum(Class<E> enumClass, String value, String fieldName) {

@@ -75,14 +75,20 @@ public class PrototypePromptTemplate {
      * @param hasReferenceImage 是否附带风格参考图（影响风格说明段）
      */
     public String buildUserPrompt(String description, Platform platform, PrototypeType type) {
-        return buildUserPrompt(description, platform, type, false, null);
+        return buildUserPrompt(description, platform, type, false, null, null);
     }
 
     public String buildUserPrompt(String description, Platform platform, PrototypeType type,
                                   boolean hasReferenceImage, String referenceFileName) {
+        return buildUserPrompt(description, platform, type, hasReferenceImage, referenceFileName, null);
+    }
+
+    public String buildUserPrompt(String description, Platform platform, PrototypeType type,
+                                  boolean hasReferenceImage, String referenceFileName,
+                                  com.example.aidocumentplatform.model.enums.PageMorphology morphology) {
         return type == PrototypeType.MULTI_PAGE
-                ? buildMultiPagePrompt(description, platform, hasReferenceImage, referenceFileName)
-                : buildSinglePagePrompt(description, platform, hasReferenceImage, referenceFileName);
+                ? buildMultiPagePrompt(description, platform, hasReferenceImage, referenceFileName, morphology)
+                : buildSinglePagePrompt(description, platform, hasReferenceImage, referenceFileName, morphology);
     }
 
     private String buildReferenceStyleHint(boolean hasReferenceImage, String fileName) {
@@ -453,10 +459,12 @@ public class PrototypePromptTemplate {
     // ==================== 单页面 ====================
 
     private String buildSinglePagePrompt(String description, Platform platform,
-                                         boolean hasReferenceImage, String referenceFileName) {
+                                         boolean hasReferenceImage, String referenceFileName,
+                                         com.example.aidocumentplatform.model.enums.PageMorphology morphology) {
         return """
                 请根据以下功能描述，生成一个完整的、可直接在浏览器中打开的 HTML 原型页面。
 
+                %s
                 %s
                 %s
                 %s
@@ -468,13 +476,11 @@ public class PrototypePromptTemplate {
 
                 【技术要求】
                 1. 纯 HTML + CSS + JavaScript，单文件
-                2. 所有 CSS 写在 <style> 内，所有 JS 写在 <script> 内
-                3. 使用现代设计风格（圆角 8px、柔和阴影、间距舒适、层次清晰）
-                4. 包含逼真的模拟数据
-                5. 实现核心交互（按钮点击、Tab 切换、列表滚动、简单表单反馈等）
-                6. Web 端主色 #2457d6，App/小程序端主色 #0bb6c7（若有参考图则优先跟随参考图主色）
-                7. 不要生成图标墙、装饰性 icon 列表或大量小徽章；更像真实产品原型，而不是素材拼贴页。
-                8. 【移动端紧凑原则】App/小程序页面高度由内容自然决定，禁止 min-height:100vh；禁止为了填满屏幕而故意拉大 padding/margin/行高/卡片间距；内容少则紧凑结束，不留底部空白。
+                2. 所有 JS 写在 <script> 内
+                3. 包含逼真的模拟数据
+                4. 实现核心交互（按钮点击、Tab 切换、列表滚动、简单表单反馈等）
+                5. 不要生成图标墙、装饰性 icon 列表或大量小徽章；更像真实产品原型，而不是素材拼贴页。
+                6. 【移动端紧凑原则】App/小程序页面高度由内容自然决定，禁止 min-height:100vh；禁止为了填满屏幕而故意拉大 padding/margin/行高/卡片间距；内容少则紧凑结束，不留底部空白。
 
                 【输出格式】
                 - 只输出 HTML 代码
@@ -484,8 +490,9 @@ public class PrototypePromptTemplate {
                 """.formatted(
                 getStyleGuide(platform),
                 buildGenerationStrategy(platform, hasReferenceImage),
+                buildMorphologyInstruction(morphology),
                 buildPlatformDesignSpec(platform),
-                buildComponentSpecification(),
+                PrototypeDesignSystem.componentListFor(platform),
                 buildCssRequirements(),
                 buildReferenceStyleHint(hasReferenceImage, referenceFileName),
                 description);
@@ -494,11 +501,13 @@ public class PrototypePromptTemplate {
     // ==================== 多页面 ====================
 
     private String buildMultiPagePrompt(String description, Platform platform,
-                                        boolean hasReferenceImage, String referenceFileName) {
+                                        boolean hasReferenceImage, String referenceFileName,
+                                        com.example.aidocumentplatform.model.enums.PageMorphology morphology) {
         String style = getStyleGuide(platform);
         return """
                 请根据以下功能描述，生成一个多页面的交互原型（3~5 个页面）。
 
+                %s
                 %s
                 %s
                 %s
@@ -514,12 +523,12 @@ public class PrototypePromptTemplate {
                   {
                     "title": "页面标题（如：登录页）",
                     "order": 1,
-                    "html": "<!DOCTYPE html><html><head><meta charset=\\"UTF-8\\"><style>...完整CSS...</style></head><body>...完整页面...</body></html>"
+                    "html": "<!DOCTYPE html><html><head><meta charset=\\"UTF-8\\"></head><body>...完整页面...</body></html>"
                   }
                 ]
 
                 【页面设计要求】
-                1. 每个页面的 html 都必须是完整可运行文档，且自带完整 <style>
+                1. 每个页面的 html 都必须是完整可运行文档
                 2. 页面之间必须可跳转：给跳转按钮/链接写 data-proto-page="目标order"
                    例如：从登录页去首页 → <button data-proto-page="2">进入首页</button>
                    也可使用 href="#page-2" 或 href="#首页"
@@ -528,15 +537,54 @@ public class PrototypePromptTemplate {
                 5. 所有页面视觉体系统一（配色、圆角、字号、按钮样式一致）
                 6. 包含逼真模拟数据
                 7. 每个页面是独立 HTML，不要把多个页面的 DOM 塞进同一个 html 字段
-                8. 保持真实业务系统质感：少图标、强结构、清晰表格/列表/表单/导航。不要在每张卡片前都放图标。
+                8. 保持真实业务系统质感：少图标、强结构、清晰列表/表单/导航。不要在每张卡片前都放图标。
+                9. 多页场景使用完整页面骨架（.co-page-shell），不使用弹窗/组件特写骨架
 
                 【重要】
                 请只输出 JSON 数组，不要包含 ```json 标记，不要添加任何解释文字。
                 输出的第一个字符必须是 '['。
-                每个页面的 html 字段内禁止只写 Tailwind 类名而不写 CSS。
-                """.formatted(style, buildGenerationStrategy(platform, hasReferenceImage), buildPlatformDesignSpec(platform),
-                buildComponentSpecification(), buildCssRequirements(),
+                """.formatted(style, buildGenerationStrategy(platform, hasReferenceImage),
+                buildMorphologyInstruction(morphology),
+                buildPlatformDesignSpec(platform),
+                PrototypeDesignSystem.componentListFor(platform),
+                buildCssRequirements(),
                 buildReferenceStyleHint(hasReferenceImage, referenceFileName), description);
+    }
+
+    /**
+     * 构建「页面形态约束」指令：注入固定骨架 + 填充规则。
+     * AUTO 形态不注入骨架，AI 自行判断。
+     */
+    private String buildMorphologyInstruction(com.example.aidocumentplatform.model.enums.PageMorphology morphology) {
+        if (morphology == null || morphology == com.example.aidocumentplatform.model.enums.PageMorphology.AUTO) {
+            return """
+                    【页面形态约束 — 自由模式】
+                    根据功能描述自行判断页面结构。若描述的是弹窗/浮层/卡片类组件，只生成组件本身，不生成页面外壳和导航栏；
+                    若描述的是完整页面（首页/列表/详情/商城/扭蛋机等），生成完整页面结构。
+                    """;
+        }
+        String shell = PrototypeDesignSystem.shellFor(morphology);
+        String fillRule = PrototypeDesignSystem.fillRuleFor(morphology);
+        return """
+                【页面形态约束 — 已选择：%s】
+                骨架结构已由平台固定，你必须严格按照以下骨架输出 HTML（骨架的 class 样式已由平台注入，禁止修改骨架结构，禁止写 <style>）：
+                ```html
+                %s
+                ```
+                %s
+                禁止新增骨架之外的页面外壳、导航栏、标签栏；禁止发明清单外的 class。
+                """.formatted(morphologyLabel(morphology), shell, fillRule);
+    }
+
+    private String morphologyLabel(com.example.aidocumentplatform.model.enums.PageMorphology m) {
+        return switch (m) {
+            case FULL_PAGE -> "完整页面";
+            case MODAL_POPUP -> "弹窗/浮层";
+            case LIST_FEED -> "列表/信息流";
+            case FORM_FLOW -> "表单/流程";
+            case COMPONENT_ONLY -> "组件特写";
+            case AUTO -> "自由模式";
+        };
     }
 
     // ==================== AI 辅助修改（局部编辑） ====================

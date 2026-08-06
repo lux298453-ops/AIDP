@@ -1,0 +1,48 @@
+========================================
+  AiDocumentPlatform 重启后启动步骤
+========================================
+
+【第 1 步】启动 PostgreSQL
+开始菜单 → PostgreSQL 16 → pgAdmin 4 启动
+或
+services.msc → 找到 postgresql-x64-16 → 右键启动
+
+【第 2 步】启动后端
+打开 PowerShell（管理员），逐条执行：
+
+  cd D:\idea\Project\AiDocumentPlatform\prd-assist-backend
+  java -jar target\AiDocumentPlatform-0.0.1-SNAPSHOT.jar
+
+看到类似 "Started AiDocumentPlatformApplication in X seconds" 即成功
+（保持此窗口不关闭）
+
+【第 3 步】启动 nginx
+打开 PowerShell（管理员），逐条执行：
+
+  cd D:\nginx\nginx-1.30.4
+  nginx
+
+【第 4 步】验证
+浏览器打开 http://localhost
+能看到登录页即部署完成
+
+【第 5 步】告诉同事
+本机 IP：192.168.0.245
+同事访问：http://192.168.0.245
+
+========================================
+ 常见问题
+========================================
+
+Q: 后端启动报端口被占用
+A: taskkill /f /im java.exe  然后重新启动
+
+Q: nginx 启动报错
+A: taskkill /f /im nginx.exe  然后重新 nginx
+
+Q: 别人连不上
+A: 以管理员运行 PowerShell：
+   netsh advfirewall firewall add rule name="nginx 80" dir=in action=allow protocol=TCP localport=80
+
+Q: IP 变了
+A: ipconfig 查新 IP，告诉同事新地址

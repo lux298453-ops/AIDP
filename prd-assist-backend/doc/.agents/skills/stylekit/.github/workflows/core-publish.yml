@@ -1,0 +1,39 @@
+name: Publish @stylekit/core
+
+on:
+  push:
+    tags:
+      - "core-v*"
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    name: Build and Publish
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build core package
+        run: pnpm --dir packages/core run build
+
+      - name: Typecheck
+        run: pnpm --dir packages/core run typecheck
+
+      - name: Verify package (dry-run)
+        run: pnpm --dir packages/core publish --dry-run
+
+      - name: Publish to npm
+        run: pnpm --dir packages/core publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

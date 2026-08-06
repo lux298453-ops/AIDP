@@ -1,0 +1,166 @@
+# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+
+# dependencies
+/node_modules
+/.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
+
+# testing
+/coverage
+/playwright-report/
+/test-results/
+
+# next.js
+/.next/
+/out/
+
+# production
+/build
+
+# misc
+.DS_Store
+*.pem
+*.bak
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# env files (can opt-in for committing if needed)
+.env*
+!.env.example
+
+# vercel
+.vercel
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
+
+# windows invalid
+nul
+
+# Agent/IDE Rules
+AGENTS.md
+AI_CONTEXT.md
+AI-ICON-WORKFLOW-TUTORIAL.md
+CLAUDE.md
+trae-rules.md
+NEO-BRUTALIST-GUIDE.md
+PHASE-5A-SUMMARY.md
+.mcp.json
+.codex
+.codex/
+.vscode/
+.claude/
+.trae/
+.cursor/
+.windsurf/
+skills/
+skills-lock.json
+
+# Screenshots (local dev / Playwright / temp)
+stylekit-*.png
+*-modal-*.png
+*-thankyou-*.png
+homepage-*.png
+contact-*.png
+lithos-*.png
+support-*.png
+
+# Local images
+image.png
+image.jpg
+*.local.png
+
+# Generic JPEGs
+*.jpg
+!public/alipay-qr.jpg
+
+# Support receipts — runtime content, not code
+public/support/acknowledgments/
+public/support/receipts/
+public/support/thank-you/
+
+# Maintainer-only generated and promotional media
+public/images/styles/*
+!public/images/styles/immersive-photo/
+!public/images/styles/immersive-photo/**
+!public/images/styles/luxe-lookbook/
+!public/images/styles/luxe-lookbook/**
+!public/images/styles/launch-keynote/
+!public/images/styles/launch-keynote/**
+public/launch/overseas/
+.images-generate-state.json
+
+# Agent skill packs and internal configs (maintainer tooling)
+.agents/
+.factory/
+.kiro/
+.interface-design/
+dist-skills/
+ops/
+
+# Build artifacts
+packages/core/dist/
+__pycache__/
+*.pyc
+
+# Temporary
+.tmp/
+/tmp/
+.understand-anything/
+
+# Runtime data (analytics, submissions)
+/.data/
+/data/
+
+# Workspace build outputs and generated reports
+/output/
+packages/**/node_modules/
+packages/**/dist/
+.spec-workflow/
+tools/scripts/output/
+
+# Competitor analysis data
+uiprompt-*.json
+chaos-lab-manifest.json
+
+# npm lock file (project uses pnpm)
+package-lock.json
+packages/**/package-lock.json
+
+# Temporary dev scripts (batch processing tools)
+process.js
+tools/scripts/refine.js
+tools/scripts/refine-batch-01.mjs
+
+# External sub-projects
+editorial-brutalist-portfolio/
+style-extractor-dev/
+dashboards/
+docs/references/
+.stylekit.top.conf.remote
+.playwright-mcp/
+.worktrees/
+anthropic-ai-claude-code-*/
+anthropic-ai-claude-code-*.tgz
+
+# AI Studio exported data files
+"ai_studio_code*.txt"
+ai_studio_code*.txt
+
+# Skill packs
+*.skill
+!dist-skills/*.skill
+
+# dist-skills local artifacts (symlinks, data, scripts)
+dist-skills/*
+!dist-skills/*.skill

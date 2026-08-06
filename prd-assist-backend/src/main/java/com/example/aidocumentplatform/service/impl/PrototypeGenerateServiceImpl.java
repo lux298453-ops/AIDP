@@ -57,6 +57,7 @@ public class PrototypeGenerateServiceImpl implements PrototypeGenerateService {
             ObjectNode root = objectMapper.createObjectNode();
             root.put("platform", request.getPlatform().name());
             root.put("prototypeType", request.getPrototypeType().name());
+            root.put("pageMorphology", request.getPageMorphology() == null ? "" : request.getPageMorphology().name());
             root.put("description", request.getDescription());
             root.put("hasReferenceImage", hasRef);
             if (hasRef && request.getReferenceImageFileName() != null) {
@@ -86,7 +87,8 @@ public class PrototypeGenerateServiceImpl implements PrototypeGenerateService {
                     request.getPlatform(),
                     request.getPrototypeType(),
                     hasRef,
-                    request.getReferenceImageFileName());
+                    request.getReferenceImageFileName(),
+                    request.getPageMorphology());
 
             String aiOutput;
             AiRequestContext.setUserId(userId);
@@ -155,13 +157,10 @@ public class PrototypeGenerateServiceImpl implements PrototypeGenerateService {
             s = wrapAsDocument(s);
         }
 
-        // 几乎没有 CSS 时补基础样式，避免“全是裸标签”
-        if (!hasSubstantialCss(s)) {
-            s = injectBaseStyles(s);
-            log.warn("原型 HTML 缺少有效 CSS，已注入基础样式兜底, len={}", s.length());
-        }
         s = addPlatformMarker(s, platform);
-        return injectPrototypeQualityStyles(s, platform);
+        // 固定设计系统 CSS 优先注入，随后注入质量守卫兜底
+        s = injectPrototypeQualityStyles(s, platform);
+        return s;
     }
 
     /**
@@ -336,6 +335,8 @@ public class PrototypeGenerateServiceImpl implements PrototypeGenerateService {
         if (html == null || html.isBlank() || html.contains("data-proto-quality-guard")) {
             return html;
         }
+        // 固定设计系统 CSS（按平台：APP/PAD→Vant，WEB→Element Plus）
+        String designSystem = com.example.aidocumentplatform.ai.prompt.PrototypeDesignSystem.buildDesignSystemCss(platform);
         String guard = """
                 <style data-proto-quality-guard>
                 :root{--proto-primary:#2457d6;--proto-primary-dark:#1745ba;--proto-bg:#f4f7fb;--proto-panel:#fff;--proto-border:#dfe5ee;--proto-border-strong:#cdd6e3;--proto-text:#13213a;--proto-muted:#66738a;--proto-sidebar:#132947;--proto-sidebar-border:#203654;--proto-panel-shadow:0 5px 18px rgba(24,43,74,.04);--proto-control-shadow:0 2px 5px rgba(20,35,60,.06)}
@@ -423,16 +424,16 @@ public class PrototypeGenerateServiceImpl implements PrototypeGenerateService {
         String lower = html.toLowerCase();
         int headClose = lower.indexOf("</head>");
         if (headClose >= 0) {
-            return html.substring(0, headClose) + guard + platformGuard + html.substring(headClose);
+            return html.substring(0, headClose) + designSystem + guard + platformGuard + html.substring(headClose);
         }
         int bodyOpen = lower.indexOf("<body");
         if (bodyOpen >= 0) {
             int bodyTagEnd = html.indexOf('>', bodyOpen);
             if (bodyTagEnd > 0) {
-                return html.substring(0, bodyTagEnd + 1) + guard + platformGuard + html.substring(bodyTagEnd + 1);
+                return html.substring(0, bodyTagEnd + 1) + designSystem + guard + platformGuard + html.substring(bodyTagEnd + 1);
             }
         }
-        return guard + platformGuard + html;
+        return designSystem + guard + platformGuard + html;
     }
 
     private static String buildPlatformQualityGuard(Platform platform) {

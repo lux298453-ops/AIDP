@@ -1,5 +1,6 @@
 package com.example.aidocumentplatform.model.dto.request;
 
+import com.example.aidocumentplatform.model.enums.PageMorphology;
 import com.example.aidocumentplatform.model.enums.Platform;
 import com.example.aidocumentplatform.model.enums.PrototypeType;
 import jakarta.validation.constraints.NotBlank;
@@ -23,6 +24,9 @@ public class PrototypeGenerateRequest {
 
     /** 终端类型 */
     private Platform platform = Platform.APP;
+
+    /** 页面形态（控制生成骨架结构，默认完整页面） */
+    private PageMorphology pageMorphology = PageMorphology.FULL_PAGE;
 
     /** 关联的 PRD 文档 ID（可选） */
     private Long prdDocumentId;
