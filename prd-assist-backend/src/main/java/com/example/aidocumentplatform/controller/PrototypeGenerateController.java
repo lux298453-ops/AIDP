@@ -60,7 +60,7 @@ public class PrototypeGenerateController {
             @RequestParam("description") String description,
             @RequestParam(value = "prototypeType", defaultValue = "SINGLE_PAGE") String prototypeType,
             @RequestParam(value = "platform", defaultValue = "APP") String platform,
-            @RequestParam(value = "pageMorphology", defaultValue = "FULL_PAGE") String pageMorphology,
+            @RequestParam(value = "pageMorphology", defaultValue = "AUTO") String pageMorphology,
             @RequestParam(value = "prdDocumentId", required = false) Long prdDocumentId,
             @RequestParam(value = "referenceImage", required = false) MultipartFile referenceImage
     ) {

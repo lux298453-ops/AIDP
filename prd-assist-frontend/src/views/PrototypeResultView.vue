@@ -355,7 +355,7 @@ let streamIdleTimer: ReturnType<typeof setTimeout> | null = null
 
 const devices = [
   { key: 'mobile', label: '手机', icon: Iphone, width: 390 },
-  { key: 'tablet', label: '平板', icon: Platform, width: 820 },
+  { key: 'tablet', label: '平板', icon: Platform, width: 1024 },
   { key: 'desktop', label: '桌面', icon: Monitor, width: 0 },
 ] as const
 

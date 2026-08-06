@@ -30,7 +30,7 @@ const platforms = [
 ]
 
 // 页面形态：控制 AI 生成的骨架结构（弹窗/组件特写等不生成页面外壳）
-const pageMorphology = ref('FULL_PAGE')
+const pageMorphology = ref('AUTO')
 const morphologies = [
   { key: 'FULL_PAGE', label: '完整页面', desc: '含导航栏/标签栏/页面外壳' },
   { key: 'MODAL_POPUP', label: '弹窗浮层', desc: '仅弹窗组件，居中展示' },

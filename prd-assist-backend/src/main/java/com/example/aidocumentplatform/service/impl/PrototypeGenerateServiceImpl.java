@@ -347,7 +347,7 @@ public class PrototypeGenerateServiceImpl implements PrototypeGenerateService {
                 h1,.page-title{font-size:clamp(22px,1.5rem,24px)!important;line-height:1.3!important}
                 h2,.section-title{font-size:clamp(18px,1.25rem,20px)!important;line-height:1.35!important}
                 h3,.card-title{font-size:16px!important;line-height:1.4!important}
-                button,.btn,.btn-primary,.btn-secondary,.btn-text,[role="button"],input[type="button"],input[type="submit"]{min-height:40px!important;line-height:1.2!important;white-space:nowrap!important;border-radius:8px!important;font-weight:600!important;display:inline-flex;align-items:center;justify-content:center;gap:8px}
+                button,.btn,.btn-primary,.btn-secondary,.btn-text,[role="button"],input[type="button"],input[type="submit"]{min-height:40px!important;line-height:1.2!important;white-space:nowrap!important;border-radius:8px!important;font-weight:600!important;display:inline-flex!important;align-items:center!important;justify-content:center!important;gap:8px!important;padding:0 15px!important;text-align:center!important}
                 .btn,.btn-primary,.btn-secondary,.btn-text{padding:0 15px!important}
                 .btn-primary{border:1px solid var(--proto-primary)!important;background:var(--proto-primary)!important;color:#fff!important;box-shadow:0 2px 5px rgba(36,87,214,.2)}
                 .btn-secondary{border:1px solid var(--proto-border-strong)!important;background:var(--proto-panel)!important;color:var(--proto-text)!important}
@@ -391,7 +391,7 @@ public class PrototypeGenerateServiceImpl implements PrototypeGenerateService {
                 .action-cell,.table-actions{display:flex!important;align-items:center!important;gap:8px!important;justify-content:flex-start!important}
                 table button,table .btn,table [role="button"],td button,td .btn,td [role="button"]{height:40px!important;min-height:40px!important;width:88px!important;min-width:88px!important;max-width:88px!important;padding:0 12px!important;display:inline-flex!important;align-items:center!important;justify-content:center!important;text-align:center!important}
                 td:last-child,th:last-child{white-space:nowrap}
-                .icon,.menu-icon,.status-icon{width:18px!important;height:18px!important;flex:0 0 auto!important}
+                .icon,.menu-icon,.status-icon,.cell-media,.grid-icon,.list-item-icon{width:18px!important;height:18px!important;flex:0 0 auto!important;display:inline-flex!important;align-items:center!important;justify-content:center!important;text-align:center!important;line-height:1!important}
                 .sidebar,.side-bar,.sidenav,.side-nav,.nav-sidebar,.menu-sidebar,.app-sidebar,.layout-sidebar{width:248px!important;max-width:248px!important;flex:0 0 248px!important;flex-shrink:0!important}
                 .sidebar:not(.light),.side-bar:not(.light),.sidenav:not(.light),.side-nav:not(.light),.nav-sidebar:not(.light),.menu-sidebar:not(.light),.app-sidebar:not(.light),.layout-sidebar:not(.light){background:var(--proto-sidebar);border-right:1px solid var(--proto-sidebar-border)}
                 .sidebar > nav,.side-bar > nav,.sidenav > nav,.side-nav > nav,.nav-sidebar > nav,.menu-sidebar > nav,.app-sidebar > nav,.layout-sidebar > nav,.nav-list,.navList,.menu-list,.sidebar-menu{padding:22px 12px!important}

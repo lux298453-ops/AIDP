@@ -179,12 +179,61 @@ public final class PrototypeDesignSystem {
         return SHELLS.getOrDefault(morphology, "");
     }
 
+    public static String shellFor(PageMorphology morphology, Platform platform) {
+        if (morphology == null) return "";
+        if (morphology == PageMorphology.FULL_PAGE && (platform == Platform.WEB || platform == Platform.PAD)) {
+            return """
+                    <div class="app-shell">
+                      <aside class="sidebar">
+                        <div class="sidebar-header">__TITLE__</div>
+                        <div class="nav-list">
+                          __SIDEBAR__
+                        </div>
+                      </aside>
+                      <div class="main-wrap">
+                        <div class="app-header">
+                          <div class="header-title">
+                            <div class="page-title">__TITLE__</div>
+                            <div class="page-description">__HEADER_DESC__</div>
+                          </div>
+                          <div class="header-actions">
+                            __HEADER_ACTIONS__
+                          </div>
+                        </div>
+                        <main class="page-main">
+                          <div class="page-content">
+                            __CONTENT__
+                          </div>
+                        </main>
+                      </div>
+                    </div>
+                    """;
+        }
+        return shellFor(morphology);
+    }
+
     /**
      * 返回形态对应的填充指令。
      */
     public static String fillRuleFor(PageMorphology morphology) {
         if (morphology == null) return "";
         return FILL_RULES.getOrDefault(morphology, "");
+    }
+
+    public static String fillRuleFor(PageMorphology morphology, Platform platform) {
+        if (morphology == null) return "";
+        if (morphology == PageMorphology.FULL_PAGE && (platform == Platform.WEB || platform == Platform.PAD)) {
+            return """
+                    Fill rules:
+                    - __TITLE__: page title, reused in the sidebar brand area and header title area
+                    - __SIDEBAR__: 3 to 7 navigation items using .el-menu-item or .nav-item; do not generate a bottom tab bar
+                    - __HEADER_DESC__: one-line page summary or state description
+                    - __HEADER_ACTIONS__: 1 to 3 top-right actions, prefer .el-button or .btn
+                    - __CONTENT__: the main work area, organized with desktop/tablet form, table, card, and detail components
+                    - Desktop and tablet full pages must keep the sidebar + header + main-content layout; never fall back to a mobile top bar plus bottom navigation shell
+                    """;
+        }
+        return fillRuleFor(morphology);
     }
 
     /**
@@ -225,7 +274,7 @@ public final class PrototypeDesignSystem {
      * APP / 小程序 / PAD → Vant 移动端组件；WEB → Element Plus 桌面端组件。
      */
     public static String componentListFor(Platform platform) {
-        return platform == Platform.WEB ? COMPONENT_LIST_WEB : COMPONENT_LIST_MOBILE;
+        return (platform == Platform.WEB || platform == Platform.PAD) ? COMPONENT_LIST_WEB : COMPONENT_LIST_MOBILE;
     }
 
     /**
@@ -233,7 +282,7 @@ public final class PrototypeDesignSystem {
      * APP / 小程序 / PAD → Vant + OPPO ColorOS 变量；WEB → Element Plus + Corporate Clean 变量。
      */
     public static String buildDesignSystemCss(Platform platform) {
-        return platform == Platform.WEB ? buildElementDesignSystem() : buildVantDesignSystem();
+        return (platform == Platform.WEB || platform == Platform.PAD) ? buildElementDesignSystem() : buildVantDesignSystem();
     }
 
     /**

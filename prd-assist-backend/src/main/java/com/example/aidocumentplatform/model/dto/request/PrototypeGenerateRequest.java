@@ -26,7 +26,7 @@ public class PrototypeGenerateRequest {
     private Platform platform = Platform.APP;
 
     /** 页面形态（控制生成骨架结构，默认完整页面） */
-    private PageMorphology pageMorphology = PageMorphology.FULL_PAGE;
+    private PageMorphology pageMorphology = PageMorphology.AUTO;
 
     /** 关联的 PRD 文档 ID（可选） */
     private Long prdDocumentId;

@@ -490,7 +490,7 @@ public class PrototypePromptTemplate {
                 """.formatted(
                 getStyleGuide(platform),
                 buildGenerationStrategy(platform, hasReferenceImage),
-                buildMorphologyInstruction(morphology),
+                buildMorphologyInstruction(platform, morphology),
                 buildPlatformDesignSpec(platform),
                 PrototypeDesignSystem.componentListFor(platform),
                 buildCssRequirements(),
@@ -544,7 +544,7 @@ public class PrototypePromptTemplate {
                 请只输出 JSON 数组，不要包含 ```json 标记，不要添加任何解释文字。
                 输出的第一个字符必须是 '['。
                 """.formatted(style, buildGenerationStrategy(platform, hasReferenceImage),
-                buildMorphologyInstruction(morphology),
+                buildMorphologyInstruction(platform, morphology),
                 buildPlatformDesignSpec(platform),
                 PrototypeDesignSystem.componentListFor(platform),
                 buildCssRequirements(),
@@ -555,24 +555,27 @@ public class PrototypePromptTemplate {
      * 构建「页面形态约束」指令：注入固定骨架 + 填充规则。
      * AUTO 形态不注入骨架，AI 自行判断。
      */
-    private String buildMorphologyInstruction(com.example.aidocumentplatform.model.enums.PageMorphology morphology) {
+    private String buildMorphologyInstruction(Platform platform,
+                                              com.example.aidocumentplatform.model.enums.PageMorphology morphology) {
         if (morphology == null || morphology == com.example.aidocumentplatform.model.enums.PageMorphology.AUTO) {
             return """
-                    【页面形态约束 — 自由模式】
-                    根据功能描述自行判断页面结构。若描述的是弹窗/浮层/卡片类组件，只生成组件本身，不生成页面外壳和导航栏；
-                    若描述的是完整页面（首页/列表/详情/商城/扭蛋机等），生成完整页面结构。
+                    [Page Morphology Constraint - Auto]
+                    Infer the page structure from the feature description.
+                    If the request is for a popup, overlay, card, or other isolated component, generate only that component and do not add page chrome or navigation.
+                    If the request is for a full screen such as a home page, list, detail page, mall, or gacha screen, generate a complete page structure.
                     """;
         }
-        String shell = PrototypeDesignSystem.shellFor(morphology);
-        String fillRule = PrototypeDesignSystem.fillRuleFor(morphology);
+        String shell = PrototypeDesignSystem.shellFor(morphology, platform);
+        String fillRule = PrototypeDesignSystem.fillRuleFor(morphology, platform);
         return """
-                【页面形态约束 — 已选择：%s】
-                骨架结构已由平台固定，你必须严格按照以下骨架输出 HTML（骨架的 class 样式已由平台注入，禁止修改骨架结构，禁止写 <style>）：
+                [Page Morphology Constraint - Selected: %s]
+                The platform has fixed the shell structure. You must output HTML that follows this shell exactly.
+                Do not change the shell structure and do not add another <style> block for the shell itself:
                 ```html
                 %s
                 ```
                 %s
-                禁止新增骨架之外的页面外壳、导航栏、标签栏；禁止发明清单外的 class。
+                Do not add outer page wrappers, nav bars, or tab bars beyond the selected shell, and do not invent classes outside the approved component list.
                 """.formatted(morphologyLabel(morphology), shell, fillRule);
     }
 
