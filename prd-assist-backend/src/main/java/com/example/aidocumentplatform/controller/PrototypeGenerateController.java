@@ -47,6 +47,7 @@ public class PrototypeGenerateController {
     @PostMapping(value = "/generate", consumes = MediaType.APPLICATION_JSON_VALUE)
     public ApiResponse<Map<String, Long>> generate(@Valid @RequestBody PrototypeGenerateRequest request) {
         Long userId = getCurrentUserId();
+        resolveAutoMorphology(request);
         Long taskId = prototypeGenerateService.submit(request, userId);
         return ApiResponse.success(Map.of("taskId", taskId));
     }
@@ -77,6 +78,7 @@ public class PrototypeGenerateController {
         request.setPlatform(parsePlatform(platform));
         request.setPageMorphology(parseMorphology(pageMorphology));
         request.setPrdDocumentId(prdDocumentId);
+        resolveAutoMorphology(request);
 
         if (referenceImage != null && !referenceImage.isEmpty()) {
             applyReferenceImage(request, referenceImage);
@@ -125,6 +127,14 @@ public class PrototypeGenerateController {
 
     private com.example.aidocumentplatform.model.enums.PageMorphology parseMorphology(String value) {
         return parseEnum(com.example.aidocumentplatform.model.enums.PageMorphology.class, value, "pageMorphology");
+    }
+
+    /** AUTO 形态：根据功能描述关键词判定为具体形态，让骨架约束始终生效 */
+    private void resolveAutoMorphology(PrototypeGenerateRequest request) {
+        if (request.getPageMorphology() == com.example.aidocumentplatform.model.enums.PageMorphology.AUTO) {
+            request.setPageMorphology(
+                    com.example.aidocumentplatform.model.enums.PageMorphology.autoFromDescription(request.getDescription()));
+        }
     }
 
     private <E extends Enum<E>> E parseEnum(Class<E> enumClass, String value, String fieldName) {
