@@ -1,5 +1,7 @@
 package com.example.aidocumentplatform.model.enums;
 
+import java.util.Locale;
+
 /**
  * 页面形态 —— 控制 AI 生成原型的结构骨架。
  *
@@ -9,7 +11,7 @@ package com.example.aidocumentplatform.model.enums;
  */
 public enum PageMorphology {
 
-    /** 完整页面：含页面外壳、顶部导航栏、底部标签栏（默认） */
+    /** 完整页面：含页面外壳、顶部导航栏、底部标签栏 */
     FULL_PAGE,
 
     /** 弹窗/浮层：只生成弹窗组件，居中展示在半透明遮罩上，无页面外壳 */
@@ -25,5 +27,34 @@ public enum PageMorphology {
     COMPONENT_ONLY,
 
     /** 自由模式：不注入骨架约束，AI 根据描述自行判断页面结构 */
-    AUTO
+    AUTO;
+
+    /**
+     * 描述 → 形态的关键词判定（用于 AUTO 模式）。
+     * 生成前把描述翻译成具体形态并注入对应骨架，避免 AI 裸奔。
+     */
+    public static PageMorphology autoFromDescription(String description) {
+        if (description == null || description.isBlank()) return FULL_PAGE;
+        String d = description.toLowerCase(Locale.ROOT);
+        if (containsAny(d, "弹窗", "弹层", "浮层", "浮窗", "提示框", "确认框", "对话框", "modal", "dialog", "popup", "pop-up", "toast")) {
+            return MODAL_POPUP;
+        }
+        if (containsAny(d, "列表", "信息流", "通知", "消息", "记录", "动态", "账单", "订单列表", "feed", "timeline", "message")) {
+            return LIST_FEED;
+        }
+        if (containsAny(d, "表单", "注册", "登录", "填写", "提交", "报名", "申请", "创建任务", "新建", "form", "signup", "register", "login")) {
+            return FORM_FLOW;
+        }
+        if (containsAny(d, "组件", "卡片", "按钮", "输入框", "标签", "特写", "控件", "component", "widget")) {
+            return COMPONENT_ONLY;
+        }
+        return FULL_PAGE;
+    }
+
+    private static boolean containsAny(String text, String... keywords) {
+        for (String k : keywords) {
+            if (text.contains(k)) return true;
+        }
+        return false;
+    }
 }
