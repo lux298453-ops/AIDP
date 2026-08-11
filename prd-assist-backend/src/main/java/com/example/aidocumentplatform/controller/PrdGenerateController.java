@@ -227,6 +227,7 @@ public class PrdGenerateController {
         result.put("id", prd.getId());
         result.put("userId", prd.getUserId());
         result.put("taskId", prd.getTaskId());
+        result.put("sourcePrdId", prd.getSourcePrdId());
         result.put("title", prd.getTitle());
         result.put("description", prd.getDescription());
         result.put("sourceType", prd.getSourceType().name());

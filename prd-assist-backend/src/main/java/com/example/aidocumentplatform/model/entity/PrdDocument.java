@@ -28,6 +28,10 @@ public class PrdDocument {
     @Column(name = "task_id")
     private Long taskId;
 
+    /** 增强来源的原版 PRD（增强结果为 null） */
+    @Column(name = "source_prd_id")
+    private Long sourcePrdId;
+
     @Column(nullable = false, length = 50)
     private String title;
 

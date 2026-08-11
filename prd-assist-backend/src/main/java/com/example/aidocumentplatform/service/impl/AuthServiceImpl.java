@@ -5,7 +5,9 @@ import com.example.aidocumentplatform.exception.ErrorCode;
 import com.example.aidocumentplatform.model.dto.request.LoginRequest;
 import com.example.aidocumentplatform.model.dto.request.RegisterRequest;
 import com.example.aidocumentplatform.model.dto.response.LoginResponse;
+import com.example.aidocumentplatform.model.entity.AiModelConfig;
 import com.example.aidocumentplatform.model.entity.User;
+import com.example.aidocumentplatform.repository.AiModelConfigRepository;
 import com.example.aidocumentplatform.repository.UserRepository;
 import com.example.aidocumentplatform.security.JwtUtil;
 import com.example.aidocumentplatform.service.AuthService;
@@ -13,6 +15,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 /**
  * 认证服务实现。
@@ -28,6 +31,7 @@ public class AuthServiceImpl implements AuthService {
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtUtil jwtUtil;
+    private final AiModelConfigRepository aiModelConfigRepository;
 
     /**
      * 用户注册。
@@ -36,6 +40,7 @@ public class AuthServiceImpl implements AuthService {
      * @throws BusinessException 如果用户名已存在
      */
     @Override
+    @Transactional
     public void register(RegisterRequest request) {
         // 1. 校验用户名是否已被占用
         if (userRepository.existsByUsername(request.getUsername())) {
@@ -52,6 +57,34 @@ public class AuthServiceImpl implements AuthService {
         // 3. 持久化到数据库
         userRepository.save(user);
         log.info("用户注册成功: username={}", user.getUsername());
+
+        // 4. 初始化 AI 配置：复制平台默认配置，保证新用户开箱即用
+        try {
+            aiModelConfigRepository.findFirstByEnabledTrueOrderByIdAsc()
+                    .ifPresent(tpl -> {
+                        AiModelConfig cfg = AiModelConfig.builder()
+                                .userId(user.getId())
+                                .provider(tpl.getProvider())
+                                .baseUrl(tpl.getBaseUrl())
+                                .apiKey(tpl.getApiKey())
+                                .model(tpl.getModel())
+                                .apiType(tpl.getApiType())
+                                .appendApiPath(tpl.getAppendApiPath())
+                                .openAiAuthEnabled(tpl.getOpenAiAuthEnabled())
+                                .authHeaderType(tpl.getAuthHeaderType())
+                                .actorAuthorization(tpl.getActorAuthorization())
+                                .reasoningEffort(tpl.getReasoningEffort())
+                                .disableResponseStorage(tpl.getDisableResponseStorage())
+                                .maxOutputTokens(tpl.getMaxOutputTokens())
+                                .imageDetail(tpl.getImageDetail())
+                                .enabled(true)
+                                .build();
+                        aiModelConfigRepository.save(cfg);
+                        log.info("已为新用户初始化 AI 配置: userId={}, templateUserId={}", user.getId(), tpl.getUserId());
+                    });
+        } catch (Exception e) {
+            log.warn("初始化 AI 配置失败（不影响注册）: {}", e.getMessage());
+        }
     }
 
     /**

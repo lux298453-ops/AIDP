@@ -145,6 +145,7 @@ public class PrdEnhanceServiceImpl implements PrdEnhanceService {
                     .sourceType(DocumentSourceType.MANUAL)
                     .template(source != null ? source.getTemplate() : null)
                     .detailLevel(source != null ? source.getDetailLevel() : null)
+                    .sourcePrdId(source != null ? source.getId() : null)
                     .build();
             doc = asyncTaskLifecycleService.savePrdDocumentAndMarkSuccess(taskId, doc);
             taskService.pushProgress(taskId, 100, "PRD 增强完成");

@@ -14,6 +14,7 @@ import client from '@/api/client'
 import { getTaskById, getTaskSseUrl } from '@/api/task'
 import RichTextEditor from '@/components/common/RichTextEditor.vue'
 import MarkdownContent from '@/components/common/MarkdownContent.vue'
+import DiffContent from '@/components/common/DiffContent.vue'
 import ChartSection from '@/components/common/ChartSection.vue'
 import { hasChart as detectMermaid } from '@/utils/chart'
 
@@ -184,7 +185,8 @@ async function load() {
     taskId.value = data.taskId ?? null
     templateType.value = data.template || 'STANDARD'
 
-    const compareId = Number(route.query.compare)
+    // 对比来源：URL ?compare= 优先，否则增强版自动关联原版（sourcePrdId）
+    const compareId = Number(route.query.compare || data.sourcePrdId)
     if (compareId && compareId !== id.value) {
       compareLoading.value = true
       try {
@@ -306,6 +308,58 @@ function matchChapterIndex(location: string | undefined | null): number {
   })
   return best
 }
+
+/** 对比模式：增强版章节 ↔ 原版章节 按标题配对 */
+type ChapterPair =
+  | { kind: 'paired'; newCh: Chapter; oldCh: Chapter }
+  | { kind: 'added'; newCh: Chapter }
+  | { kind: 'removed'; oldCh: Chapter }
+
+const chapterPairs = computed<ChapterPair[]>(() => {
+  const src = compare.value
+  if (!src) return []
+  const usedOrig = new Set<number>()
+  const out: ChapterPair[] = []
+  chapters.value.forEach(ch => {
+    const norm = normalizeAnchorText(ch.title)
+    let match = -1
+    let bestScore = 0
+    if (norm) {
+      src.chapters.forEach((oc, j) => {
+        if (usedOrig.has(j)) return
+        const ot = normalizeAnchorText(oc.title)
+        if (!ot) return
+        if (norm.includes(ot) || ot.includes(norm)) {
+          const score = Math.min(norm.length, ot.length)
+          if (score > bestScore) { bestScore = score; match = j }
+        }
+      })
+    }
+    if (match >= 0) {
+      usedOrig.add(match)
+      out.push({ kind: 'paired', newCh: ch, oldCh: src.chapters[match] })
+    } else {
+      out.push({ kind: 'added', newCh: ch })
+    }
+  })
+  src.chapters.forEach((oc, j) => {
+    if (!usedOrig.has(j)) out.push({ kind: 'removed', oldCh: oc })
+  })
+  return out
+})
+
+const compareOverview = computed(() => {
+  if (!compare.value) return null
+  let added = 0
+  let removed = 0
+  let modified = 0
+  for (const p of chapterPairs.value) {
+    if (p.kind === 'added') added++
+    else if (p.kind === 'removed') removed++
+    else if (p.newCh.content !== p.oldCh.content) modified++
+  }
+  return { added, removed, modified }
+})
 
 function resolveIssueChapterIndex(issue: ReviewIssue): number {
   const byTitle = matchChapterIndex(issue.chapterTitle)
@@ -1086,21 +1140,49 @@ watch(id, () => load())
         </div>
 
         <!-- 对比模式 -->
-        <aside v-if="route.query.compare" class="compare-block">
+        <aside v-if="route.query.compare || compare || compareLoading" class="compare-block">
           <div class="compare-heading">
             <span>原始版本对比</span>
             <span v-if="compareLoading">加载中…</span>
           </div>
           <template v-if="compare">
-            <h3 class="compare-title">{{ compare.title }}</h3>
-            <p class="compare-summary">{{ compare.summary }}</p>
+            <div v-if="compareOverview" class="compare-overview">
+              <span class="cov-item">
+                章节
+                <b v-if="compareOverview.added" class="cov-add">+{{ compareOverview.added }}</b>
+                <b v-if="compareOverview.modified" class="cov-mod">改{{ compareOverview.modified }}</b>
+                <b v-if="compareOverview.removed" class="cov-del">-{{ compareOverview.removed }}</b>
+                <b v-if="!compareOverview.added && !compareOverview.modified && !compareOverview.removed" class="cov-none">无变化</b>
+              </span>
+              <span class="cov-hint">绿色 = 新增，红色删除线 = 移除，未变更内容默认折叠</span>
+            </div>
+
+            <div class="compare-summary-diff" v-if="compare.summary !== summary">
+              <h4>文档摘要</h4>
+              <DiffContent :old-content="compare.summary || ''" :new-content="summary || ''" />
+            </div>
+
             <article
-              v-for="(ch, i) in compare.chapters"
+              v-for="(p, i) in chapterPairs"
               :key="i"
               class="compare-chapter"
             >
-              <h4>{{ ch.title }}</h4>
-              <MarkdownContent :content="ch.content" />
+              <div class="compare-chapter-head">
+                <h4>{{ p.kind === 'removed' ? p.oldCh.title : p.newCh.title }}</h4>
+                <el-tag v-if="p.kind === 'added'" type="success" size="small" effect="light">新增章节</el-tag>
+                <el-tag v-else-if="p.kind === 'removed'" type="danger" size="small" effect="light">删除章节</el-tag>
+              </div>
+              <DiffContent
+                v-if="p.kind === 'paired'"
+                :old-content="p.oldCh.content"
+                :new-content="p.newCh.content"
+              />
+              <div v-else-if="p.kind === 'added'" class="d-whole-add md-html">
+                <MarkdownContent :content="p.newCh.content" />
+              </div>
+              <div v-else class="d-whole-del md-html">
+                <MarkdownContent :content="p.oldCh.content" />
+              </div>
             </article>
           </template>
         </aside>
@@ -1667,14 +1749,72 @@ watch(id, () => load())
   line-height: 1.6;
   margin: 0 0 12px;
 }
+.compare-overview {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 4px 0 14px;
+  font-size: 13px;
+}
+.cov-item {
+  background: #fff;
+  border: 1px solid rgba(38, 37, 30, 0.1);
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-weight: 600;
+  color: #26251e;
+}
+.cov-item b { margin-left: 4px; }
+.cov-add { color: #2e7d43; }
+.cov-del { color: #b0443a; }
+.cov-mod { color: #a06a1d; }
+.cov-none { color: rgba(38, 37, 30, 0.45); font-weight: 500; }
+.cov-hint { color: rgba(38, 37, 30, 0.45); font-size: 12px; }
+.compare-summary-diff {
+  background: #fff;
+  border: 1px solid rgba(38, 37, 30, 0.08);
+  border-radius: 8px;
+  padding: 10px 14px;
+  margin-bottom: 10px;
+}
+.compare-summary-diff h4 {
+  margin: 0 0 6px;
+  font-size: 13px;
+  color: rgba(38, 37, 30, 0.75);
+}
 .compare-chapter {
   border-top: 1px solid rgba(38, 37, 30, 0.08);
   padding: 12px 0;
 }
-.compare-chapter h4 {
-  margin: 0 0 6px;
+.compare-chapter-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.compare-chapter-head h4 {
+  margin: 0;
   font-size: 14px;
   color: #26251e;
+}
+.d-whole-add {
+  background: rgba(64, 158, 87, 0.06);
+  border: 1px solid rgba(64, 158, 87, 0.2);
+  border-radius: 8px;
+  padding: 8px 12px;
+}
+.d-whole-del {
+  background: rgba(192, 84, 68, 0.04);
+  border: 1px dashed rgba(192, 84, 68, 0.25);
+  border-radius: 8px;
+  padding: 8px 12px;
+  color: rgba(38, 37, 30, 0.5);
+  text-decoration: line-through;
+  text-decoration-color: rgba(192, 84, 68, 0.5);
+}
+.d-whole-del :deep(*) {
+  color: rgba(38, 37, 30, 0.45);
 }
 .compare-content {
   margin: 0;

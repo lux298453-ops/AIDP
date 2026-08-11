@@ -260,6 +260,7 @@ function buildMultiPageNavScript(titles: string[], index: number): string {
   var titles=${safeTitles};
   var current=${Math.max(0, index)};
   function go(i){
+    if(window.__protoMode!=="interact") return;
     if(i==null || i<0 || i>=titles.length || i===current) return;
     parent.postMessage({source:"proto",type:"gotoPage",payload:{index:i,title:titles[i]}}, "*");
   }

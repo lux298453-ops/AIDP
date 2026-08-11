@@ -35,6 +35,10 @@ public final class PrototypeDesignSystem {
             输入：
             - 表单项：<div class="co-form-item"><label class="co-form-label">手机号</label><div class="co-input"><input placeholder="请输入"></div></div>
             - 搜索框：<div class="co-search"><span>⌕</span><input placeholder="搜索"></div>
+            - 下拉选择（单选）：<select class="co-select"><option disabled selected>请选择</option><option>选项一</option><option>选项二</option></select>
+            - 下拉选择（多选）：<select class="co-select" multiple><option>选项一</option><option>选项二</option></select>
+            - 文件上传：<div class="co-upload"><button class="co-btn co-btn-default">选择文件</button><div class="co-upload-hint">支持 jpg/png/pdf，≤10MB</div><div class="co-upload-file"><span>需求文档.pdf</span><button>×</button></div></div>
+            - 日历：<div class="co-calendar"><div class="co-calendar-head"><button class="co-calendar-btn">‹</button><div class="co-calendar-title">2026年8月</div><button class="co-calendar-btn">›</button></div><div class="co-calendar-week"><span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span><span>日</span></div><div class="co-calendar-days"><span></span><span></span><button class="co-calendar-day">1</button><button class="co-calendar-day today">2</button><button class="co-calendar-day selected">8</button>…<button class="co-calendar-day outside">1</button></div></div>（月初空白用空 span 占位；今天加 today，选中日加 selected，跨月日期加 outside）
             展示：
             - 卡片：<div class="co-card"><div class="co-card-title">标题</div><div class="co-card-desc">描述</div></div>；内容少用 <div class="co-card compact">…</div>；标题+辅助行用 <div class="co-card-row"><div class="co-card-title">…</div><div class="co-card-meta">…</div></div>
             - 列表容器 + 列表项：<div class="co-list"><div class="co-cell"><div class="co-cell-media">张</div><div class="co-cell-body"><div class="co-cell-title">主标题</div><div class="co-cell-desc">副标题</div></div><div class="co-cell-extra">说明</div><div class="co-cell-arrow">›</div></div>…</div>
@@ -45,18 +49,20 @@ public final class PrototypeDesignSystem {
             反馈：
             - 弹窗：<div class="co-dialog-mask"><div class="co-dialog"><button class="co-dialog-close">×</button><div class="co-dialog-title">标题</div><div class="co-dialog-body">内容</div><div class="co-dialog-actions"><button class="co-btn co-btn-default">取消</button><button class="co-btn co-btn-primary">确认</button></div></div></div>
             - 进度条：<div class="co-progress"><div class="co-progress-bar" style="width:60%"></div></div>
-            表格（仅 WEB/PAD）：<div class="co-table-wrap"><table class="co-table"><tr><th>名称</th><th>状态</th></tr><tr><td>订单A</td><td><span class="co-tag co-tag-success">已完成</span></td></tr></table></div>
+            表格（仅 WEB/PAD）：<div class="co-table-wrap"><table class="co-table"><tr><th>名称</th><th>状态</th><th>负责人</th><th>附件</th></tr><tr><td>订单A</td><td><span class="co-tag co-tag-success">已完成</span></td><td><select class="co-select"><option>张三</option><option>李四</option></select></td><td><div class="co-upload">…</div></td></tr></table></div>（单元格内允许：co-tag 状态、co-select 下拉、co-upload 上传、co-btn co-btn-sm 操作、co-progress 进度）
             指标卡（仅 WEB/PAD 看板）：<div class="co-metric-grid"><div class="co-metric"><div class="co-metric-value">128</div><div class="co-metric-label">订单数</div></div>…</div>
             布局：
             - 页面外壳：<div class="co-page-shell"><div class="co-page-content">…</div></div>
+            - 桌面/平板壳（仅 WEB/PAD 完整页，侧栏必须在左、主区在右，禁止改顺序、禁止把侧栏放进 co-page-shell）：<div class="app-shell"><aside class="co-sidebar"><div class="co-sidebar-brand">品牌名</div><nav class="co-sidebar-nav"><div class="co-nav-item active">仪表盘</div></nav></aside><div class="main-wrap"><div class="co-header">…</div><main class="co-page-content">…</main></div></div>
             - 顶栏（WEB/PAD）：<div class="co-header"><div><div class="co-page-title">页面标题</div><div class="co-page-desc">描述</div></div><div class="co-toolbar"><button class="co-btn co-btn-primary">新建</button></div></div>
             - 底部操作栏：<div class="co-bottom-action"><button class="co-btn co-btn-primary">提交</button></div>
             - 步骤条：<div class="co-stepbar"><div class="co-step active"><div class="co-step-dot">1</div><span>第一步</span></div><div class="co-step"><div class="co-step-dot">2</div><span>第二步</span></div></div>
             使用规则：
             1. 所有 co-* 样式已由平台注入，只需按示例输出 HTML，禁止写 <style>
             2. 选择规则：列表→co-list/co-cell；卡片流→co-card；表单→co-form-item/co-input；确认弹窗→co-dialog；导航→co-navbar/co-tabbar；表格→co-table；看板→co-metric-grid
-            3. 禁止发明清单外的 class；禁止内联 style 修改颜色/尺寸（进度条宽度除外）
-            4. 文字颜色已内建对比度规则，状态色通过 co-btn-*/co-tag-* 切换
+            3. 表格/表单中需要选择的列用 co-select（单选/多选），需要上传文件的列用 co-upload，日期相关用 co-calendar；禁止用 co-input 文本框冒充这些控件
+            4. 禁止发明清单外的 class；禁止内联 style 修改颜色/尺寸（进度条宽度除外）
+            5. 文字颜色已内建对比度规则，状态色通过 co-btn-*/co-tag-* 切换
             """;
 
     /** 页面形态骨架模板 —— 固定 HTML 结构，AI 只填内容 */
@@ -232,14 +238,23 @@ public final class PrototypeDesignSystem {
     }
 
     /**
-     * 生成完整设计系统注入块（按平台，仅差异为主题变量）。
-     * APP/小程序 → OPPO ColorOS 主题；WEB → Corporate Clean 主题；PAD → 桌面主题 + 平板画布。
+     * 生成完整设计系统注入块（按平台，差异为主题变量与画布规则）。
+     * APP/小程序/PAD → OPPO ColorOS 主题（PAD 追加 1024px 平板画布）；WEB → Corporate Clean 主题。
      */
     public static String buildDesignSystemCss(Platform platform) {
-        return (platform == Platform.WEB || platform == Platform.PAD)
-                ? buildDesktopDesignSystem()
+        if (platform == Platform.WEB) {
+            return buildDesktopDesignSystem();
+        }
+        return (platform == Platform.PAD)
+                ? "<style data-proto-design-system>" + MOBILE_THEME + PAD_CANVAS_RULE + FLAT_KIT_CSS + "</style>"
                 : buildMobileDesignSystem();
     }
+
+    /** 平板画布规则：PAD 页面 1024px 居中 */
+    private static final String PAD_CANVAS_RULE = """
+            body[data-proto-platform="PAD"] .co-page-shell,
+            body[data-proto-platform="PAD"] .app-shell { width: min(1024px, 100vw); margin: 0 auto; }
+            """;
 
     /**
      * 移动端设计系统注入块（OPPO ColorOS 主题）。
@@ -317,8 +332,6 @@ public final class PrototypeDesignSystem {
               --co-gap: 16px;
               --co-grid-cols: 3;
             }
-            body[data-proto-platform="PAD"] .co-page-shell,
-            body[data-proto-platform="PAD"] .app-shell { width: min(1024px, 100vw); margin: 0 auto; }
             """;
 
     /**
@@ -429,6 +442,7 @@ public final class PrototypeDesignSystem {
               font-size: 15px; font-weight: 600; line-height: 1.2;
               white-space: nowrap; overflow: hidden; text-align: center;
               cursor: pointer; transition: all .15s ease-out; flex-shrink: 0;
+              max-width: 100%;
             }
             .co-btn:active { transform: scale(.97); }
             .co-btn-primary { background: var(--co-primary); color: #fff; }
@@ -464,6 +478,76 @@ public final class PrototypeDesignSystem {
               flex: 1; min-width: 0; border: none; outline: none; background: transparent;
               font-size: 14px; color: var(--co-text);
             }
+
+            /* ===== 下拉选择 ===== */
+            .co-select {
+              width: 100%; min-width: 0; min-height: 44px; padding: 0 34px 0 14px;
+              background-color: var(--co-card-soft); border: none; border-radius: var(--co-radius-input);
+              font-size: 15px; color: var(--co-text);
+              appearance: none; -webkit-appearance: none;
+              background-image:
+                linear-gradient(45deg, transparent 50%, var(--co-muted) 50%),
+                linear-gradient(135deg, var(--co-muted) 50%, transparent 50%);
+              background-position: calc(100% - 18px) 50%, calc(100% - 13px) 50%;
+              background-size: 5px 5px; background-repeat: no-repeat;
+              cursor: pointer; line-height: 1.4;
+            }
+            .co-select:focus { outline: none; box-shadow: 0 0 0 2px var(--co-primary-soft); }
+            .co-select option { color: var(--co-text); background: var(--co-card); }
+            .co-select[multiple] {
+              appearance: auto; -webkit-appearance: auto; background-image: none;
+              min-height: 90px; padding: 8px; border-radius: var(--co-radius-input);
+            }
+            .co-table .co-select { min-width: 140px; }
+
+            /* ===== 文件上传 ===== */
+            .co-upload {
+              display: flex; flex-direction: column; gap: 6px;
+              padding: 10px; min-width: 0;
+              border: 1px dashed var(--co-border); border-radius: var(--co-radius-input);
+              background: var(--co-card-soft);
+            }
+            .co-upload .co-btn { align-self: flex-start; }
+            .co-upload-hint { font-size: 11px; color: var(--co-hint); line-height: 1.4; }
+            .co-upload-file {
+              display: flex; align-items: center; justify-content: space-between; gap: 8px;
+              min-height: 32px; padding: 4px 10px; border-radius: 8px;
+              background: var(--co-card); font-size: 12px; color: var(--co-text);
+              overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+            }
+            .co-upload-file span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+            .co-upload-file button {
+              background: none; border: none; color: var(--co-hint);
+              font-size: 14px; line-height: 1; cursor: pointer; padding: 0 2px; flex-shrink: 0;
+            }
+
+            /* ===== 日历 ===== */
+            .co-calendar {
+              background: var(--co-card); border-radius: var(--co-radius-card);
+              padding: 12px; box-shadow: var(--co-shadow-card); min-width: 0;
+            }
+            .co-calendar-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+            .co-calendar-title { font-size: 15px; font-weight: 600; color: var(--co-text); }
+            .co-calendar-btn {
+              width: 34px; height: 34px; border-radius: 10px; border: none;
+              background: var(--co-card-soft); color: var(--co-text);
+              font-size: 16px; line-height: 1; display: flex; align-items: center; justify-content: center;
+              cursor: pointer; padding: 0; flex-shrink: 0;
+            }
+            .co-calendar-week, .co-calendar-days { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+            .co-calendar-week span {
+              text-align: center; font-size: 12px; color: var(--co-hint);
+              padding: 4px 0; line-height: 1.4;
+            }
+            .co-calendar-day {
+              height: 36px; border-radius: 10px; border: none; background: none;
+              font-size: 13px; color: var(--co-text); text-align: center; line-height: 1;
+              display: flex; align-items: center; justify-content: center;
+              cursor: pointer; padding: 0; min-width: 0;
+            }
+            .co-calendar-day.outside { color: var(--co-hint); }
+            .co-calendar-day.today { border: 1px solid var(--co-primary); color: var(--co-primary); background: var(--co-primary-soft); }
+            .co-calendar-day.selected { background: var(--co-primary); color: #fff; font-weight: 600; }
 
             /* ===== 卡片 ===== */
             .co-card {
@@ -518,7 +602,7 @@ public final class PrototypeDesignSystem {
             .co-tag-danger { background: var(--co-danger-soft); color: var(--co-danger); }
 
             /* ===== 宫格 ===== */
-            .co-grid { display: grid; grid-template-columns: repeat(var(--co-grid-cols), minmax(0,1fr)); gap: 12px; }
+            .co-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
 
             /* ===== 弹窗 ===== */
             .co-dialog-mask {
@@ -593,6 +677,7 @@ public final class PrototypeDesignSystem {
             .co-table-wrap {
               background: var(--co-card); border-radius: var(--co-radius-card);
               box-shadow: var(--co-shadow-card); overflow: hidden; min-width: 0;
+              overflow-x: auto;
             }
             .co-table { width: 100%; border-collapse: collapse; font-size: 14px; }
             .co-table th {
@@ -603,6 +688,8 @@ public final class PrototypeDesignSystem {
             }
             .co-table td { padding: 12px 16px; border-bottom: 1px solid var(--co-border); color: var(--co-text); vertical-align: middle; }
             .co-table tr:last-child td { border-bottom: none; }
+            .co-table td .co-btn { min-height: 34px; padding: 0 12px; font-size: 13px; border-radius: 12px; white-space: normal; word-break: break-all; }
+            .co-table td .co-select, .co-table td .co-upload { max-width: 220px; }
 
             /* ===== 指标卡（桌面） ===== */
             .co-metric-grid { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 14px; }
@@ -617,8 +704,8 @@ public final class PrototypeDesignSystem {
             /* ===== 响应式 ===== */
             @media (max-width: 768px) {
               .co-metric-grid { grid-template-columns: repeat(2, minmax(0,1fr)); }
-              .co-sidebar { width: 100%; max-width: 100%; min-height: auto; border-right: none; border-bottom: 1px solid var(--co-border); }
-              .app-shell { flex-direction: column; }
+              .co-grid { grid-template-columns: repeat(2, minmax(0,1fr)); }
+              .co-sidebar { width: 200px; max-width: 200px; min-height: 100vh; }
               .co-header { padding: 0 16px; min-height: 56px; }
               .co-page-content { padding: 16px; }
             }

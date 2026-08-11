@@ -701,16 +701,18 @@ public class PrototypePromptTemplate {
             case PAD -> """
                     【平台设计规范 — PAD — 组件样式已由平台注入（co-* 扁平组件包）】
                     1. 主题：OPPO ColorOS（主色 #1BA784）；画布 1024px 居中（平台已注入），高度由内容自然决定。
-                    2. 结构：.co-page-shell + .co-header（含 .co-page-title/.co-page-desc/.co-toolbar）+ 侧边导航 .co-sidebar（240~280px）+ .co-page-content；禁止手机端底部 TabBar（平板用侧边导航替代）。
+                    2. 结构（必须与注入骨架一致）：<div class="app-shell"><aside class="co-sidebar">…</aside><div class="main-wrap"><div class="co-header">…</div><main class="co-page-content">…</main></div></div>
+                       - 侧栏 <aside class="co-sidebar">（240px，含 .co-sidebar-brand + .co-sidebar-nav > .co-nav-item）与主区 <div class="main-wrap"> 是兄弟节点、左右并排；禁止把 .co-sidebar 放进 .co-page-shell 或 .co-header 内部（会导致侧栏占满整行把内容挤到下方）。
+                       - 禁止手机端底部 TabBar（平板用侧边导航替代）。
                     3. 布局模式：列表-详情（侧栏列表 + 详情区）、主内容+右侧支持面板、Feed 网格（.co-metric-grid / 2~3 列 .co-card）；禁止超宽侧栏（不超过 30% 画布）、禁止手机全屏单列。
-                    4. 表单 .co-form-item 可双列（gap 20px）；触控热区 ≥48dp；数据看板用 .co-metric-grid。
+                    4. 表单 .co-form-item 可双列（gap 20px）；触控热区 ≥48dp；数据看板用 .co-metric-grid；选择列用 .co-select、附件列用 .co-upload。
                     5. 状态：.active/.selected/.current/.disabled 仅通过 class 表达（平台已注入状态样式），禁止手写状态 CSS。
                     """;
             case WEB -> """
                     【平台设计规范 — WEB — 组件样式已由平台注入（co-* 扁平组件包）】
                     1. 主题：Corporate Clean 企业简洁风（主色 #1e40af，背景 #f8fafc，面板 #ffffff）；宽度自适应 100%。
-                    2. 结构：.co-page-shell > .co-header（含 .co-page-title/.co-page-desc/.co-toolbar）+ .co-page-content；是否使用 .co-sidebar 侧边栏由页面类型决定（后台/管理/文档用侧边栏，登录/阅读/表单居中）。
-                    3. 数据密集场景（后台/CRUD/报表）使用 .co-table；看板用 .co-metric-grid；表单 .co-form-item 可双列；按钮 .co-btn-primary。
+                    2. 结构：使用侧边栏时必须是 <div class="app-shell"><aside class="co-sidebar">…</aside><div class="main-wrap"><div class="co-header">…</div><main class="co-page-content">…</main></div></div>（侧栏与主区左右并排，禁止把侧栏放进 co-page-shell）；无侧栏页面用 <div class="co-page-shell">。是否使用侧栏由页面类型决定（后台/管理/文档用侧栏，登录/阅读/表单居中）。
+                    3. 数据密集场景（后台/CRUD/报表）使用 .co-table；看板用 .co-metric-grid；表单 .co-form-item 可双列；按钮 .co-btn-primary；选择列用 .co-select、附件列用 .co-upload。
                     4. 禁止移动端结构：390px 画布、.co-tabbar 底部导航、固定底部操作栏、手机卡片流替代表格。
                     5. 状态：.active/.selected/.current/.disabled 仅通过 class 表达（平台已注入状态样式），禁止手写状态 CSS。
                     """;
