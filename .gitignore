@@ -27,3 +27,4 @@ prd-assist-backend/src/main/resources/application-local.yml
 # Uploads
 uploads/
 data/
+logs/

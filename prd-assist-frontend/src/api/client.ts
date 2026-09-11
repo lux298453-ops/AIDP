@@ -2,8 +2,12 @@ import axios from 'axios'
 import { ElMessage } from 'element-plus'
 import { getStoredToken, handleSessionExpired, isJwtExpired } from '@/utils/session'
 
+const apiBase = import.meta.env.VITE_API_BASE_URL
+  ? String(import.meta.env.VITE_API_BASE_URL).replace(/\/+$/, '')
+  : ''
+
 const client = axios.create({
-  baseURL: '/api',
+  baseURL: `${apiBase}/api`,
   timeout: 60000,
   headers: {
     'Content-Type': 'application/json',

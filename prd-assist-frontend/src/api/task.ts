@@ -16,12 +16,16 @@ export function getTaskById(id: number) {
   return client.get<Result<TaskItem>>(`/tasks/${id}`)
 }
 
+const apiBase = import.meta.env.VITE_API_BASE_URL
+  ? String(import.meta.env.VITE_API_BASE_URL).replace(/\/+$/, '')
+  : ''
+
 export function getTaskSseUrl(id: number): string {
   const token = getStoredToken()
   if (!token || isJwtExpired(token)) {
     handleSessionExpired()
-    return `/api/tasks/${id}/progress`
+    return `${apiBase}/api/tasks/${id}/progress`
   }
   const query = token ? `?token=${encodeURIComponent(token)}` : ''
-  return `/api/tasks/${id}/progress${query}`
+  return `${apiBase}/api/tasks/${id}/progress${query}`
 }
