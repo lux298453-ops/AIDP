@@ -1,8 +1,8 @@
 @echo off
 rem Start backend jar if not already running. Log: prd-assist-backend\logs\backend.log
-netstat -ano | findstr /r /c:":8080 .*LISTENING" >nul
+netstat -ano | findstr /r /c:":8085 .*LISTENING" >nul
 if %errorlevel%==0 (
-    echo [start-backend] port 8080 already in use, skip
+    echo [start-backend] port 8085 already in use, skip
     exit /b 0
 )
 cd /d D:\idea\Project\AiDocumentPlatform\prd-assist-backend
