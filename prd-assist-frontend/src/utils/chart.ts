@@ -95,11 +95,25 @@ export function extractChartCaption(content: string): string {
 
 export function replaceChartInContent(content: string, newCode: string): string {
   const lang = detectChartLang(newCode)
-  const caption = extractChartCaption(content)
   const block = lang === 'plantuml'
     ? `\`\`\`plantuml\n${newCode.trim()}\n\`\`\``
     : `\`\`\`mermaid\n${newCode.trim()}\n\`\`\``
-  return caption ? `${block}\n\n${caption}` : block
+
+  const text = (content || '').replace(/\r\n/g, '\n').replace(/\\n/g, '\n')
+  // 原位替换：只把原有图表块换成新代码，章节其余文字一律原样保留，
+  // 避免旧实现“图表 + 重组说明”导致图文混合章节的文字被挪位或删除
+  const chartPatterns = [
+    /```(?:plantuml|mermaid)[ \t]*\n[\s\S]*?```/i,
+    /@startuml[\s\S]*?@enduml/i,
+  ]
+  for (const pattern of chartPatterns) {
+    if (pattern.test(text)) {
+      return text.replace(pattern, block)
+    }
+  }
+  // 原内容没有可识别的图表块：新图放最前，原文完整保留在后
+  const rest = text.trim()
+  return rest ? `${block}\n\n${rest}` : block
 }
 
 export async function renderChartImageUrl(code: string, lang: ChartLang, format: ChartFormat = 'png'): Promise<string | null> {

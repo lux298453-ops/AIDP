@@ -246,7 +246,7 @@ public final class PrototypeDesignSystem {
             return buildDesktopDesignSystem();
         }
         return (platform == Platform.PAD)
-                ? "<style data-proto-design-system>" + MOBILE_THEME + PAD_CANVAS_RULE + FLAT_KIT_CSS + "</style>"
+                ? "<style data-proto-design-system>" + MOBILE_THEME + PAD_CANVAS_RULE + FLAT_KIT_CSS + NATURAL_HEIGHT_RULE + "</style>"
                 : buildMobileDesignSystem();
     }
 
@@ -261,8 +261,21 @@ public final class PrototypeDesignSystem {
      * 注意：模板中含 % 字符，禁止使用 String.formatted()，必须用字符串拼接。
      */
     public static String buildMobileDesignSystem() {
-        return "<style data-proto-design-system>" + MOBILE_THEME + FLAT_KIT_CSS + "</style>";
+        return "<style data-proto-design-system>" + MOBILE_THEME + FLAT_KIT_CSS + NATURAL_HEIGHT_RULE + "</style>";
     }
+
+    /** Mobile and Pad previews grow with their real content instead of inheriting desktop viewport height. */
+    private static final String NATURAL_HEIGHT_RULE = """
+            body[data-proto-platform="APP"] .co-page-shell,
+            body[data-proto-platform="APP"] .app-shell,
+            body[data-proto-platform="APP"] .co-stage,
+            body[data-proto-platform="MINI_PROGRAM"] .co-page-shell,
+            body[data-proto-platform="MINI_PROGRAM"] .app-shell,
+            body[data-proto-platform="MINI_PROGRAM"] .co-stage,
+            body[data-proto-platform="PAD"] .co-page-shell,
+            body[data-proto-platform="PAD"] .app-shell,
+            body[data-proto-platform="PAD"] .co-stage { min-height: 0; }
+            """;
 
     /**
      * 桌面端设计系统注入块（Corporate Clean 主题）。

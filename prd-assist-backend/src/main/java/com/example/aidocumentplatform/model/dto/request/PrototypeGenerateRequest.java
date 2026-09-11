@@ -1,11 +1,15 @@
 package com.example.aidocumentplatform.model.dto.request;
 
-import com.example.aidocumentplatform.model.enums.PageMorphology;
+import com.example.aidocumentplatform.model.dto.PrototypeAssetPlan;
+
+import com.example.aidocumentplatform.model.enums.AssetMode;
 import com.example.aidocumentplatform.model.enums.Platform;
 import com.example.aidocumentplatform.model.enums.PrototypeType;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 import lombok.Data;
+
+import java.util.List;
 
 /**
  * 原型生成请求体。
@@ -25,8 +29,22 @@ public class PrototypeGenerateRequest {
     /** 终端类型 */
     private Platform platform = Platform.APP;
 
-    /** 页面形态（控制生成骨架结构，默认完整页面） */
-    private PageMorphology pageMorphology = PageMorphology.FULL_PAGE;
+    /** 素材模式 */
+    private AssetMode assetMode = AssetMode.AUTO;
+
+    /** 澄清问答的答案列表，按顺序拼接到需求理解中 */
+    private List<String> clarificationAnswers;
+
+    /** 澄清阶段形成的结构化生成简报，由后端 AI 生成，用户无需填写。 */
+    @Size(max = 12000, message = "生成简报最多12000字")
+    private String generationBrief;
+
+    /** 澄清阶段自动生成的内部素材计划，不在前端作为配置项展示。 */
+    private PrototypeAssetPlan assetPlan;
+
+    /** 多页面独立素材计划，兼容旧版 assetPlan。 */
+    @Size(max = 3, message = "页面素材计划最多3项")
+    private List<PrototypeAssetPlan> assetPlans;
 
     /** 关联的 PRD 文档 ID（可选） */
     private Long prdDocumentId;

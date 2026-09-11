@@ -1,7 +1,19 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
+import ThinkingStatus from '@/components/common/ThinkingStatus.vue'
 import { useRouter, useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
+import {
+  Document,
+  Upload,
+  Clock,
+  MagicStick,
+  Grid,
+  Share,
+  Collection,
+  List,
+  Check,
+} from '@element-plus/icons-vue'
 import { createTask, getTaskSseUrl, getTaskById } from '@/api/task'
 import client from '@/api/client'
 
@@ -31,10 +43,10 @@ function onWordFileSelected(e: Event) {
 
 // ==================== 内容类型（全部默认选中） ====================
 const contentTypes = ref([
-  { key: 'structure', label: '页面结构图', icon: 'Grid', active: true },
-  { key: 'flow', label: '流程图', icon: 'Share', active: true },
-  { key: 'data', label: '数据字段', icon: 'Collection', active: true },
-  { key: 'testcase', label: '测试用例', icon: 'List', active: true },
+  { key: 'structure', label: '页面结构图', icon: Grid, active: true },
+  { key: 'flow', label: '业务流程图', icon: Share, active: true },
+  { key: 'data', label: '数据字典', icon: Collection, active: true },
+  { key: 'testcase', label: '核心测试用例', icon: List, active: true },
 ])
 
 function toggleType(item: { key: string; active: boolean }) { item.active = !item.active }
@@ -49,6 +61,16 @@ const progressMsg = ref('')
 const liveMessages = ref<string[]>([])
 const liveContent = ref('')
 const result = ref('')
+const renderedResult = computed(() => escapeHtml(result.value).replace(/\n/g, '<br>'))
+
+function escapeHtml(text: string) {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
 let taskId: number | null = null
 
 const canSubmit = computed(() => {
@@ -72,7 +94,6 @@ async function handleEnhance() {
 
   try {
     if (wordFile.value) {
-      // Word 上传模式
       const fd = new FormData(); fd.append('file', wordFile.value)
       if (prdContent.value) fd.append('prdContent', prdContent.value)
       if (prdDocumentId.value) fd.append('prdDocumentId', String(prdDocumentId.value))
@@ -82,7 +103,6 @@ async function handleEnhance() {
       const res = await client.post('/prd/enhance/word', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
       taskId = res.data.data.taskId
     } else {
-      // 纯文本模式
       const res = await client.post('/prd/enhance', {
         prdContent: prdContent.value, prdDocumentId: prdDocumentId.value,
         contentTypes: selectedTypes, instruction: instruction.value,
@@ -93,24 +113,66 @@ async function handleEnhance() {
   } catch { loading.value = false }
 }
 
+let activeEventSource: EventSource | null = null
+
+onBeforeUnmount(() => {
+  activeEventSource?.close()
+  activeEventSource = null
+})
+
 function startSse() {
   if (!taskId) return
   appendLiveMessage('任务已创建，正在连接 AI 增强服务...')
-  const es = new EventSource(getTaskSseUrl(taskId))
-  es.addEventListener('content', (e) => {
+  activeEventSource?.close()
+  const eventSource = new EventSource(getTaskSseUrl(taskId))
+  activeEventSource = eventSource
+  eventSource.addEventListener('content', (event) => {
     try {
-      const d = JSON.parse((e as MessageEvent).data)
-      if (d.snapshot) liveContent.value = d.delta || ''
-      else liveContent.value += d.delta || ''
+      const data = JSON.parse((event as MessageEvent).data)
+      if (data.snapshot) liveContent.value = data.delta || ''
+      else liveContent.value += data.delta || ''
       result.value = liveContent.value
     } catch { /* ignore */ }
   })
-  es.addEventListener('progress', (e) => {
-    const d = JSON.parse(e.data); progress.value = d.progress; progressMsg.value = d.message
-    appendLiveMessage(d.message)
-    if (d.progress >= 100) { es.close(); loading.value = false; ElMessage.success('增强完成'); pollResult() }
+  eventSource.addEventListener('progress', async (event) => {
+    const data = JSON.parse((event as MessageEvent).data)
+    progress.value = data.progress
+    progressMsg.value = data.message
+    appendLiveMessage(data.message)
+    if (data.progress <= 0 && data.message && data.message.includes('失败')) {
+      eventSource.close(); loading.value = false
+      ElMessage.error(data.message)
+      return
+    }
+    if (data.progress >= 100) {
+      eventSource.close(); loading.value = false
+      appendLiveMessage('增强完成，正在打开增强版 PRD...')
+      ElMessage.success('PRD 增强完成')
+      try {
+        const r = await getTaskById(taskId!)
+        const refId = r.data.data.resultRefId
+        if (refId) {
+          const compareId = inputMode.value === 'existing' && prdDocumentId.value ? String(prdDocumentId.value) : ''
+          await router.push({ path: `/prd/${refId}`, query: compareId ? { compare: compareId } : {} })
+        }
+      } catch { /* ignore */ }
+    }
   })
-  es.onerror = () => { es.close(); loading.value = false }
+  eventSource.onerror = async () => {
+    eventSource.close()
+    try {
+      const r = await getTaskById(taskId!)
+      if (r.data.data.status === 'SUCCESS' && r.data.data.resultRefId) {
+        loading.value = false
+        const compareId = inputMode.value === 'existing' && prdDocumentId.value ? String(prdDocumentId.value) : ''
+        await router.push({ path: `/prd/${r.data.data.resultRefId}`, query: compareId ? { compare: compareId } : {} })
+      } else if (r.data.data.status === 'FAILED') {
+        loading.value = false; ElMessage.error(r.data.data.errorMessage || '增强失败')
+      } else {
+        loading.value = false; ElMessage.warning('进度连接已断开，请在我的文档中查看任务结果')
+      }
+    } catch { loading.value = false }
+  }
 }
 
 function appendLiveMessage(message?: string) {
@@ -118,19 +180,6 @@ function appendLiveMessage(message?: string) {
   if (!text) return
   if (liveMessages.value[liveMessages.value.length - 1] === text) return
   liveMessages.value = [...liveMessages.value.slice(-5), text]
-}
-
-async function pollResult() {
-  if (!taskId) return
-  const t = setInterval(async () => {
-    const r = await getTaskById(taskId!)
-    if (r.data.data.status === 'SUCCESS' && r.data.data.resultRefId) {
-      clearInterval(t)
-      const source = prdDocumentId.value
-      await router.push({ path: `/prd/${r.data.data.resultRefId}`, query: source ? { compare: String(source) } : undefined })
-    }
-    if (r.data.data.status === 'FAILED') { ElMessage.error(r.data.data.errorMessage || '失败'); clearInterval(t) }
-  }, 2000)
 }
 
 async function loadExistingPrds() {
@@ -142,7 +191,6 @@ async function loadExistingPrds() {
 
 onMounted(async () => {
   await loadExistingPrds()
-  // 从 PRD 结果页「用作增强」带入文档 ID
   const qid = Number(route.query.prdDocumentId)
   if (qid) {
     inputMode.value = 'existing'
@@ -155,154 +203,523 @@ onMounted(async () => {
   <div class="page-container">
     <div class="workspace">
       <!-- ====== 左侧面板 ====== -->
-      <div class="config-panel">
+      <aside class="config-panel">
         <div class="panel-header">
-          <h2 class="module-title">PRD增强</h2>
-          <el-icon size="18" color="rgba(38,37,30,0.4)"><Clock /></el-icon>
-        </div>
-
-        <!-- 输入模式 -->
-        <div class="form-group">
-          <label class="form-label">PRD 来源</label>
-          <div class="mode-tabs">
-            <div class="mode-tab" :class="{ active: inputMode === 'paste' }" @click="inputMode = 'paste'">直接粘贴</div>
-            <div class="mode-tab" :class="{ active: inputMode === 'existing' }" @click="inputMode = 'existing'">选择已有PRD</div>
+          <div>
+            <h2 class="module-title">PRD 增强</h2>
+            <p class="module-subtitle">推导架构图、流程与数据字典</p>
+          </div>
+          <div class="panel-badge" title="Mermaid 架构与流程图表">
+            <el-icon :size="15"><Share /></el-icon>
           </div>
         </div>
 
-        <!-- 粘贴模式 -->
+        <!-- 来源模式切换 -->
+        <div class="mode-tabs">
+          <button
+            type="button"
+            class="mode-tab"
+            :class="{ active: inputMode === 'paste' }"
+            @click="inputMode = 'paste'"
+          >
+            直接粘贴 PRD
+          </button>
+          <button
+            type="button"
+            class="mode-tab"
+            :class="{ active: inputMode === 'existing' }"
+            @click="inputMode = 'existing'"
+          >
+            选择已有文档
+          </button>
+        </div>
+
+        <!-- 粘贴内容 / 下拉选择 -->
         <div v-if="inputMode === 'paste'" class="form-group">
-          <label class="form-label">PRD 内容</label>
-          <el-input v-model="prdContent" type="textarea" :rows="8" placeholder="请粘贴已有的 PRD 文档内容..." maxlength="50000" show-word-limit />
+          <label class="form-label">
+            PRD 原始内容 <span class="required">*</span>
+          </label>
+          <el-input
+            v-model="prdContent"
+            type="textarea"
+            :rows="8"
+            placeholder="粘贴需要补充图表和字段的已有 PRD 正文..."
+            maxlength="50000"
+            show-word-limit
+          />
         </div>
         <div v-else class="form-group">
-          <label class="form-label">选择已有 PRD</label>
-          <el-select v-model="prdDocumentId" clearable filterable placeholder="选择要增强的文档" style="width:100%">
+          <label class="form-label">选择要增强的 PRD <span class="required">*</span></label>
+          <el-select v-model="prdDocumentId" clearable filterable placeholder="从我的文档库中选择" style="width:100%">
             <el-option v-for="doc in existingPrds" :key="doc.id" :label="doc.title" :value="doc.id" />
           </el-select>
         </div>
 
-        <!-- 内容类型 -->
+        <!-- 增强内容类型（四宫格 Chips） -->
         <div class="form-group">
-          <label class="form-label">内容包含</label>
-          <div class="content-cards">
-            <div v-for="item in contentTypes" :key="item.key" class="content-card" :class="{ active: item.active }" @click="toggleType(item)">
-              <el-icon size="15"><component :is="item.icon" /></el-icon>
+          <label class="form-label">包含增强维度</label>
+          <div class="content-cards-grid">
+            <button
+              v-for="item in contentTypes"
+              :key="item.key"
+              type="button"
+              class="content-chip"
+              :class="{ active: item.active }"
+              @click="toggleType(item)"
+            >
+              <el-icon :size="14"><component :is="item.icon" /></el-icon>
               <span>{{ item.label }}</span>
-            </div>
+              <el-icon v-if="item.active" class="check-icon" :size="12"><Check /></el-icon>
+            </button>
           </div>
         </div>
 
-        <!-- Word 素材上传 -->
+        <!-- Word 素材附件 -->
         <div class="form-group">
-          <label class="form-label">PRD素材 示例</label>
+          <label class="form-label">补充 Word 素材 (可选)</label>
           <input ref="wordInput" type="file" accept=".doc,.docx" style="display:none" @change="onWordFileSelected" />
-          <div class="upload-dashed" @click="triggerWordUpload">
-            <el-icon size="22" :color="wordFile ? '#1f8a65' : 'rgba(38,37,30,0.4)'"><Upload /></el-icon>
-            <span>{{ wordFile ? wordFile.name : '点击上传word素材（doc格式）' }}</span>
+          <div class="upload-zone upload-zone--compact" :class="{ 'upload-zone--done': !!wordFile }" @click="triggerWordUpload">
+            <el-icon :size="24" :color="wordFile ? '#059669' : '#94a3b8'"><Upload /></el-icon>
+            <p class="upload-text">{{ wordFile ? wordFile.name : '点击上传 .docx 素材作为参考' }}</p>
+            <p class="upload-hint">{{ wordFile ? `${(wordFile.size / 1024).toFixed(1)} KB · 点击可替换` : 'AI 将抽取背景与术语进行融合' }}</p>
           </div>
         </div>
 
         <!-- 自定义指令 -->
         <div class="form-group">
-          <label class="form-label">自定义指令（可选）</label>
-          <el-input v-model="instruction" type="textarea" :rows="2" placeholder="例如：重点补充移动端的适配方案" maxlength="500" />
+          <label class="form-label">定制指令 (可选)</label>
+          <el-input v-model="instruction" type="textarea" :rows="2" placeholder="例如：流程图中重点突出多角色驳回分支；数据字典增加字段长度说明" maxlength="500" />
         </div>
 
-        <!-- 一键生成 -->
-        <el-button class="btn-generate" :loading="loading" :disabled="!canSubmit" @click="handleEnhance">一键生成</el-button>
-      </div>
+        <!-- 一键生成按钮 -->
+        <div class="generate-btn-wrap">
+          <button
+            type="button"
+            class="btn-generate"
+            :disabled="!canSubmit || loading"
+            @click="handleEnhance"
+          >
+            <el-icon v-if="!loading" :size="16"><MagicStick /></el-icon>
+            <span>{{ loading ? 'AI 正在推导并增强 PRD...' : '一键增强 PRD' }}</span>
+          </button>
+        </div>
+      </aside>
 
-      <!-- ====== 右侧预览区 ====== -->
-      <div class="preview-panel">
-        <template v-if="result">
-          <div class="result-content" v-html="result.replace(/\n/g, '<br>')" />
-        </template>
-        <template v-else-if="!loading">
-          <div class="preview-placeholder">
-            <el-icon size="60" color="rgba(38,37,30,0.15)"><Document /></el-icon>
-            <p class="placeholder-title">增强结果即将呈现</p>
-            <p class="placeholder-desc">勾选「页面结构图 / 流程图」后，AI 将生成可渲染的 Mermaid 图表并写入增强版 PRD</p>
-          </div>
-        </template>
-        <div v-if="loading" class="preview-placeholder generating-state">
-          <el-icon class="loading-icon" size="54" color="#26251e"><Loading /></el-icon>
-          <p class="generating-title">正在生成...</p>
-          <p class="generating-desc">{{ progressMsg || 'AI 正在增强 PRD，请稍候' }}</p>
-          <div class="live-output">
-            <div v-for="(msg, index) in liveMessages" :key="index" class="live-line">
-              {{ msg }}
+      <!-- ====== 右侧主舞台区 ====== -->
+      <main class="preview-panel">
+        <template v-if="loading">
+          <div class="generating-container">
+            <div class="status-box">
+              <ThinkingStatus :steps="liveMessages" />
+            </div>
+            <div class="generating-meta">
+              <span class="pulse-indicator" />
+              <span>{{ progressMsg || 'AI 正在绘制架构与流程图，即将完成...' }}</span>
             </div>
           </div>
-          <el-skeleton animated style="width:80%;max-width:500px">
-            <template #template>
-              <div style="display:flex;flex-direction:column;gap:16px;align-items:center">
-                <el-skeleton-item variant="rect" style="width:100%;height:200px;border-radius:10px" />
-                <el-skeleton-item variant="text" style="width:60%" />
-                <el-skeleton-item variant="text" style="width:40%" />
+        </template>
+
+        <template v-else-if="result">
+          <div class="result-card">
+            <div class="result-header">
+              <span class="result-badge">增强结果草稿</span>
+              <span class="result-hint">完成生成后将自动跳转至带图表渲染的编辑器</span>
+            </div>
+            <div class="result-content" v-html="renderedResult" />
+          </div>
+        </template>
+
+        <template v-else>
+          <div class="onboarding-container">
+            <div class="empty-icon-wrap">
+              <el-icon :size="32" color="#0f172a"><Share /></el-icon>
+            </div>
+            <h3 class="empty-title">自动推导 Mermaid 架构图与用例</h3>
+            <p class="empty-desc">
+              粘贴已有 PRD 粗稿，AI 将自动分析页面模块关系并生成交互结构图，梳理前后置业务流，补齐数据表字典。
+            </p>
+
+            <div class="feature-cards-row">
+              <div class="feature-card">
+                <el-icon :size="18" color="#f97316"><Grid /></el-icon>
+                <div class="f-text">
+                  <strong>页面结构图</strong>
+                  <span>模块树状展开与导航拓扑</span>
+                </div>
               </div>
-            </template>
-          </el-skeleton>
-          <p style="color:#909399;font-size:14px;margin-top:20px">{{ progressMsg || 'AI 正在增强 PRD，请稍候…' }}</p>
-        </div>
-      </div>
+              <div class="feature-card">
+                <el-icon :size="18" color="#059669"><Share /></el-icon>
+                <div class="f-text">
+                  <strong>业务流程图</strong>
+                  <span>泳道流转与条件分支判断</span>
+                </div>
+              </div>
+              <div class="feature-card">
+                <el-icon :size="18" color="#3b82f6"><Collection /></el-icon>
+                <div class="f-text">
+                  <strong>字段字典</strong>
+                  <span>类型、必填校验与约束</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </template>
+      </main>
     </div>
   </div>
 </template>
 
 <style scoped>
-.page-container { padding: 24px 48px; height: 100%; box-sizing: border-box; }
-.workspace { display: flex; height: 100%; border-radius: 10px; overflow: hidden; box-shadow: rgba(38, 37, 30, 0.1) 0px 0px 0px 1px; }
-.config-panel { width: 420px; flex-shrink: 0; padding: 28px 24px; background: #f2f1ed; border-right: 1px solid rgba(38, 37, 30, 0.1); overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
-.panel-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
-.module-title { font-size: 22px; font-weight: 400; color: #26251e; margin: 0; letter-spacing: -0.11px; }
-.form-group { margin-bottom: 18px; }
-.form-label { display: block; font-size: 14px; font-weight: 500; color: #26251e; margin-bottom: 8px; }
-
-/* 模式切换 */
-.mode-tabs { display: flex; gap: 4px; }
-.mode-tab { flex: 1; text-align: center; padding: 10px 0; font-size: 13px; cursor: pointer; background: #e6e5e0; color: rgba(38, 37, 30, 0.55); transition: all .15s; user-select: none; border-radius: 8px; font-weight: 500; }
-.mode-tab.active { background: #26251e; color: #f2f1ed; }
-.mode-tab:hover:not(.active) { color: #cf2d56; }
-
-/* 内容卡片 */
-.content-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-.content-card { display: flex; flex-direction: row; align-items: center; justify-content: center; gap: 6px; height: 34px; padding: 0 10px; border: 1px solid rgba(38, 37, 30, 0.15); border-radius: 7px; cursor: pointer; background: #f7f7f4; color: rgba(38, 37, 30, 0.6); font-size: 13px; line-height: 1; transition: all .15s; user-select: none; }
-.content-card .el-icon { flex-shrink: 0; }
-.content-card.active { border-color: #26251e; background: rgba(38, 37, 30, 0.05); color: #26251e; font-weight: 500; }
-.content-card:hover:not(.active) { border-color: #f54e00; color: #f54e00; }
-
-/* 虚线框上传 */
-.upload-dashed { display: flex; align-items: center; gap: 10px; padding: 16px 18px; border: 1.5px dashed rgba(38, 37, 30, 0.2); border-radius: 8px; color: rgba(38, 37, 30, 0.55); font-size: 14px; cursor: pointer; background: #f7f7f4; transition: border-color .15s; }
-.upload-dashed:hover { border-color: #f54e00; }
-
-/* 按钮 */
-.btn-generate { width: 100%; height: 46px; font-size: 15px; font-weight: 400; border-radius: 8px; background: #e6e5e0 !important; border-color: transparent !important; color: rgba(38, 37, 30, 0.4) !important; margin-top: 8px; }
-.btn-generate:not(:disabled) { background: #26251e !important; border-color: #26251e !important; color: #f2f1ed !important; }
-.btn-generate:not(:disabled):hover { opacity: 0.85; }
-
-:deep(.el-textarea .el-textarea__inner) { border-radius: 8px; font-size: 14px; }
-
-/* 右侧预览 */
-.preview-panel { flex: 1; background: #f7f7f4; padding: 40px; overflow-y: auto; }
-.preview-placeholder { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; min-height: 400px; }
-.placeholder-title { font-size: 16px; color: rgba(38, 37, 30, 0.55); margin: 20px 0 8px; font-weight: 400; }
-.placeholder-desc { font-size: 13px; color: rgba(38, 37, 30, 0.4); margin: 0; max-width: 320px; text-align: center; line-height: 1.7; }
-.loading-icon { animation: spin 1s linear infinite; }
-.generating-state .el-skeleton,
-.generating-state > p:not(.generating-title):not(.generating-desc) { display: none; }
-.generating-title { font-size: 17px; color: #26251e; margin: 18px 0 8px; font-weight: 500; }
-.generating-desc { font-size: 13px; color: rgba(38, 37, 30, 0.58); margin: 0; text-align: center; line-height: 1.7; }
-.live-output {
-  width: min(520px, 82%);
-  margin-top: 20px;
-  padding: 14px 16px;
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.72);
-  border: 1px solid rgba(38, 37, 30, 0.08);
+.page-container {
+  padding: 24px 32px;
+  height: 100%;
+  box-sizing: border-box;
 }
-.live-line { font-size: 13px; line-height: 1.7; color: rgba(38, 37, 30, 0.66); }
-.live-line + .live-line { margin-top: 6px; }
-@keyframes spin { to { transform: rotate(360deg); } }
-.result-content { line-height: 1.8; color: #26251e; font-size: 14px; }
+.workspace {
+  display: flex;
+  height: 100%;
+  background: #ffffff;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.08), 0 2px 4px rgba(15, 23, 42, 0.03);
+}
+
+/* 侧栏 */
+.config-panel {
+  width: 380px;
+  flex-shrink: 0;
+  padding: 22px 20px;
+  background: #ffffff;
+  border-right: 1px solid #f1f5f9;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.panel-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+.module-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #0f172a;
+  margin: 0 0 2px;
+  letter-spacing: -0.02em;
+}
+.module-subtitle {
+  font-size: 12px;
+  color: #94a3b8;
+  margin: 0;
+}
+.panel-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 7px;
+  background: #f8fafc;
+  color: #0284c7;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.02);
+  transition: all 0.15s ease;
+}
+
+.mode-tabs {
+  display: flex;
+  background: #f1f5f9;
+  padding: 3px;
+  border: 1px solid rgba(226, 232, 240, 0.8);
+  border-radius: 8px;
+  gap: 2px;
+}
+.mode-tab {
+  flex: 1;
+  text-align: center;
+  padding: 6px 0;
+  font-size: 12.5px;
+  cursor: pointer;
+  background: transparent;
+  color: #64748b;
+  border: none;
+  border-radius: 6px;
+  font-weight: 500;
+  transition: all 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+  user-select: none;
+}
+.mode-tab:hover:not(.active) { color: #0f172a; background: rgba(255, 255, 255, 0.5); }
+.mode-tab.active {
+  background: #ffffff;
+  color: #0f172a;
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08), 0 0 0 1px rgba(15, 23, 42, 0.04);
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.form-label {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #334155;
+}
+.required { color: #dc2626; }
+
+/* 四宫格 Chips */
+.content-cards-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.content-chip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 11px;
+  border: 1px solid #e2e8f0;
+  border-radius: 7px;
+  background: #ffffff;
+  color: #475569;
+  font-size: 12px;
+  cursor: pointer;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.02);
+  transition: all 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+  user-select: none;
+}
+.content-chip:hover {
+  background: #f8fafc;
+  border-color: #cbd5e1;
+  color: #0f172a;
+}
+.content-chip.active {
+  background: #eff6ff;
+  color: #1d4ed8;
+  border-color: #93c5fd;
+  font-weight: 600;
+  box-shadow: inset 0 0 0 1px #bfdbfe;
+}
+.check-icon {
+  margin-left: 4px;
+  color: #2563eb;
+}
+
+/* 上传框 */
+.upload-zone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 20px 14px;
+  border: 1.5px dashed #cbd5e1;
+  border-radius: 10px;
+  background: #f8fafc;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.upload-zone:hover {
+  border-color: #2563eb;
+  background: #eff6ff;
+}
+.upload-zone--done {
+  border-style: solid;
+  border-color: #a7f3d0;
+  background: #f0fdf4;
+}
+.upload-text {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: #0f172a;
+  margin: 6px 0 2px;
+  text-align: center;
+}
+.upload-hint {
+  font-size: 11px;
+  color: #94a3b8;
+  margin: 0;
+  text-align: center;
+}
+
+.generate-btn-wrap {
+  margin-top: auto;
+  padding-top: 12px;
+}
+.btn-generate {
+  width: 100%;
+  height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border-radius: 7px;
+  background: linear-gradient(180deg, #3b82f6 0%, #2563eb 100%);
+  color: #ffffff;
+  border: 1px solid #1d4ed8;
+  font-size: 13.5px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  cursor: pointer;
+  box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.25), 0 1px 2px 0 rgba(15, 23, 42, 0.08);
+  transition: all 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+  user-select: none;
+}
+.btn-generate:hover:not(:disabled) {
+  background: linear-gradient(180deg, #2563eb 0%, #1d4ed8 100%);
+  box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.2), 0 2px 5px 0 rgba(37, 99, 235, 0.25);
+}
+.btn-generate:active:not(:disabled) {
+  transform: translateY(1px);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.2);
+}
+.btn-generate:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+  background: #94a3b8;
+  border-color: #94a3b8;
+}
+
+.preview-panel {
+  flex: 1;
+  background: #f8fafc;
+  padding: 32px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.onboarding-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  margin: auto;
+  max-width: 580px;
+  text-align: center;
+  padding: 24px 0;
+}
+.empty-icon-wrap {
+  width: 56px;
+  height: 56px;
+  border-radius: 14px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 16px;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04);
+}
+.empty-title {
+  margin: 0 0 8px;
+  font-size: 18px;
+  font-weight: 600;
+  color: #0f172a;
+}
+.empty-desc {
+  margin: 0 0 28px;
+  font-size: 13.5px;
+  color: #64748b;
+  line-height: 1.6;
+}
+.feature-cards-row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  width: 100%;
+}
+.feature-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 14px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  text-align: left;
+}
+.f-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.f-text strong {
+  font-size: 13px;
+  color: #0f172a;
+  font-weight: 600;
+}
+.f-text span {
+  font-size: 11px;
+  color: #94a3b8;
+  line-height: 1.4;
+}
+
+.generating-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  margin: auto;
+  width: 100%;
+  max-width: 580px;
+}
+.status-box { width: 100%; }
+.generating-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 16px;
+  font-size: 12.5px;
+  color: #64748b;
+}
+.pulse-indicator {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #f97316;
+  animation: pulse 1.5s infinite;
+}
+@keyframes pulse {
+  0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(249, 115, 22, 0.6); }
+  70% { transform: scale(1); box-shadow: 0 0 0 6px rgba(249, 115, 22, 0); }
+  100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(249, 115, 22, 0); }
+}
+
+.result-card {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 24px;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+}
+.result-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #f1f5f9;
+}
+.result-badge {
+  font-size: 12px;
+  font-weight: 600;
+  color: #059669;
+  background: #ecfdf5;
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+.result-hint { font-size: 12px; color: #94a3b8; }
+.result-content { line-height: 1.8; color: #1e293b; font-size: 14px; }
+
+@media (max-width: 1024px) {
+  .page-container { padding: 16px; height: auto; min-height: 100%; }
+  .workspace { flex-direction: column; height: auto; }
+  .config-panel { width: 100%; border-right: none; border-bottom: 1px solid #e2e8f0; }
+  .feature-cards-row { grid-template-columns: 1fr; }
+}
 </style>

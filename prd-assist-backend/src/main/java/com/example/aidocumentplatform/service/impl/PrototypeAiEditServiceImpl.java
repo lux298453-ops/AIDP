@@ -3,6 +3,7 @@ package com.example.aidocumentplatform.service.impl;
 import com.example.aidocumentplatform.ai.AiClient;
 import com.example.aidocumentplatform.ai.AiRequestContext;
 import com.example.aidocumentplatform.ai.prompt.PrototypePromptTemplate;
+import com.example.aidocumentplatform.common.DataUrlPlaceholders;
 import com.example.aidocumentplatform.model.dto.request.PrototypeAiEditRequest;
 import com.example.aidocumentplatform.model.dto.request.PrototypeAiEditSnapshotRequest;
 import com.example.aidocumentplatform.model.dto.response.PrototypeAiEditResponse;
@@ -61,11 +62,14 @@ public class PrototypeAiEditServiceImpl implements PrototypeAiEditService {
             throw new IllegalStateException("原型内容为空，无法修改");
         }
 
-        // 3. 组装 prompt 并调用 AI
+        // 3. 摘出内嵌图片后组装 prompt 并调用 AI（Data URL 单张可达数 MB，直接送模型会超出上下文窗口）
+        DataUrlPlaceholders.Compressed compressed = DataUrlPlaceholders.compress(baseHtml);
         String systemPrompt = promptTemplate.getEditSystemPrompt();
         String userPrompt = promptTemplate.buildEditPrompt(
-                baseHtml, request.getInstruction(), request.getTargetElement());
-        log.info("原型 AI 修改: id={}, instructionLen={}", prototypeId, request.getInstruction().length());
+                compressed.text(), request.getInstruction(), request.getTargetElement());
+        log.info("原型 AI 修改: id={}, instructionLen={}, htmlLen={}, promptHtmlLen={}, embeddedImages={}",
+                prototypeId, request.getInstruction().length(),
+                baseHtml.length(), compressed.text().length(), compressed.placeholders().size());
         String aiOutput;
         AiRequestContext.setUserId(userId);
         try {
@@ -74,9 +78,9 @@ public class PrototypeAiEditServiceImpl implements PrototypeAiEditService {
             AiRequestContext.clear();
         }
 
-        // 4. 解析「说明 + 新 HTML」
+        // 4. 解析「说明 + 新 HTML」，并把图片占位符还原成原 Data URL
         ParsedEdit parsed = parseOutput(aiOutput);
-        String newHtml = cleanHtml(parsed.html);
+        String newHtml = cleanHtml(DataUrlPlaceholders.restore(parsed.html, compressed.placeholders()));
         if (newHtml.isBlank()) {
             throw new RuntimeException("AI 未返回有效的 HTML，请调整描述后重试");
         }
@@ -118,10 +122,13 @@ public class PrototypeAiEditServiceImpl implements PrototypeAiEditService {
                 throw new IllegalStateException("原型内容为空，无法修改");
             }
 
+            DataUrlPlaceholders.Compressed compressed = DataUrlPlaceholders.compress(baseHtml);
             String systemPrompt = promptTemplate.getEditPatchSystemPrompt();
             String userPrompt = promptTemplate.buildEditPatchPrompt(
-                    baseHtml, request.getInstruction(), request.getTargetElement());
-            PatchStreamAccumulator accumulator = new PatchStreamAccumulator(taskId);
+                    compressed.text(), request.getInstruction(), request.getTargetElement());
+            log.info("原型 AI 流式修改: taskId={}, htmlLen={}, promptHtmlLen={}, embeddedImages={}",
+                    taskId, baseHtml.length(), compressed.text().length(), compressed.placeholders().size());
+            PatchStreamAccumulator accumulator = new PatchStreamAccumulator(taskId, compressed.placeholders());
 
             AiRequestContext.setUserId(userId);
             try {
@@ -275,12 +282,14 @@ public class PrototypeAiEditServiceImpl implements PrototypeAiEditService {
 
     private final class PatchStreamAccumulator {
         private final Long taskId;
+        private final Map<String, String> imagePlaceholders;
         private final StringBuilder buffer = new StringBuilder();
         private int patchCount;
         private String summary = "";
 
-        private PatchStreamAccumulator(Long taskId) {
+        private PatchStreamAccumulator(Long taskId, Map<String, String> imagePlaceholders) {
             this.taskId = taskId;
+            this.imagePlaceholders = imagePlaceholders;
         }
 
         void accept(String delta) {
@@ -380,6 +389,9 @@ public class PrototypeAiEditServiceImpl implements PrototypeAiEditService {
         private void publishPatch(JsonNode root) {
             Map<String, Object> patch = normalizePatch(root);
             if (patch == null) return;
+            // patch 里的 html/value 可能引用图片占位符，推送前还原为真实 Data URL
+            patch.replaceAll((key, value) -> value instanceof String s
+                    ? DataUrlPlaceholders.restore(s, imagePlaceholders) : value);
             patch.put("seq", ++patchCount);
             Object text = patch.get("text");
             Object patchSummary = patch.get("summary");

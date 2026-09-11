@@ -18,12 +18,14 @@ import HeaderBar from './HeaderBar.vue'
   display: flex;
   flex-direction: column;
   height: 100vh;
+  background-color: #f8fafc;
+  overflow: hidden;
 }
 .content {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  background: #f2f1ed;
+  background-color: #f8fafc;
   display: flex;
   flex-direction: column;
 }

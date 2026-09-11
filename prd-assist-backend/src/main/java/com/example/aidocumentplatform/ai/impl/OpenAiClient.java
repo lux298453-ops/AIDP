@@ -15,6 +15,8 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 import reactor.util.retry.Retry;
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 
 import java.net.URI;
 import java.time.Duration;
@@ -176,12 +178,33 @@ public class OpenAiClient implements AiClient {
 
     private AiCallConfig resolveConfig() {
         Long userId = AiRequestContext.getUserId();
+        AiCallConfig config;
         if (userId == null || aiModelConfigService == null) {
-            return defaultConfig;
+            config = defaultConfig;
+        } else {
+            config = aiModelConfigService.findEnabledByUserId(userId)
+                    .map(this::toCallConfig)
+                    .orElse(defaultConfig);
         }
-        return aiModelConfigService.findEnabledByUserId(userId)
-                .map(this::toCallConfig)
-                .orElse(defaultConfig);
+        return applyRequestOptions(config);
+    }
+
+    private AiCallConfig applyRequestOptions(AiCallConfig config) {
+        AiRequestContext.RequestOptions options = AiRequestContext.getRequestOptions();
+        if (options == null) return config;
+
+        int maxOutputTokens = options.maxOutputTokens() == null || options.maxOutputTokens() <= 0
+                ? config.maxOutputTokens()
+                : options.maxOutputTokens();
+        String reasoningEffort = options.reasoningEffort() == null
+                ? config.reasoningEffort()
+                : normalizeReasoningEffort(options.reasoningEffort());
+        String fallbackApiType = options.fallbackEnabled() ? config.fallbackApiType() : "";
+        return new AiCallConfig(
+                config.provider(), config.apiUrl(), config.apiKey(), config.model(), maxOutputTokens,
+                config.imageDetail(), config.apiType(), fallbackApiType, config.appendApiPath(),
+                config.openAiAuthEnabled(), config.authHeaderType(), config.actorAuthorization(),
+                reasoningEffort, config.disableResponseStorage());
     }
 
     private AiCallConfig toCallConfig(AiModelConfig config) {
@@ -356,14 +379,15 @@ public class OpenAiClient implements AiClient {
 
     private String callOpenAi(AiCallConfig config, RequestVariant request, int promptLen, boolean withImage) {
         if (request == null) throw new RuntimeException("AI API type is empty");
-        log.info("OpenAI-compatible API call: provider={}, type={}, model={}, url={}, auth={}, actorHeader={}, promptLen={}, withImage={}",
+        log.info("OpenAI-compatible API call: provider={}, type={}, model={}, url={}, auth={}, actorHeader={}, promptLen={}, withImage={}, reasoning={}, maxOutputTokens={}, retries={}, timeoutSeconds={}",
                 config.provider(), request.apiType(), config.model(), request.apiUrl(),
-                authDescription(config), !config.actorAuthorization().isBlank(), promptLen, withImage);
+                authDescription(config), !config.actorAuthorization().isBlank(), promptLen, withImage,
+                config.reasoningEffort(), config.maxOutputTokens(), requestRetryCount(), requestTimeoutSeconds());
         if (config.openAiAuthEnabled() && config.apiKey().isBlank()) {
             throw new RuntimeException("OpenAI API Key 未配置，请在模型设置页填写 API Key");
         }
         try {
-            String response = webClient.post()
+            Mono<String> responseMono = webClient.post()
                     .uri(request.apiUrl())
                     .headers(headers -> {
                         if (config.openAiAuthEnabled()) {
@@ -375,12 +399,8 @@ public class OpenAiClient implements AiClient {
                     })
                     .bodyValue(request.body())
                     .retrieve()
-                    .bodyToMono(String.class)
-                    .retryWhen(Retry.backoff(2, Duration.ofSeconds(2))
-                            .filter(this::isRetryable)
-                            .maxBackoff(Duration.ofSeconds(10))
-                            .onRetryExhaustedThrow((spec, signal) -> signal.failure()))
-                    .block();
+                    .bodyToMono(String.class);
+            String response = applyRequestPolicy(responseMono).block();
 
             String text = extractContent(response);
             log.info("OpenAI-compatible API success: provider={}, model={}, textLen={}",
@@ -407,9 +427,10 @@ public class OpenAiClient implements AiClient {
         if (request == null) throw new RuntimeException("AI API type is empty");
         Map<String, Object> body = new LinkedHashMap<>(request.body());
         body.put("stream", true);
-        log.info("OpenAI-compatible stream API call: provider={}, type={}, model={}, url={}, auth={}, actorHeader={}, promptLen={}, withImage={}",
+        log.info("OpenAI-compatible stream API call: provider={}, type={}, model={}, url={}, auth={}, actorHeader={}, promptLen={}, withImage={}, reasoning={}, maxOutputTokens={}, retries={}, timeoutSeconds={}",
                 config.provider(), request.apiType(), config.model(), request.apiUrl(),
-                authDescription(config), !config.actorAuthorization().isBlank(), promptLen, withImage);
+                authDescription(config), !config.actorAuthorization().isBlank(), promptLen, withImage,
+                config.reasoningEffort(), config.maxOutputTokens(), requestRetryCount(), requestTimeoutSeconds());
         if (config.openAiAuthEnabled() && config.apiKey().isBlank()) {
             throw new RuntimeException("OpenAI API Key 未配置，请在模型设置页填写 API Key");
         }
@@ -418,7 +439,7 @@ public class OpenAiClient implements AiClient {
         StringBuilder eventBuffer = new StringBuilder();
         StringBuilder text = new StringBuilder();
         try {
-            webClient.post()
+            Flux<String> responseFlux = webClient.post()
                     .uri(request.apiUrl())
                     .accept(MediaType.TEXT_EVENT_STREAM)
                     .headers(headers -> {
@@ -432,15 +453,17 @@ public class OpenAiClient implements AiClient {
                     .bodyValue(body)
                     .retrieve()
                     .bodyToFlux(String.class)
+                    // 重试会重新订阅整条流，必须清空上一次的半截内容，避免结果拼接重复
+                    .doOnSubscribe(subscription -> {
+                        raw.setLength(0);
+                        eventBuffer.setLength(0);
+                        text.setLength(0);
+                    })
                     .doOnNext(chunk -> {
                         raw.append(chunk);
                         handleStreamChunk(chunk, eventBuffer, text, onDelta);
-                    })
-                    .retryWhen(Retry.backoff(2, Duration.ofSeconds(2))
-                            .filter(this::isRetryable)
-                            .maxBackoff(Duration.ofSeconds(10))
-                            .onRetryExhaustedThrow((spec, signal) -> signal.failure()))
-                    .blockLast();
+                    });
+            applyRequestPolicy(responseFlux).blockLast();
 
             flushStreamBuffer(eventBuffer, text, onDelta);
             if (!text.isEmpty()) {
@@ -479,18 +502,14 @@ public class OpenAiClient implements AiClient {
             throw new RuntimeException("Claude API Key 未配置，请在模型设置页填写 API Key");
         }
         try {
-            String response = webClient.post()
+            Mono<String> responseMono = webClient.post()
                     .uri(url)
                     .header("x-api-key", config.apiKey())
                     .header("anthropic-version", "2023-06-01")
                     .bodyValue(body)
                     .retrieve()
-                    .bodyToMono(String.class)
-                    .retryWhen(Retry.backoff(2, Duration.ofSeconds(2))
-                            .filter(this::isRetryable)
-                            .maxBackoff(Duration.ofSeconds(10))
-                            .onRetryExhaustedThrow((spec, signal) -> signal.failure()))
-                    .block();
+                    .bodyToMono(String.class);
+            String response = applyRequestPolicy(responseMono).block();
             String text = extractClaudeContent(response);
             log.info("Claude API success: model={}, textLen={}", config.model(), text.length());
             return text;
@@ -507,6 +526,44 @@ public class OpenAiClient implements AiClient {
         return normalizeApiUrl(config.apiUrl(), requestApiType, config.appendApiPath());
     }
 
+    private int requestRetryCount() {
+        AiRequestContext.RequestOptions options = AiRequestContext.getRequestOptions();
+        if (options == null || options.retryCount() == null) return 2;
+        return Math.max(0, options.retryCount());
+    }
+
+    private Integer requestTimeoutSeconds() {
+        AiRequestContext.RequestOptions options = AiRequestContext.getRequestOptions();
+        if (options == null || options.timeoutSeconds() == null || options.timeoutSeconds() <= 0) return null;
+        return options.timeoutSeconds();
+    }
+
+    private <T> Mono<T> applyRequestPolicy(Mono<T> publisher) {
+        Mono<T> result = publisher;
+        int retryCount = requestRetryCount();
+        if (retryCount > 0) {
+            result = result.retryWhen(Retry.backoff(retryCount, Duration.ofSeconds(2))
+                    .filter(this::isRetryable)
+                    .maxBackoff(Duration.ofSeconds(10))
+                    .onRetryExhaustedThrow((spec, signal) -> signal.failure()));
+        }
+        Integer timeoutSeconds = requestTimeoutSeconds();
+        return timeoutSeconds == null ? result : result.timeout(Duration.ofSeconds(timeoutSeconds));
+    }
+
+    private <T> Flux<T> applyRequestPolicy(Flux<T> publisher) {
+        Flux<T> result = publisher;
+        int retryCount = requestRetryCount();
+        if (retryCount > 0) {
+            result = result.retryWhen(Retry.backoff(retryCount, Duration.ofSeconds(2))
+                    .filter(this::isRetryable)
+                    .maxBackoff(Duration.ofSeconds(10))
+                    .onRetryExhaustedThrow((spec, signal) -> signal.failure()));
+        }
+        Integer timeoutSeconds = requestTimeoutSeconds();
+        return timeoutSeconds == null ? result : result.timeout(Duration.ofSeconds(timeoutSeconds));
+    }
+
     private boolean shouldFallback(RequestVariant primary, RequestVariant fallback, Throwable throwable) {
         if (primary == null || fallback == null || fallback.apiType().isBlank()) return false;
         if (!"responses".equals(primary.apiType()) || primary.apiType().equals(fallback.apiType())) return false;
@@ -520,9 +577,32 @@ public class OpenAiClient implements AiClient {
         WebClientResponseException responseException = findCause(throwable, WebClientResponseException.class);
         if (responseException != null) {
             int code = responseException.getStatusCode().value();
-            return code == 408 || code == 429 || responseException.getStatusCode().is5xxServerError();
+            if (code == 408 || code == 429 || responseException.getStatusCode().is5xxServerError()) {
+                return true;
+            }
         }
-        return hasTransportFailureMarker(throwable);
+        // 流式响应中途断开时，WebClient 会把 PrematureCloseException 包装成
+        // “200 OK”的 WebClientResponseException，因此状态码不可重试时仍需检查传输层标记
+        return hasTransportFailureMarker(throwable) || hasRelayUpstreamFailureMarker(throwable);
+    }
+
+    /**
+     * 中转站常在 HTTP 200 的 SSE 流里用错误事件报告上游故障（如 stream_read_error、
+     * Upstream request failed）。这类错误和 502/503 本质相同，应当参与退避重试。
+     */
+    private static boolean hasRelayUpstreamFailureMarker(Throwable throwable) {
+        Throwable cursor = throwable;
+        while (cursor != null) {
+            String message = cursor.getMessage() == null ? "" : cursor.getMessage().toLowerCase();
+            if (message.contains("upstream request failed")
+                    || message.contains("upstream error")
+                    || message.contains("stream_read_error")
+                    || message.contains("stream read error")) {
+                return true;
+            }
+            cursor = cursor.getCause() == cursor ? null : cursor.getCause();
+        }
+        return false;
     }
 
     private void handleStreamChunk(String chunk, StringBuilder eventBuffer, StringBuilder text,

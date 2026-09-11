@@ -44,9 +44,12 @@ public class LocalFileStorage implements FileStorage {
             throw new RuntimeException("无法创建目录: " + dir, e);
         }
 
-        String ext = getExtension(fileName);
-        String storedName = UUID.randomUUID().toString().substring(0, 8) + "_" + fileName;
-        Path target = dir.resolve(storedName);
+        // 存储名只使用 UUID + 白名单扩展名，绝不拼接客户端原始文件名，防止路径穿越
+        String storedName = UUID.randomUUID() + sanitizeExtension(getExtension(fileName));
+        Path target = dir.resolve(storedName).normalize();
+        if (!target.startsWith(baseDir)) {
+            throw new IllegalArgumentException("非法文件存储路径: " + fileName);
+        }
 
         try {
             Files.copy(
@@ -74,5 +77,15 @@ public class LocalFileStorage implements FileStorage {
         if (fileName == null) return "";
         int dot = fileName.lastIndexOf('.');
         return dot >= 0 ? fileName.substring(dot) : "";
+    }
+
+    private static final java.util.Set<String> ALLOWED_EXTENSIONS = java.util.Set.of(
+            ".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg",
+            ".md", ".txt", ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".html", ".json");
+
+    private String sanitizeExtension(String ext) {
+        if (ext == null) return "";
+        String normalized = ext.trim().toLowerCase();
+        return ALLOWED_EXTENSIONS.contains(normalized) ? normalized : "";
     }
 }

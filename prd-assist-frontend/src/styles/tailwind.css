@@ -1,0 +1,13 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* 常用交互与布局工具类增强 */
+@layer utilities {
+  .trans-fast {
+    transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  .trans-normal {
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+}

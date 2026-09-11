@@ -366,6 +366,53 @@ Content-Type: multipart/form-data
 
 ## 5. 原型图生成模块
 
+### 5.0 原型需求澄清
+
+```text
+POST /api/prototype/clarify
+```
+
+请求包含 `description`、`platform`、`prototypeType`、`hasReferenceImage`。其中 `prototypeType` 为 `SINGLE_PAGE` 或 `MULTI_PAGE`，用于让规划模型按真实生成模式判断页面集合和素材数量。响应返回 `intentSummary`、`generationBrief`、最多 3 个动态问题，以及内部 `assetPlan` / `assetPlans`。
+
+`assetPlan` 与 `assetPlans` 均由后端自动规划，前端不展示“素材模式”，也不应由用户手工配置。`assetPlan` 保留用于单页面和旧客户端兼容；`assetPlans` 用于多页面独立素材，最多 3 项，每项通过 `key` 和 `targetPage` 绑定目标页面。客户端提交生成请求时应把澄清响应中的 `generationBrief`、`assetPlan` 和 `assetPlans` 原样带回。
+
+用户回答动态问题后，调用最终规划接口：
+
+```text
+POST /api/prototype/clarify/finalize
+```
+
+请求字段：`description`、`platform`、`prototypeType`、`hasReferenceImage`、初步 `generationBrief`、初步 `assetPlan`、初步 `assetPlans` 和 `clarificationAnswers`。响应结构与 `/prototype/clarify` 相同，但 `needsClarification` 固定为 `false`，`questions` 固定为空数组。生成请求应使用该响应中的最终 `generationBrief`、`assetPlan` 和 `assetPlans`。
+
+多页面素材计划示例：
+
+```json
+{
+  "assetPlans": [
+    {
+      "key": "lock_screen",
+      "targetPage": "锁屏页",
+      "required": true,
+      "source": "GENERATED",
+      "role": "BACKGROUND",
+      "prompt": "竖屏梦幻星空锁屏壁纸",
+      "aspectRatio": "9:16",
+      "transparentBackground": false
+    },
+    {
+      "key": "home_screen",
+      "targetPage": "桌面页",
+      "required": true,
+      "source": "GENERATED",
+      "role": "BACKGROUND",
+      "prompt": "与锁屏同主题的手机桌面壁纸",
+      "aspectRatio": "9:16",
+      "transparentBackground": false
+    }
+  ]
+}
+```
+
 ### 5.1 提交原型生成
 
 ```
@@ -378,9 +425,14 @@ POST /api/prototype/generate
 
 | 字段 | 类型 | 必填 | 默认值 | 说明 |
 |------|------|:--:|--------|------|
-| `description` | string | ✅ | — | 功能描述，≤2000 字 |
+| `description` | string | ✅ | — | 功能描述，≤50000 字 |
 | `prototypeType` | string | 否 | `SINGLE_PAGE` | `SINGLE_PAGE` / `MULTI_PAGE` |
-| `platform` | string | 否 | `APP` | `APP` / `WEB` / `MINI_PROGRAM` |
+| `platform` | string | 否 | `APP` | `APP` / `WEB` / `PAD` / `MINI_PROGRAM` |
+| `generationBrief` | string | 否 | - | 澄清接口生成的内部执行简报，原样透传 |
+| `clarificationAnswers` | string[] | 否 | - | 用户对动态问题的确认答案 |
+| `assetPlan` | object | 否 | - | 澄清接口生成的内部素材计划，原样透传，不允许客户端自行构造 |
+| `assetPlans` | object[] | 否 | - | 多页面独立素材计划，原样透传，最多 3 项；与 `assetPlan` 兼容共存 |
+| `pageMorphology` | string | 否 | `FULL_PAGE` | 页面形态：`FULL_PAGE` / `MODAL_POPUP` / `LIST_FEED` / `FORM_FLOW` / `COMPONENT_ONLY` / `AUTO` |
 | `prdDocumentId` | number | 否 | — | 关联的 PRD 文档 ID |
 
 ```json
@@ -404,7 +456,9 @@ POST /api/prototype/generate
 > **说明**: 异步接口。
 > - `SINGLE_PAGE`: AI 返回单个 HTML 文件
 > - `MULTI_PAGE`: AI 返回 JSON 数组 `[{title, order, html}, ...]`，每页一个完整 HTML
+> - 多页面可按 `assetPlans[].key` 使用 `__PROTOTYPE_ASSET_<key>__` 占位符，将不同图片绑定到不同页面；旧的 `__PROTOTYPE_PRIMARY_ASSET__` 仍受支持
 > - 生成结果存入 `prototype_result.content`
+> - 本次字段扩展复用现有任务输入和 HTML 内容存储，不需要数据库迁移或 SQL
 
 ---
 

@@ -7,6 +7,7 @@
  * - 兼容后端 Word 导出的纯文本 content
  */
 import { ref, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
+import DOMPurify from 'dompurify'
 
 const props = defineProps<{
   modelValue: string
@@ -32,11 +33,16 @@ function escapeHtml(s: string) {
     .replace(/"/g, '&quot;')
 }
 
+/** 内容可能来自 AI 输出或用户粘贴，注入 DOM 前必须消毒，防止存储型 XSS */
+function sanitizeHtml(html: string): string {
+  return DOMPurify.sanitize(html, { USE_PROFILES: { html: true } })
+}
+
 function plainToHtml(text: string): string {
   if (!text) return ''
-  // 已是 HTML（含标签）则直接用
+  // 已是 HTML（含标签）则消毒后使用
   if (/<\/?[a-z][\s\S]*>/i.test(text) && (text.includes('<p') || text.includes('<div') || text.includes('<br') || text.includes('<ul') || text.includes('<ol') || text.includes('<strong') || text.includes('<b'))) {
-    return text
+    return sanitizeHtml(text)
   }
   const lines = text.replace(/\r\n/g, '\n').replace(/\\n/g, '\n').split('\n')
   const blocks: string[] = []
@@ -130,7 +136,8 @@ function tableToHtml(lines: string[]): string {
 function htmlToPlain(html: string): string {
   if (!html) return ''
   const div = document.createElement('div')
-  div.innerHTML = html
+  // 游离节点上 img onerror 等仍会执行，解析前同样消毒
+  div.innerHTML = sanitizeHtml(html)
 
   const parts: string[] = []
 

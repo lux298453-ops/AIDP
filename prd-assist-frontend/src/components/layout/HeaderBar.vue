@@ -1,27 +1,42 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { Setting } from '@element-plus/icons-vue'
+import {
+  Document,
+  Edit,
+  PictureFilled,
+  Checked,
+  Folder,
+  House,
+  SwitchButton,
+  DataBoard,
+} from '@element-plus/icons-vue'
 import { useUserStore } from '@/store/modules/user'
 
 const router = useRouter()
 const route = useRoute()
 const user = useUserStore()
 
-/** 顶部 Tab 导航 */
+/** 顶部主导航定义 */
 const tabs = [
-  { label: 'PRD 生成', path: '/prd/generate', icon: 'Document' },
-  { label: 'PRD 增强', path: '/prd/enhance', icon: 'Edit' },
-  { label: '原型图生成', path: '/prototype', icon: 'PictureFilled' },
-  { label: 'PRD 审查', path: '/prd/review', icon: 'Checked' },
+  { label: '工作台', path: '/', icon: House },
+  { label: 'PRD 生成', path: '/prd/generate', icon: Document },
+  { label: 'PRD 增强', path: '/prd/enhance', icon: Edit },
+  { label: '原型图生成', path: '/prototype', icon: PictureFilled },
+  { label: 'PRD 审查', path: '/prd/review', icon: Checked },
+  { label: '我的文档', path: '/documents', icon: Folder },
 ]
 
 /** 当前激活的 tab 路径 */
 const activeTab = computed(() => {
-  // 对子路径做匹配：/prd/generate 和 /prd/enhance 和 /prd/review 都匹配 /prd/*
-  for (const tab of tabs) {
-    if (route.path.startsWith(tab.path)) return tab.path
-  }
+  const current = route.path
+  if (current === '/') return '/'
+  if (current.startsWith('/documents')) return '/documents'
+  if (current.startsWith('/prd/generate')) return '/prd/generate'
+  if (current.startsWith('/prd/enhance')) return '/prd/enhance'
+  if (current.startsWith('/prd/review')) return '/prd/review'
+  if (current.startsWith('/prototype')) return '/prototype'
+  if (current.startsWith('/prd/')) return '/prd/generate'
   return ''
 })
 
@@ -33,149 +48,256 @@ function goHome() {
   router.push('/')
 }
 
-function goSettings() {
-  router.push('/settings/ai')
-}
-
 function handleLogout() {
   user.logout()
   router.push('/login')
 }
+
+const userInitial = computed(() => {
+  const name = user.nickname || user.username || 'U'
+  return name.slice(0, 1).toUpperCase()
+})
 </script>
 
 <template>
-  <div class="header-bar">
-    <!-- Logo + 标题 -->
+  <header class="header-bar">
+    <!-- Logo + 品牌标 -->
     <div class="header-left" @click="goHome">
-      <el-icon size="20" color="#26251e"><Monitor /></el-icon>
-      <span class="logo-text">AI 文档平台</span>
+      <div class="logo-box">
+        <el-icon :size="18" color="#ffffff"><DataBoard /></el-icon>
+      </div>
+      <div class="brand-text">
+        <span class="logo-title">AI 文档平台</span>
+        <span class="logo-badge">Pro</span>
+      </div>
     </div>
 
-    <!-- Tab 导航 -->
-    <div class="header-tabs">
-      <div
+    <!-- Tab 导航（居中现代胶囊式） -->
+    <nav class="header-tabs">
+      <button
         v-for="tab in tabs"
         :key="tab.path"
+        type="button"
         class="header-tab"
         :class="{ active: activeTab === tab.path }"
         @click="goTab(tab.path)"
       >
-        <el-icon size="14"><component :is="tab.icon" /></el-icon>
+        <el-icon :size="15"><component :is="tab.icon" /></el-icon>
         <span>{{ tab.label }}</span>
-      </div>
-    </div>
+      </button>
+    </nav>
 
     <!-- 右侧用户区 -->
     <div class="header-right">
-      <span class="username">{{ user.nickname || user.username }}</span>
-      <span class="logout-link" @click="handleLogout">退出</span>
+      <div class="user-chip">
+        <div class="user-avatar">{{ userInitial }}</div>
+        <span class="username" :title="user.nickname || user.username">
+          {{ user.nickname || user.username }}
+        </span>
+      </div>
+      <div class="h-divider" />
+      <button class="logout-btn" title="退出登录" @click="handleLogout">
+        <el-icon :size="14"><SwitchButton /></el-icon>
+        <span class="hidden sm:inline">退出</span>
+      </button>
     </div>
-  </div>
+  </header>
 </template>
 
 <style scoped>
 .header-bar {
-  height: 52px;
+  height: 56px;
   display: flex;
   align-items: center;
-  padding: 0 28px;
-  background: rgba(242, 241, 237, 0.85);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border-bottom: 1px solid rgba(38, 37, 30, 0.1);
+  justify-content: space-between;
+  padding: 0 24px;
+  background: rgba(255, 255, 255, 0.88);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-bottom: 1px solid #e2e8f0;
   flex-shrink: 0;
-  gap: 24px;
+  gap: 16px;
+  z-index: 50;
+  position: sticky;
+  top: 0;
 }
 
 /* Logo */
 .header-left {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   cursor: pointer;
   flex-shrink: 0;
+  user-select: none;
+  padding: 4px 8px 4px 4px;
+  border-radius: 8px;
+  transition: background 0.15s ease;
 }
-.logo-text {
-  font-size: 17px;
-  font-weight: 600;
-  color: #26251e;
-  letter-spacing: -0.28px;
+.header-left:hover {
+  background: rgba(241, 245, 249, 0.6);
 }
-
-/* Tab 导航 */
-.header-tabs {
+.logo-box {
+  width: 30px;
+  height: 30px;
+  border-radius: 7px;
+  background: linear-gradient(180deg, #1e293b 0%, #0f172a 100%);
   display: flex;
   align-items: center;
-  flex: 1;
   justify-content: center;
-  gap: 0;
-  height: 100%;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18), 0 1px 3px rgba(15, 23, 42, 0.2);
 }
-.header-tab {
+.brand-text {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 0 18px;
-  height: 100%;
-  font-size: 14px;
-  font-weight: 500;
-  color: rgba(38, 37, 30, 0.65);
-  cursor: pointer;
-  border-bottom: 2px solid transparent;
-  transition: all 0.15s ease;
-  user-select: none;
 }
-.header-tab:hover {
-  color: #f54e00;
-}
-.header-tab.active {
-  color: #26251e;
-  border-bottom-color: #26251e;
+.logo-title {
+  font-size: 14.5px;
   font-weight: 600;
+  color: #0f172a;
+  letter-spacing: -0.025em;
+}
+.logo-badge {
+  font-size: 10px;
+  font-weight: 600;
+  color: #2563eb;
+  background: #eff6ff;
+  border: 1px solid #dbeafe;
+  padding: 1px 6px;
+  border-radius: 9999px;
+  line-height: 1.3;
 }
 
-/* 右侧 */
+/* Tab 导航（Linear 级嵌入式分段控制器） */
+.header-tabs {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  background: #f1f5f9;
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  border-radius: 10px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.header-tabs::-webkit-scrollbar {
+  display: none;
+}
+.header-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border-radius: 7px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #64748b;
+  cursor: pointer;
+  background: transparent;
+  border: none;
+  transition: all 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+  white-space: nowrap;
+  user-select: none;
+  position: relative;
+}
+.header-tab .el-icon {
+  color: #94a3b8;
+  transition: color 0.15s ease;
+}
+.header-tab:hover {
+  color: #0f172a;
+  background: rgba(255, 255, 255, 0.5);
+}
+.header-tab:hover .el-icon {
+  color: #475569;
+}
+.header-tab.active {
+  color: #0f172a;
+  background: #ffffff;
+  font-weight: 600;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08), 0 0 0 1px rgba(15, 23, 42, 0.04);
+}
+.header-tab.active .el-icon {
+  color: #2563eb;
+}
+
+/* 右侧用户区 */
 .header-right {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   flex-shrink: 0;
 }
-.icon-button {
-  width: 34px;
-  height: 34px;
-  border: 1px solid rgba(38, 37, 30, 0.14);
-  border-radius: 8px;
-  background: #fff;
-  color: #26251e;
-  display: inline-flex;
+.user-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 10px 3px 4px;
+  border-radius: 9999px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
+  cursor: default;
+}
+.user-avatar {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: linear-gradient(180deg, #3b82f6 0%, #2563eb 100%);
+  color: #ffffff;
+  font-size: 10.5px;
+  font-weight: 600;
+  display: flex;
   align-items: center;
   justify-content: center;
-  cursor: pointer;
-  box-shadow: 0 1px 2px rgba(38, 37, 30, 0.06);
-  transition: color 0.15s, background 0.15s, border-color 0.15s, box-shadow 0.15s, transform 0.15s;
-}
-.icon-button:hover,
-.icon-button.active {
-  color: #f54e00;
-  border-color: rgba(245, 78, 0, 0.35);
-  background: rgba(245, 78, 0, 0.08);
-  box-shadow: 0 4px 12px rgba(245, 78, 0, 0.14);
-}
-.icon-button:hover {
-  transform: translateY(-1px);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25);
 }
 .username {
-  color: rgba(38, 37, 30, 0.55);
-  font-size: 13px;
+  color: #334155;
+  font-size: 12.5px;
+  font-weight: 500;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.logout-link {
-  font-size: 13px;
-  color: rgba(38, 37, 30, 0.4);
+.h-divider {
+  width: 1px;
+  height: 14px;
+  background: #e2e8f0;
+}
+.logout-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 9px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: #64748b;
+  font-size: 12.5px;
   cursor: pointer;
-  transition: color 0.15s;
+  transition: all 0.15s ease;
 }
-.logout-link:hover {
-  color: #cf2d56;
+.logout-btn:hover {
+  color: #dc2626;
+  background: #fef2f2;
+  border-color: #fee2e2;
+}
+
+@media (max-width: 768px) {
+  .header-bar {
+    padding: 0 12px;
+    gap: 8px;
+  }
+  .header-tabs {
+    flex: 1;
+    justify-content: flex-start;
+  }
+  .header-tab {
+    padding: 4px 8px;
+    font-size: 12px;
+  }
 }
 </style>

@@ -78,6 +78,25 @@ const RUNTIME_SCRIPT = `<script data-proto-runtime>
   "use strict";
   var selected=null, counter=0, mode="select";
   function post(t,p){ parent.postMessage({source:"proto",type:t,payload:p}, "*"); }
+  var heightFrame=0;
+  function reportHeight(){
+    if(heightFrame) cancelAnimationFrame(heightFrame);
+    heightFrame=requestAnimationFrame(function(){
+      heightFrame=0;
+      var de=document.documentElement, body=document.body;
+      if(!de||!body) return;
+      var height=0, children=body.children;
+      for(var i=0;i<children.length;i++){
+        var el=children[i];
+        if(el.hasAttribute&&el.hasAttribute("data-proto-runtime")) continue;
+        var rect=el.getBoundingClientRect();
+        height=Math.max(height,rect.bottom+window.scrollY,el.offsetTop+el.scrollHeight);
+      }
+      var bodyStyle=getComputedStyle(body);
+      height+=parseFloat(bodyStyle.paddingBottom)||0;
+      post("contentHeight",Math.ceil(height));
+    });
+  }
   function pid(el){ if(!el.getAttribute("data-proto-id")){ el.setAttribute("data-proto-id","p"+(++counter)); } return el.getAttribute("data-proto-id"); }
   function byId(id){ return document.querySelector('[data-proto-id="'+id+'"]'); }
   function toHex(c){ if(!c) return "#000000"; if(c.charAt(0)==="#") return c; var m=c.match(/rgba?\\(([^)]+)\\)/); if(!m) return "#000000"; var a=m[1].split(",").map(function(x){return parseFloat(x)}); if(a.length>=4&&a[3]===0) return "transparent"; function h(n){ n=Math.max(0,Math.min(255,Math.round(n))); var s=n.toString(16); return s.length<2?"0"+s:s; } return "#"+h(a[0])+h(a[1])+h(a[2]); }
@@ -115,8 +134,25 @@ const RUNTIME_SCRIPT = `<script data-proto-runtime>
   function num(v){ var n=parseFloat(v); return isNaN(n)?0:Math.round(n); }
   function pct(v){ var n=parseFloat(v); return isNaN(n)?100:Math.round(n*100); }
   function cssName(prop){ return String(prop||"").replace(/[A-Z]/g,function(m){return "-"+m.toLowerCase();}); }
+  function escCss(value){ if(window.CSS&&window.CSS.escape) return window.CSS.escape(String(value)); return String(value).replace(/[^a-zA-Z0-9_-]/g,function(ch){return "\\\\"+ch;}); }
+  function stableSelector(el){
+    if(!el||el===document.body) return "body";
+    if(el.id) return "#"+escCss(el.id);
+    var parts=[],cur=el;
+    while(cur&&cur!==document.body&&parts.length<5){
+      var part=cur.tagName.toLowerCase();
+      var classes=Array.prototype.slice.call(cur.classList||[]).filter(function(c){return c&&c.indexOf("proto-")<0;}).slice(0,2);
+      if(classes.length) part+="."+classes.map(escCss).join(".");
+      var siblings=cur.parentElement?Array.prototype.filter.call(cur.parentElement.children,function(n){return n.tagName===cur.tagName;}):[];
+      if(siblings.length>1) part+=":nth-of-type("+(siblings.indexOf(cur)+1)+")";
+      parts.unshift(part); cur=cur.parentElement;
+      var candidate=parts.join(" > ");
+      try{ if(document.querySelectorAll(candidate).length===1) return candidate; }catch(ignore){}
+    }
+    return "body > "+parts.join(" > ");
+  }
   function info(el){ var cs=getComputedStyle(el); var tag=el.tagName.toLowerCase();
-    return { id:pid(el), tag:tag, text:editableText(el), href:el.getAttribute("href")||"",
+    return { id:pid(el), selector:stableSelector(el), tag:tag, text:editableText(el), href:el.getAttribute("href")||"",
       isLink: el.hasAttribute("href")||tag==="button"||el.getAttribute("role")==="button",
       styles:{ color:toHex(cs.color), backgroundColor:toHex(cs.backgroundColor),
         fontSize:parseInt(cs.fontSize)||14, fontWeight:normWeight(cs.fontWeight), textAlign:cs.textAlign||"left",
@@ -161,9 +197,10 @@ const RUNTIME_SCRIPT = `<script data-proto-runtime>
     var al=d.querySelectorAll("[data-proto-id],[data-proto-hover],[data-proto-selected]");
     for(var j=0;j<al.length;j++){ al[j].removeAttribute("data-proto-id"); al[j].removeAttribute("data-proto-hover"); al[j].removeAttribute("data-proto-selected"); }
     return "<!DOCTYPE html>\\n"+d.outerHTML; }
+  function isTreeVisible(el){ if(!el||!el.tagName) return false; var t=String(el.tagName||"").toLowerCase(); if(el.hasAttribute("data-proto-runtime")) return false; return ["script","style","meta","link","title","noscript"].indexOf(t)===-1; }
   function label(el){ var t=el.tagName.toLowerCase(); var x=(el.textContent||"").trim().replace(/\\s+/g," ").slice(0,16); return x? t+" · "+x : t; }
-  function tree(){ function walk(el){ var kids=[]; for(var i=0;i<el.children.length;i++){ var c=el.children[i]; if(c.hasAttribute("data-proto-runtime")) continue; kids.push(walk(c)); } return { id:pid(el), label:label(el), children:kids }; }
-    var b=document.body, a=[]; if(!b) return a; for(var i=0;i<b.children.length;i++){ var c=b.children[i]; if(c.hasAttribute("data-proto-runtime")) continue; a.push(walk(c)); } return a; }
+  function tree(){ function walk(el){ var kids=[]; for(var i=0;i<el.children.length;i++){ var c=el.children[i]; if(!isTreeVisible(c)) continue; kids.push(walk(c)); } return { id:pid(el), label:label(el), children:kids }; }
+    var b=document.body, a=[]; if(!b) return a; for(var i=0;i<b.children.length;i++){ var c=b.children[i]; if(!isTreeVisible(c)) continue; a.push(walk(c)); } return a; }
   function move(id,tid,pos){ var el=byId(id), t=byId(tid); if(!el||!t||el===t||el.contains(t)) return;
     if(pos==="inner"){ t.appendChild(el); } else if(pos==="before"){ t.parentNode.insertBefore(el,t); } else { t.parentNode.insertBefore(el,t.nextSibling); } }
   function targets(selector, all){ if(!selector) return []; try{
@@ -201,7 +238,13 @@ const RUNTIME_SCRIPT = `<script data-proto-runtime>
     else if(d.type==="move"){ move(d.id,d.targetId,d.position); post("tree",tree()); post("html",clean()); }
     else if(d.type==="patch"){ applyPatch(d.patch); }
     else if(d.type==="requestHtml"){ post("html",clean()); }
-    else if(d.type==="requestTree"){ post("tree",tree()); } });
+    else if(d.type==="requestTree"){ post("tree",tree()); }
+    else if(d.type==="requestHeight"){ reportHeight(); } });
+  if(window.ResizeObserver){ new ResizeObserver(reportHeight).observe(document.documentElement); }
+  if(window.MutationObserver){ new MutationObserver(reportHeight).observe(document.documentElement,{subtree:true,childList:true,attributes:true,characterData:true}); }
+  window.addEventListener("load",reportHeight);
+  document.addEventListener("load",reportHeight,true);
+  reportHeight();
   post("ready", true);
 })();
 <\/script>`
@@ -355,10 +398,11 @@ let patchAppliedWaiters: Array<() => void> = []
 let streamIdleTimer: ReturnType<typeof setTimeout> | null = null
 
 const devices = [
-  { key: 'mobile', label: '手机', icon: Iphone, width: 390 },
-  { key: 'tablet', label: '平板', icon: Platform, width: 820 },
-  { key: 'desktop', label: '桌面', icon: Monitor, width: 0 },
+  { key: 'mobile', label: '手机', icon: Iphone, width: 390, initialHeight: 844 },
+  { key: 'tablet', label: '平板', icon: Platform, width: 820, initialHeight: 1180 },
+  { key: 'desktop', label: '桌面', icon: Monitor, width: 0, initialHeight: 0 },
 ] as const
+const frameHeight = ref(0)
 
 const FONT_WEIGHTS = [
   { label: '常规', value: '400' },
@@ -417,15 +461,21 @@ const srcdoc = computed(() => buildSrcdoc(renderHtml.value, {
   titles: props.pageTitles || [],
   index: props.pageIndex || 0,
 }))
-const frameWidth = computed(() => {
+const frameStyle = computed(() => {
   const d = devices.find(x => x.key === device.value)
-  return d && d.width ? d.width + 'px' : '100%'
+  if (!d || !d.width) return { width: '100%', height: '100%' }
+  return {
+    width: `${d.width}px`,
+    height: `${Math.max(120, frameHeight.value || d.initialHeight)}px`,
+  }
 })
 const aiLoadingText = computed(() => (
   aiPatchCount.value > 0
     ? `AI 正在修改，已应用 ${aiPatchCount.value} 条指令…`
     : 'AI 正在按你的描述修改…'
 ))
+const currentPageTitle = computed(() => props.pageTitles?.[props.pageIndex || 0] || '当前页面')
+const hasMultiplePages = computed(() => (props.pageTitles?.length || 0) > 1)
 
 /* ==================== html 同步（内 / 外双向） ==================== */
 watch(html, (v) => {
@@ -509,7 +559,13 @@ function onMessage(e: MessageEvent) {
     frameReady.value = true
     post({ type: 'mode', value: editMode.value })
     post({ type: 'requestTree' })
+    post({ type: 'requestHeight' })
     flushQueuedPatches()
+  } else if (d.type === 'contentHeight') {
+    const measured = Number(d.payload)
+    if (device.value !== 'desktop' && Number.isFinite(measured)) {
+      frameHeight.value = Math.max(120, Math.min(12000, Math.ceil(measured)))
+    }
   } else if (d.type === 'select') {
     applySelect(d.payload)
   } else if (d.type === 'tree') {
@@ -648,7 +704,11 @@ function pushHref() {
 }
 
 /* ==================== 工具栏动作 ==================== */
-function setDevice(k: 'mobile' | 'tablet' | 'desktop') { device.value = k }
+function setDevice(k: 'mobile' | 'tablet' | 'desktop') {
+  device.value = k
+  frameHeight.value = devices.find(item => item.key === k)?.initialHeight || 0
+  window.setTimeout(() => post({ type: 'requestHeight' }), 50)
+}
 
 function setMode(m: 'select' | 'interact') {
   editMode.value = m
@@ -723,6 +783,7 @@ function extractCurrentPageHtml(content: string): string {
 async function recoverLatestPrototype(previousHtml: string) {
   for (let i = 0; i < 6; i++) {
     await wait(i === 0 ? 800 : 1800)
+    if (disposed) return false
     try {
       const res = await getPrototype(props.prototypeId)
       const latestHtml = extractCurrentPageHtml(res.data.data?.content || '')
@@ -752,7 +813,12 @@ function buildTargetElementDescription() {
   const text = typeof selected.value.text === 'string' && selected.value.text.trim()
     ? `，文字="${selected.value.text.trim().slice(0, 60)}"`
     : ''
-  return `<${selected.value.tag}>${text}`
+  const selector = selected.value.selector ? `，CSS selector="${selected.value.selector}"` : ''
+  return `<${selected.value.tag}>${selector}${text}`
+}
+
+function requiresStructuralAiEdit(text: string) {
+  return /重新(布局|排版|设计|构图|生成)|改成|变成|整体|整页|全屏|铺满|沉浸式|主视觉|删除(所有|全部|多余)|只保留|不要.*(卡片|导航|说明|文字|数据)|移除.*(卡片|导航|说明|文字|数据)|主体.*居中|背景.*铺满|布局.*(调整|修改|重做)/i.test(text)
 }
 
 function closeAiEditStream() {
@@ -900,6 +966,10 @@ async function doAiModify() {
   aiPatchCount.value = 0
   const beforeHtml = html.value
   try {
+    if (requiresStructuralAiEdit(text)) {
+      await runFullHtmlAiModify(text)
+      return
+    }
     await runStreamAiModify(text)
     aiText.value = ''
     ElMessage.success(aiPatchCount.value > 0 ? `AI 修改完成，已应用 ${aiPatchCount.value} 条指令` : 'AI 修改完成')
@@ -939,6 +1009,7 @@ function onTreeDrop(dragNode: any, dropNode: any, type: 'before' | 'after' | 'in
 /* ==================== iframe 生命周期 ==================== */
 function onFrameLoad() {
   frameReady.value = false
+  frameHeight.value = devices.find(item => item.key === device.value)?.initialHeight || 0
   selected.value = null
   treeData.value = []
   window.setTimeout(() => {
@@ -946,12 +1017,16 @@ function onFrameLoad() {
     frameReady.value = true
     post({ type: 'mode', value: editMode.value })
     post({ type: 'requestTree' })
+    post({ type: 'requestHeight' })
     flushQueuedPatches()
   }, 80)
 }
 
+let disposed = false
+
 onMounted(() => window.addEventListener('message', onMessage))
 onBeforeUnmount(() => {
+  disposed = true
   window.removeEventListener('message', onMessage)
   if (syncTimer) clearTimeout(syncTimer)
   if (snapshotTimer) clearTimeout(snapshotTimer)
@@ -962,59 +1037,75 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="result-right">
-    <!-- ==================== 上方：实时预览区 (65%) ==================== -->
     <section class="preview-zone">
-      <!-- 精致工具栏 -->
       <header class="tool-bar">
-        <div class="tool-group devices">
-          <button
-            v-for="d in devices" :key="d.key"
-            class="tool-btn" :class="{ active: device === d.key }"
-            :title="d.label" @click="setDevice(d.key)"
-          >
-            <el-icon><component :is="d.icon" /></el-icon>
-          </button>
+        <div class="tool-meta">
+          <div class="meta-copy">
+            <span class="meta-label">预览画布</span>
+            <strong class="meta-title">{{ currentPageTitle }}</strong>
+          </div>
+          <div v-if="hasMultiplePages" class="page-tabs">
+            <button
+              v-for="(title, idx) in pageTitles"
+              :key="`${title}-${idx}`"
+              type="button"
+              class="page-tab"
+              :class="{ active: idx === pageIndex }"
+              @click="emit('gotoPage', idx)"
+            >
+              <span class="tab-index">{{ idx + 1 }}</span>
+              <span class="tab-title">{{ title || `页面 ${idx + 1}` }}</span>
+            </button>
+          </div>
         </div>
 
-        <div class="tool-divider" />
+        <div class="toolbar-actions">
+          <div class="tool-group devices">
+            <button
+              v-for="d in devices" :key="d.key"
+              class="tool-btn" :class="{ active: device === d.key }"
+              :title="d.label" @click="setDevice(d.key)"
+            >
+              <el-icon><component :is="d.icon" /></el-icon>
+            </button>
+          </div>
 
-        <div class="tool-group">
-          <button class="tool-btn" title="刷新预览" @click="refresh">
-            <el-icon><RefreshRight /></el-icon>
-          </button>
-          <button class="tool-btn" title="全屏" @click="toggleFullscreen">
-            <el-icon><FullScreen /></el-icon>
-          </button>
+          <div class="tool-divider" />
+
+          <div class="tool-group">
+            <button class="tool-btn" title="刷新预览" @click="refresh">
+              <el-icon><RefreshRight /></el-icon>
+            </button>
+            <button class="tool-btn" title="全屏" @click="toggleFullscreen">
+              <el-icon><FullScreen /></el-icon>
+            </button>
+          </div>
+
+          <div class="mode-switch">
+            <button class="mode-item" :class="{ active: editMode === 'select' }" @click="setMode('select')">
+              <el-icon><Pointer /></el-icon><span>选择</span>
+            </button>
+            <button class="mode-item" :class="{ active: editMode === 'interact' }" @click="setMode('interact')">
+              <el-icon><View /></el-icon><span>交互</span>
+            </button>
+          </div>
+
+          <el-button class="bar-action" size="small" :loading="regenerating" @click="regenerate">
+            <el-icon><MagicStick /></el-icon><span>重新生成</span>
+          </el-button>
+          <el-button class="bar-action primary" size="small" @click="exportHtml">
+            <el-icon><Download /></el-icon><span>导出 HTML</span>
+          </el-button>
         </div>
-
-        <div class="tool-spacer" />
-
-        <!-- 选择 / 交互 模式 -->
-        <div class="mode-switch">
-          <button class="mode-item" :class="{ active: editMode === 'select' }" @click="setMode('select')">
-            <el-icon><Pointer /></el-icon><span>选择</span>
-          </button>
-          <button class="mode-item" :class="{ active: editMode === 'interact' }" @click="setMode('interact')">
-            <el-icon><View /></el-icon><span>交互</span>
-          </button>
-        </div>
-
-        <el-button class="bar-action" size="small" :loading="regenerating" @click="regenerate">
-          <el-icon><MagicStick /></el-icon><span>重新生成</span>
-        </el-button>
-        <el-button class="bar-action primary" size="small" @click="exportHtml">
-          <el-icon><Download /></el-icon><span>导出 HTML</span>
-        </el-button>
       </header>
 
-      <!-- 预览画布 -->
       <div ref="previewWrap" class="preview-canvas" :class="{ framed: device !== 'desktop' }">
-        <div class="frame-holder" :style="{ width: frameWidth }">
+        <div class="frame-holder" :style="frameStyle">
           <iframe
             :key="frameKey"
             ref="iframeRef"
             :srcdoc="srcdoc"
-            sandbox="allow-scripts allow-same-origin allow-forms"
+            sandbox="allow-scripts allow-forms"
             class="preview-frame"
             title="原型预览"
             @load="onFrameLoad"
@@ -1032,7 +1123,6 @@ onBeforeUnmount(() => {
       </div>
     </section>
 
-    <!-- ==================== 下方：可视化编辑面板 (35%) ==================== -->
     <section class="edit-zone">
       <!-- AI 辅助修改（核心） -->
       <div class="ai-bar">
@@ -1064,45 +1154,29 @@ onBeforeUnmount(() => {
       </transition>
 
       <div class="edit-body">
-        <!-- 结构树（左窄栏） -->
-        <aside class="tree-col">
-          <div class="col-title"><el-icon><Rank /></el-icon><span>页面结构</span></div>
-          <el-scrollbar class="tree-scroll">
-            <el-tree
-              v-if="treeData.length"
-              :data="treeData"
-              node-key="id"
-              draggable
-              :expand-on-click-node="false"
-              :default-expand-all="false"
-              :props="{ label: 'label', children: 'children' }"
-              @node-click="onTreeClick"
-              @node-drop="onTreeDrop"
-            />
-            <p v-else class="tree-empty">加载中…</p>
-          </el-scrollbar>
-        </aside>
-
-        <!-- 属性面板 -->
         <div class="prop-col">
           <div class="col-title"><el-icon><Brush /></el-icon><span>属性编辑</span></div>
+          <div v-if="selected" class="selection-summary">
+            <div class="summary-copy">
+              <span class="summary-label">选中</span>
+              <code class="summary-tag">&lt;{{ selected.tag }}&gt;</code>
+            </div>
+            <button type="button" class="cancel-select-btn" @click="setMode('interact')" title="退出选择并进入交互">
+              取消选中
+            </button>
+          </div>
 
           <el-scrollbar v-if="selected" class="prop-scroll">
             <div class="prop-inner">
-              <div class="sel-chip">
-                &lt;{{ selected.tag }}&gt;
-                <el-icon class="chip-close" @click="setMode('interact')"><Close /></el-icon>
-              </div>
-
               <el-tabs v-model="activePropTab" class="prop-tabs">
                 <el-tab-pane label="文字" name="text">
-                  <div class="tab-fields">
-                    <div v-if="form.editableText" class="field">
+                  <div class="tab-fields tab-fields--text">
+                    <div v-if="form.editableText" class="field field--full">
                       <label>文字内容</label>
                       <el-input v-model="form.text" type="textarea" :autosize="{ minRows: 1, maxRows: 3 }" @input="pushText" />
                     </div>
 
-                    <div v-if="form.isLink" class="field">
+                    <div v-if="form.isLink" class="field field--full">
                       <label>链接地址</label>
                       <el-input v-model="form.href" placeholder="https:// 或 #" @input="pushHref" />
                     </div>
@@ -1122,96 +1196,107 @@ onBeforeUnmount(() => {
                       </div>
                     </div>
 
-                    <div class="field-row three">
+                    <div class="field-row">
                       <div class="field">
-                        <label>字号</label>
+                        <label>字号 (px)</label>
                         <el-input-number v-model="form.fontSize" class="mini-num" size="small" :min="8" :max="96" controls-position="right" @change="pushPxStyle('fontSize', form.fontSize)" />
                       </div>
                       <div class="field">
-                        <label>行高</label>
+                        <label>行高 (px)</label>
                         <el-input-number v-model="form.lineHeight" class="mini-num" size="small" :min="0" :max="140" controls-position="right" @change="pushPxStyle('lineHeight', form.lineHeight)" />
                       </div>
-                      <div class="field">
-                        <label>字距</label>
-                        <el-input-number v-model="form.letterSpacing" class="mini-num" size="small" :min="-10" :max="40" controls-position="right" @change="pushPxStyle('letterSpacing', form.letterSpacing)" />
-                      </div>
-                    </div>
-
-                    <div class="field">
-                      <label>文字颜色</label>
-                      <el-color-picker v-model="form.color" show-alpha @change="pushStyle('color', form.color)" />
                     </div>
 
                     <div class="field-row">
                       <div class="field">
-                        <label>对齐</label>
-                        <el-radio-group v-model="form.textAlign" size="small" @change="pushStyle('textAlign', form.textAlign)">
-                          <el-radio-button value="left">左</el-radio-button>
-                          <el-radio-button value="center">中</el-radio-button>
-                          <el-radio-button value="right">右</el-radio-button>
-                        </el-radio-group>
+                        <label>字距 (px)</label>
+                        <el-input-number v-model="form.letterSpacing" class="mini-num" size="small" :min="-10" :max="40" controls-position="right" @change="pushPxStyle('letterSpacing', form.letterSpacing)" />
                       </div>
                       <div class="field">
-                        <label>样式</label>
-                        <el-radio-group v-model="form.fontStyle" size="small" @change="pushStyle('fontStyle', form.fontStyle)">
+                        <label>文字颜色</label>
+                        <div class="color-picker-wrap">
+                          <el-color-picker v-model="form.color" show-alpha size="small" @change="pushStyle('color', form.color)" />
+                          <span class="color-val-text">{{ form.color || '#000' }}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div class="field field--full">
+                      <label>文字对齐</label>
+                      <el-radio-group v-model="form.textAlign" size="small" class="compact-segmented" @change="pushStyle('textAlign', form.textAlign)">
+                        <el-radio-button value="left">靠左</el-radio-button>
+                        <el-radio-button value="center">居中</el-radio-button>
+                        <el-radio-button value="right">靠右</el-radio-button>
+                      </el-radio-group>
+                    </div>
+
+                    <div class="field-row">
+                      <div class="field">
+                        <label>文字倾斜</label>
+                        <el-radio-group v-model="form.fontStyle" size="small" class="compact-segmented" @change="pushStyle('fontStyle', form.fontStyle)">
                           <el-radio-button value="normal">常规</el-radio-button>
                           <el-radio-button value="italic">斜体</el-radio-button>
                         </el-radio-group>
                       </div>
-                    </div>
-
-                    <div class="field">
-                      <label>装饰</label>
-                      <el-radio-group v-model="form.textDecoration" size="small" @change="pushStyle('textDecoration', form.textDecoration)">
-                        <el-radio-button value="none">无</el-radio-button>
-                        <el-radio-button value="underline">下划线</el-radio-button>
-                        <el-radio-button value="line-through">删除线</el-radio-button>
-                      </el-radio-group>
+                      <div class="field">
+                        <label>文字划线</label>
+                        <el-radio-group v-model="form.textDecoration" size="small" class="compact-segmented" @change="pushStyle('textDecoration', form.textDecoration)">
+                          <el-radio-button value="none">无</el-radio-button>
+                          <el-radio-button value="underline">下划线</el-radio-button>
+                          <el-radio-button value="line-through">删除线</el-radio-button>
+                        </el-radio-group>
+                      </div>
                     </div>
                   </div>
                 </el-tab-pane>
 
                 <el-tab-pane label="外观" name="appearance">
-                  <div class="tab-fields">
+                  <div class="tab-fields tab-fields--appearance">
                     <div class="field-row">
                       <div class="field">
                         <label>背景颜色</label>
-                        <el-color-picker v-model="form.backgroundColor" show-alpha @change="pushStyle('backgroundColor', form.backgroundColor || 'transparent')" />
+                        <div class="color-picker-wrap">
+                          <el-color-picker v-model="form.backgroundColor" show-alpha size="small" @change="pushStyle('backgroundColor', form.backgroundColor || 'transparent')" />
+                          <span class="color-val-text">{{ form.backgroundColor || '透明' }}</span>
+                        </div>
                       </div>
                       <div class="field">
-                        <label>透明度 <span class="val">{{ form.opacity }}%</span></label>
-                        <el-slider v-model="form.opacity" :min="0" :max="100" @input="pushOpacity(form.opacity)" />
+                        <label>边框颜色</label>
+                        <div class="color-picker-wrap">
+                          <el-color-picker v-model="form.borderColor" show-alpha size="small" @change="pushStyle('borderColor', form.borderColor)" />
+                          <span class="color-val-text">{{ form.borderColor || '默认' }}</span>
+                        </div>
                       </div>
                     </div>
 
-                    <div class="field-row three">
-                      <div class="field">
-                        <label>圆角</label>
-                        <el-input-number v-model="form.borderRadius" class="mini-num" size="small" :min="0" :max="120" controls-position="right" @change="pushPxStyle('borderRadius', form.borderRadius)" />
-                      </div>
-                      <div class="field">
-                        <label>边框宽</label>
-                        <el-input-number v-model="form.borderWidth" class="mini-num" size="small" :min="0" :max="24" controls-position="right" @change="pushPxStyle('borderWidth', form.borderWidth)" />
-                      </div>
-                      <div class="field">
-                        <label>边框样式</label>
-                        <el-select v-model="form.borderStyle" size="small" @change="pushStyle('borderStyle', form.borderStyle)">
-                          <el-option v-for="s in BORDER_STYLES" :key="s" :label="s" :value="s" />
-                        </el-select>
-                      </div>
+                    <div class="field field--full field--slider">
+                      <label>不透明度 <span class="val">{{ form.opacity }}%</span></label>
+                      <el-slider v-model="form.opacity" :min="0" :max="100" size="small" @input="pushOpacity(form.opacity)" />
                     </div>
 
                     <div class="field-row">
                       <div class="field">
-                        <label>边框颜色</label>
-                        <el-color-picker v-model="form.borderColor" show-alpha @change="pushStyle('borderColor', form.borderColor)" />
+                        <label>圆角大小</label>
+                        <el-input-number v-model="form.borderRadius" class="mini-num" size="small" :min="0" :max="120" controls-position="right" @change="pushPxStyle('borderRadius', form.borderRadius)" />
                       </div>
                       <div class="field">
-                        <label>阴影</label>
-                        <el-radio-group v-model="form.shadow" size="small" @change="pushStyle('boxShadow', SHADOWS[form.shadow])">
-                          <el-radio-button v-for="(_, k) in SHADOWS" :key="k" :value="k">{{ k }}</el-radio-button>
-                        </el-radio-group>
+                        <label>边框粗细</label>
+                        <el-input-number v-model="form.borderWidth" class="mini-num" size="small" :min="0" :max="24" controls-position="right" @change="pushPxStyle('borderWidth', form.borderWidth)" />
                       </div>
+                    </div>
+
+                    <div class="field field--full">
+                      <label>边框线型</label>
+                      <el-select v-model="form.borderStyle" size="small" @change="pushStyle('borderStyle', form.borderStyle)">
+                        <el-option v-for="s in BORDER_STYLES" :key="s" :label="s" :value="s" />
+                      </el-select>
+                    </div>
+
+                    <div class="field field--full">
+                      <label>投影强度</label>
+                      <el-radio-group v-model="form.shadow" size="small" class="compact-segmented" @change="pushStyle('boxShadow', SHADOWS[form.shadow])">
+                        <el-radio-button v-for="(_, k) in SHADOWS" :key="k" :value="k">{{ k }}</el-radio-button>
+                      </el-radio-group>
                     </div>
                   </div>
                 </el-tab-pane>
@@ -1219,66 +1304,71 @@ onBeforeUnmount(() => {
                 <el-tab-pane label="盒模型" name="box">
                   <div class="tab-fields">
                     <div class="box-section">
-                      <div class="field-title">内边距</div>
-                      <div class="quad-grid">
-                        <el-input-number v-model="form.paddingTop" size="small" :min="0" :max="200" controls-position="right" @change="pushPxStyle('paddingTop', form.paddingTop)" />
-                        <el-input-number v-model="form.paddingRight" size="small" :min="0" :max="200" controls-position="right" @change="pushPxStyle('paddingRight', form.paddingRight)" />
-                        <el-input-number v-model="form.paddingBottom" size="small" :min="0" :max="200" controls-position="right" @change="pushPxStyle('paddingBottom', form.paddingBottom)" />
-                        <el-input-number v-model="form.paddingLeft" size="small" :min="0" :max="200" controls-position="right" @change="pushPxStyle('paddingLeft', form.paddingLeft)" />
+                      <div class="box-section-head">
+                        <span class="field-title">内边距 (Padding)</span>
+                        <button type="button" class="sync-action-btn" @click="syncBox('padding', form.paddingTop)">四边同步</button>
                       </div>
-                      <div class="quick-line">
-                        <el-button size="small" text @click="syncBox('padding', form.paddingTop)">四边同步</el-button>
+                      <div class="quad-grid">
+                        <el-input-number v-model="form.paddingTop" size="small" :min="0" :max="200" placeholder="上" controls-position="right" @change="pushPxStyle('paddingTop', form.paddingTop)" />
+                        <el-input-number v-model="form.paddingRight" size="small" :min="0" :max="200" placeholder="右" controls-position="right" @change="pushPxStyle('paddingRight', form.paddingRight)" />
+                        <el-input-number v-model="form.paddingBottom" size="small" :min="0" :max="200" placeholder="下" controls-position="right" @change="pushPxStyle('paddingBottom', form.paddingBottom)" />
+                        <el-input-number v-model="form.paddingLeft" size="small" :min="0" :max="200" placeholder="左" controls-position="right" @change="pushPxStyle('paddingLeft', form.paddingLeft)" />
                       </div>
                     </div>
 
                     <div class="box-section">
-                      <div class="field-title">外边距</div>
-                      <div class="quad-grid">
-                        <el-input-number v-model="form.marginTop" size="small" :min="-120" :max="200" controls-position="right" @change="pushPxStyle('marginTop', form.marginTop)" />
-                        <el-input-number v-model="form.marginRight" size="small" :min="-120" :max="200" controls-position="right" @change="pushPxStyle('marginRight', form.marginRight)" />
-                        <el-input-number v-model="form.marginBottom" size="small" :min="-120" :max="200" controls-position="right" @change="pushPxStyle('marginBottom', form.marginBottom)" />
-                        <el-input-number v-model="form.marginLeft" size="small" :min="-120" :max="200" controls-position="right" @change="pushPxStyle('marginLeft', form.marginLeft)" />
+                      <div class="box-section-head">
+                        <span class="field-title">外边距 (Margin)</span>
+                        <button type="button" class="sync-action-btn" @click="syncBox('margin', form.marginTop)">四边同步</button>
                       </div>
-                      <div class="quick-line">
-                        <el-button size="small" text @click="syncBox('margin', form.marginTop)">四边同步</el-button>
+                      <div class="quad-grid">
+                        <el-input-number v-model="form.marginTop" size="small" :min="-120" :max="200" placeholder="上" controls-position="right" @change="pushPxStyle('marginTop', form.marginTop)" />
+                        <el-input-number v-model="form.marginRight" size="small" :min="-120" :max="200" placeholder="右" controls-position="right" @change="pushPxStyle('marginRight', form.marginRight)" />
+                        <el-input-number v-model="form.marginBottom" size="small" :min="-120" :max="200" placeholder="下" controls-position="right" @change="pushPxStyle('marginBottom', form.marginBottom)" />
+                        <el-input-number v-model="form.marginLeft" size="small" :min="-120" :max="200" placeholder="左" controls-position="right" @change="pushPxStyle('marginLeft', form.marginLeft)" />
                       </div>
                     </div>
 
-                    <div class="field-row three">
+                    <div class="field-row">
                       <div class="field">
-                        <label>强制宽度</label>
+                        <label>固定宽 (px)</label>
                         <el-input-number v-model="form.width" class="mini-num" size="small" :min="0" :max="2400" controls-position="right" @change="pushWidthStyle(form.width)" />
                       </div>
                       <div class="field">
-                        <label>高度</label>
+                        <label>固定高 (px)</label>
                         <el-input-number v-model="form.height" class="mini-num" size="small" :min="0" :max="2400" controls-position="right" @change="pushPxStyle('height', form.height)" />
                       </div>
+                    </div>
+
+                    <div class="field-row">
                       <div class="field">
-                        <label>间距</label>
+                        <label>间距 Gap (px)</label>
                         <el-input-number v-model="form.gap" class="mini-num" size="small" :min="0" :max="160" controls-position="right" @change="pushPxStyle('gap', form.gap)" />
+                      </div>
+                      <div class="field">
+                        <label>Flex 基准宽</label>
+                        <el-input-number v-model="form.flexBasis" class="mini-num" size="small" :min="0" :max="2400" controls-position="right" @change="pushPxStyle('flexBasis', form.flexBasis)" />
                       </div>
                     </div>
 
-                    <div class="field">
-                      <label>Flex 基准宽度</label>
-                      <el-input-number v-model="form.flexBasis" class="mini-num" size="small" :min="0" :max="2400" controls-position="right" @change="pushPxStyle('flexBasis', form.flexBasis)" />
-                    </div>
-
-                    <div class="field-row four">
+                    <div class="field-row">
                       <div class="field">
-                        <label>最小宽</label>
+                        <label>最小宽 (px)</label>
                         <el-input-number v-model="form.minWidth" class="mini-num" size="small" :min="0" :max="2400" controls-position="right" @change="pushPxStyle('minWidth', form.minWidth)" />
                       </div>
                       <div class="field">
-                        <label>最大宽</label>
+                        <label>最大宽 (px)</label>
                         <el-input-number v-model="form.maxWidth" class="mini-num" size="small" :min="0" :max="2400" controls-position="right" @change="pushPxStyle('maxWidth', form.maxWidth)" />
                       </div>
+                    </div>
+
+                    <div class="field-row">
                       <div class="field">
-                        <label>最小高</label>
+                        <label>最小高 (px)</label>
                         <el-input-number v-model="form.minHeight" class="mini-num" size="small" :min="0" :max="2400" controls-position="right" @change="pushPxStyle('minHeight', form.minHeight)" />
                       </div>
                       <div class="field">
-                        <label>最大高</label>
+                        <label>最大高 (px)</label>
                         <el-input-number v-model="form.maxHeight" class="mini-num" size="small" :min="0" :max="2400" controls-position="right" @change="pushPxStyle('maxHeight', form.maxHeight)" />
                       </div>
                     </div>
@@ -1287,7 +1377,7 @@ onBeforeUnmount(() => {
 
                 <el-tab-pane label="布局" name="layout">
                   <div class="tab-fields">
-                    <div class="field-row three">
+                    <div class="field-row">
                       <div class="field">
                         <label>显示</label>
                         <el-select v-model="form.display" size="small" @change="pushStyle('display', form.display)">
@@ -1300,11 +1390,18 @@ onBeforeUnmount(() => {
                           <el-option v-for="d in FLEX_DIRECTIONS" :key="d.value" :label="d.label" :value="d.value" />
                         </el-select>
                       </div>
+                    </div>
+
+                    <div class="field-row">
                       <div class="field">
                         <label>定位</label>
                         <el-select v-model="form.position" size="small" @change="pushStyle('position', form.position)">
                           <el-option v-for="p in POSITION_OPTIONS" :key="p" :label="p" :value="p" />
                         </el-select>
+                      </div>
+                      <div class="field">
+                        <label>层级</label>
+                        <el-input-number v-model="form.zIndex" class="mini-num" size="small" :min="-10" :max="9999" controls-position="right" @change="pushNumberStyle('zIndex', form.zIndex)" />
                       </div>
                     </div>
 
@@ -1333,10 +1430,6 @@ onBeforeUnmount(() => {
                       </div>
                     </div>
 
-                    <div class="field">
-                      <label>层级</label>
-                      <el-input-number v-model="form.zIndex" class="mini-num" size="small" :min="-10" :max="9999" controls-position="right" @change="pushNumberStyle('zIndex', form.zIndex)" />
-                    </div>
                   </div>
                 </el-tab-pane>
               </el-tabs>
@@ -1348,6 +1441,27 @@ onBeforeUnmount(() => {
             <p>在上方预览中<b>点击任意元素</b>，即可编辑它的文字与样式</p>
           </div>
         </div>
+
+        <aside class="tree-col">
+          <div class="tree-header">
+            <div class="col-title tree-title"><el-icon><Rank /></el-icon><span>页面结构</span></div>
+            <span class="tree-helper">拖拽可调整顺序</span>
+          </div>
+          <el-scrollbar class="tree-scroll">
+            <el-tree
+              v-if="treeData.length"
+              :data="treeData"
+              node-key="id"
+              draggable
+              :expand-on-click-node="false"
+              :default-expand-all="false"
+              :props="{ label: 'label', children: 'children' }"
+              @node-click="onTreeClick"
+              @node-drop="onTreeDrop"
+            />
+            <p v-else class="tree-empty">加载中…</p>
+          </el-scrollbar>
+        </aside>
       </div>
     </section>
   </div>
@@ -1356,33 +1470,64 @@ onBeforeUnmount(() => {
 <style scoped>
 .result-right {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   height: 100%;
   background: #f7f7f4;
   overflow: hidden;
 }
 
-/* ============ 预览区 65% ============ */
+/* ============ 中间画布区 ============ */
 .preview-zone {
-  flex: 0 0 65%;
+  flex: 1;
   min-height: 0;
   display: flex;
   flex-direction: column;
-  border-bottom: 1px solid rgba(38, 37, 30, 0.1);
+  border-right: 1px solid rgba(38, 37, 30, 0.08);
 }
 
 .tool-bar {
   display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 12px;
+  padding: 14px 16px 12px;
   background: #fff;
   border-bottom: 1px solid rgba(38, 37, 30, 0.08);
   flex-shrink: 0;
 }
+.tool-meta {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+.meta-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.meta-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(38, 37, 30, 0.42);
+}
+.meta-title {
+  font-size: 18px;
+  line-height: 1.25;
+  color: #26251e;
+  font-weight: 600;
+}
+.toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
 .tool-group { display: flex; gap: 2px; }
 .tool-divider { width: 1px; height: 18px; background: rgba(38, 37, 30, 0.12); margin: 0 2px; }
-.tool-spacer { flex: 1; }
 
 .tool-btn {
   width: 30px; height: 30px;
@@ -1414,22 +1559,69 @@ onBeforeUnmount(() => {
 .bar-action.primary { background: #26251e !important; color: #f2f1ed !important; }
 .bar-action.primary:hover { opacity: .88; }
 
+.page-tabs {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.page-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 220px;
+  padding: 6px 12px;
+  border: none;
+  border-radius: 10px;
+  background: #f2f1ed;
+  color: rgba(38, 37, 30, 0.62);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all .15s;
+}
+.page-tab:hover { color: #f54e00; background: rgba(245, 78, 0, 0.08); }
+.page-tab.active {
+  background: #26251e;
+  color: #f2f1ed;
+  box-shadow: 0 10px 18px rgba(38, 37, 30, 0.12);
+}
+.tab-index {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  font-size: 11px;
+  background: rgba(255, 255, 255, 0.18);
+  flex-shrink: 0;
+}
+.page-tab:not(.active) .tab-index { background: rgba(38, 37, 30, 0.1); }
+.tab-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .preview-canvas {
   flex: 1; min-height: 0; position: relative;
   display: flex; justify-content: center; align-items: stretch;
-  background: #f7f7f4; overflow: auto; padding: 0;
+  background: linear-gradient(180deg, #f7f7f4 0%, #efede7 100%);
+  overflow: auto;
+  padding: 18px;
 }
-.preview-canvas.framed { padding: 20px; align-items: flex-start; background: #ecebe6; }
+.preview-canvas.framed { align-items: flex-start; background: linear-gradient(180deg, #f1efe8 0%, #e8e5dd 100%); }
 .frame-holder {
   height: 100%; background: #fff; transition: width .25s ease;
   max-width: 100%;
 }
 .preview-canvas.framed .frame-holder {
-  height: auto; min-height: calc(100% - 0px);
+  min-height: 0;
   border-radius: 14px; overflow: hidden;
   box-shadow: 0 10px 40px rgba(38, 37, 30, .15);
   border: 1px solid rgba(38, 37, 30, 0.08);
-  align-self: stretch;
+  align-self: flex-start;
 }
 .preview-frame { width: 100%; height: 100%; border: none; display: block; background: #fff; }
 
@@ -1441,8 +1633,8 @@ onBeforeUnmount(() => {
 }
 .canvas-live-status {
   position: absolute;
-  top: 14px;
-  right: 14px;
+  top: 18px;
+  right: 18px;
   z-index: 4;
   display: inline-flex;
   align-items: center;
@@ -1466,62 +1658,197 @@ onBeforeUnmount(() => {
 .spin { animation: spin 1.1s linear infinite; color: #f54e00; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
-/* ============ 编辑区 35% ============ */
+/* ============ 右侧编辑区 ============ */
 .edit-zone {
-  flex: 1; min-height: 0;
-  display: flex; flex-direction: column;
+  width: 360px;
+  flex-shrink: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
   background: #fff;
 }
 
 .ai-bar {
-  display: flex; align-items: flex-start; gap: 8px;
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr);
+  align-items: start;
+  gap: 8px;
   padding: 10px 12px;
-  background: linear-gradient(180deg, rgba(245, 78, 0, 0.05), rgba(245, 78, 0, 0.02));
+  background: #fbfbf9;
   border-bottom: 1px solid rgba(38, 37, 30, 0.08);
   flex-shrink: 0;
 }
 .ai-icon {
-  width: 30px; height: 30px; flex-shrink: 0; margin-top: 2px;
-  display: flex; align-items: center; justify-content: center;
-  border-radius: 8px; background: #f54e00; color: #fff; font-size: 15px;
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
+  margin-top: 1px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  background: #ea580c;
+  color: #fff;
+  font-size: 13px;
 }
-.ai-input { flex: 1; }
+.ai-input {
+  min-width: 0;
+}
 .ai-input :deep(.el-textarea__inner) {
-  border-radius: 8px; font-size: 13px; line-height: 1.5;
-  box-shadow: 0 0 0 1px rgba(38, 37, 30, 0.12) inset;
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.4;
+  box-shadow: 0 0 0 1px #e2e8f0 inset;
+  padding: 4px 8px;
 }
-.ai-btn { flex-shrink: 0; border-radius: 8px !important; background: #f54e00 !important; border-color: #f54e00 !important; }
+.ai-btn {
+  grid-column: 2 / 3;
+  width: 100%;
+  height: 28px !important;
+  min-height: 28px !important;
+  font-size: 12px !important;
+  font-weight: 500;
+  border-radius: 6px !important;
+  background: linear-gradient(180deg, #f97316 0%, #ea580c 100%) !important;
+  border: 1px solid #c2410c !important;
+  color: #ffffff !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2), 0 1px 2px rgba(15, 23, 42, 0.06);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.ai-btn:hover {
+  background: linear-gradient(180deg, #ea580c 0%, #c2410c 100%) !important;
+}
 
 /* AI 修改成功说明横幅 */
 .ai-summary {
   display: flex; align-items: center; gap: 8px;
   padding: 8px 12px; margin: 0;
-  background: rgba(103, 194, 58, 0.1);
-  border-bottom: 1px solid rgba(103, 194, 58, 0.2);
-  color: #4a9e28; font-size: 12px; line-height: 1.5;
+  background: #ecfdf5;
+  border-bottom: 1px solid #a7f3d0;
+  color: #059669; font-size: 12px; line-height: 1.5;
   flex-shrink: 0;
 }
 .summary-ico { font-size: 15px; flex-shrink: 0; }
 .summary-text { flex: 1; }
-.summary-close { cursor: pointer; border-radius: 4px; color: rgba(38, 37, 30, 0.4); }
-.summary-close:hover { color: #4a9e28; background: rgba(103, 194, 58, 0.15); }
+.summary-close { cursor: pointer; border-radius: 4px; color: rgba(15, 23, 42, 0.4); }
+.summary-close:hover { color: #059669; background: rgba(5, 150, 105, 0.1); }
 .summary-fade-enter-active, .summary-fade-leave-active { transition: opacity .2s, transform .2s; }
 .summary-fade-enter-from, .summary-fade-leave-to { opacity: 0; transform: translateY(-4px); }
 
-.edit-body { flex: 1; min-height: 0; display: flex; }
+.edit-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.selection-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 14px;
+  background: #ffffff;
+  border-bottom: 1px solid rgba(38, 37, 30, 0.06);
+}
+.summary-copy {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.summary-label {
+  font-size: 11px;
+  color: #94a3b8;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.summary-tag {
+  font-size: 12px;
+  font-family: ui-monospace, monospace;
+  font-weight: 600;
+  color: #ea580c;
+  background: #fff7ed;
+  border: 1px solid #ffedd5;
+  padding: 1px 5px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+.cancel-select-btn {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  height: 22px;
+  border-radius: 4px;
+  font-size: 11px;
+  color: #64748b;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+.cancel-select-btn:hover {
+  color: #0f172a;
+  background: #e2e8f0;
+}
 
 .col-title {
-  display: flex; align-items: center; gap: 6px;
-  padding: 10px 12px 8px; font-size: 12px; font-weight: 600;
-  color: rgba(38, 37, 30, 0.55); letter-spacing: .3px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 14px 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #0f172a;
+  letter-spacing: -0.01em;
+}
+
+/* 属性面板 */
+.prop-col {
+  flex: 0 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.prop-scroll {
+  flex: 1;
+  min-height: 0;
+  max-height: 100%;
+}
+.prop-inner {
+  padding: 0 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 
 /* 结构树 */
 .tree-col {
-  width: 180px; flex-shrink: 0;
-  border-right: 1px solid rgba(38, 37, 30, 0.08);
-  display: flex; flex-direction: column; min-height: 0;
+  width: auto;
+  flex: 1 1 180px;
+  display: flex;
+  flex-direction: column;
+  min-height: 160px;
   background: #fbfbf9;
+  border-top: 1px solid rgba(38, 37, 30, 0.06);
+}
+.tree-header {
+  padding: 8px 10px 2px;
+  border-bottom: 1px solid rgba(38, 37, 30, 0.06);
+}
+.tree-title {
+  padding: 0;
+}
+.tree-helper {
+  display: block;
+  padding: 0 2px 8px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: rgba(38, 37, 30, 0.4);
 }
 .tree-scroll { flex: 1; min-height: 0; }
 .tree-empty { padding: 12px; font-size: 12px; color: rgba(38, 37, 30, 0.35); }
@@ -1529,81 +1856,267 @@ onBeforeUnmount(() => {
 :deep(.el-tree-node__content) { height: 28px; border-radius: 6px; }
 :deep(.el-tree-node__content:hover) { background: #f2f1ed; }
 
-/* 属性面板 */
-.prop-col { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; }
-.prop-scroll { flex: 1; min-height: 0; }
-.prop-inner { padding: 0 14px 20px; display: flex; flex-direction: column; gap: 12px; }
-
-.sel-chip {
-  display: inline-flex; align-items: center; gap: 8px; align-self: flex-start;
-  padding: 3px 6px 3px 10px; border-radius: 6px;
-  background: rgba(245, 78, 0, 0.1); color: #f54e00;
-  font-family: ui-monospace, monospace; font-size: 12px; font-weight: 600;
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
 }
-.chip-close { cursor: pointer; border-radius: 4px; }
-.chip-close:hover { background: rgba(245, 78, 0, 0.2); }
-
-.field { display: flex; flex-direction: column; gap: 6px; }
-.field-row { display: flex; gap: 12px; }
-.field-row .field { flex: 1; }
-.field-row.three .field { min-width: 0; }
-.field-row.four {
+.field-row {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  align-items: start;
+}
+.field-row .field { flex: 1; }
+
+.field > label {
+  font-size: 11px;
+  color: #64748b;
+  font-weight: 500;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 6px;
+  line-height: 1.2;
+}
+.field .val {
+  color: #ea580c;
+  font-weight: 600;
+  font-family: ui-monospace, monospace;
+}
+
+.prop-tabs {
+  margin-top: -2px;
+}
+.prop-tabs :deep(.el-tabs__header) {
+  margin: 0 0 10px;
+}
+.prop-tabs :deep(.el-tabs__nav-wrap::after) {
+  height: 1px;
+  background: #f1f5f9;
+}
+.prop-tabs :deep(.el-tabs__nav) {
+  display: flex;
+  gap: 4px;
+}
+.prop-tabs :deep(.el-tabs__item) {
+  height: 28px;
+  line-height: 28px;
+  padding: 0 10px;
+  font-size: 12px;
+  font-weight: 500;
+  color: #64748b;
+}
+.prop-tabs :deep(.el-tabs__item.is-active) {
+  color: #0f172a;
+  font-weight: 600;
+}
+.prop-tabs :deep(.el-tabs__active-bar) {
+  background: #ea580c;
+  height: 2px;
+}
+
+.tab-fields {
+  display: flex;
+  flex-direction: column;
   gap: 10px;
 }
-.field > label {
-  font-size: 12px; color: rgba(38, 37, 30, 0.6); font-weight: 500;
-  display: flex; justify-content: space-between; align-items: center;
+.tab-fields > .field,
+.tab-fields > .field-row,
+.tab-fields > .box-section {
+  min-width: 0;
 }
-.field .val { color: #f54e00; font-weight: 600; }
-.prop-tabs { margin-top: -4px; }
-.prop-tabs :deep(.el-tabs__header) { margin: 0 0 10px; }
-.prop-tabs :deep(.el-tabs__nav-wrap::after) { height: 1px; background: rgba(38, 37, 30, 0.08); }
-.prop-tabs :deep(.el-tabs__item) { height: 30px; padding: 0 12px; font-size: 12px; }
-.prop-tabs :deep(.el-tabs__active-bar) { background: #f54e00; }
-.tab-fields { display: flex; flex-direction: column; gap: 12px; }
-.field-title {
-  margin-bottom: 8px;
-  font-size: 12px;
-  font-weight: 600;
-  color: rgba(38, 37, 30, 0.58);
+
+.field--full {
+  width: 100%;
 }
+.field--slider {
+  padding-top: 2px;
+}
+
+/* 颜色选择器微胶囊组合 */
+.color-picker-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 2px 6px 2px 3px;
+  border-radius: 6px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  box-sizing: border-box;
+}
+.color-val-text {
+  font-size: 11px;
+  font-family: ui-monospace, monospace;
+  color: #475569;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 盒模型 */
 .box-section {
   padding: 10px;
   border-radius: 8px;
-  background: #fbfbf9;
-  border: 1px solid rgba(38, 37, 30, 0.06);
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
 }
+.box-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.box-section-head .field-title {
+  margin-bottom: 0;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #334155;
+}
+.sync-action-btn {
+  font-size: 11px;
+  color: #2563eb;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 1px 4px;
+  border-radius: 4px;
+  transition: background 0.15s ease;
+}
+.sync-action-btn:hover {
+  background: #eff6ff;
+}
+
 .quad-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 8px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
 }
-.quick-line {
-  display: flex;
-  justify-content: flex-end;
-  margin-top: 6px;
-}
+
+/* 控件尺寸统一与紧凑化 */
 .mini-num,
 .quad-grid :deep(.el-input-number) {
   width: 100%;
 }
-.mini-num :deep(.el-input__inner),
-.quad-grid :deep(.el-input__inner) {
-  padding-left: 4px;
-  padding-right: 24px;
+:deep(.el-input--small .el-input__wrapper),
+:deep(.el-select--small .el-select__wrapper),
+:deep(.mini-num .el-input__wrapper),
+:deep(.quad-grid .el-input__wrapper) {
+  height: 26px !important;
+  line-height: 26px !important;
   font-size: 12px;
+  border-radius: 5px !important;
+  box-shadow: 0 0 0 1px #e2e8f0 inset !important;
+}
+:deep(.el-input--small .el-input__wrapper.is-focus),
+:deep(.el-select--small .el-select__wrapper.is-focus),
+:deep(.mini-num .el-input__wrapper.is-focus) {
+  box-shadow: 0 0 0 1px #ea580c inset !important;
+}
+:deep(.el-color-picker--small) {
+  height: 20px;
+  width: 20px;
+}
+:deep(.el-color-picker--small .el-color-picker__trigger) {
+  height: 20px;
+  width: 20px;
+  padding: 1px;
+  border-radius: 4px;
+  border: 1px solid #cbd5e1;
+}
+
+/* 一体化微型分段控制器（取代原先庞大分散的大药丸） */
+:deep(.compact-segmented) {
+  display: flex !important;
+  width: 100% !important;
+  background: #f1f5f9 !important;
+  border-radius: 6px !important;
+  padding: 2px !important;
+  gap: 1px !important;
+  border: 1px solid rgba(226, 232, 240, 0.8) !important;
+  box-sizing: border-box !important;
+}
+:deep(.compact-segmented .el-radio-button) {
+  flex: 1 1 0 !important;
+  min-width: 0 !important;
+  margin: 0 !important;
+  border: none !important;
+}
+:deep(.compact-segmented .el-radio-button__inner) {
+  width: 100% !important;
+  height: 24px !important;
+  line-height: 24px !important;
+  padding: 0 4px !important;
+  font-size: 11.5px !important;
+  border: none !important;
+  background: transparent !important;
+  color: #64748b !important;
+  border-radius: 4px !important;
+  box-shadow: none !important;
+  text-align: center !important;
+  white-space: nowrap !important;
+  text-overflow: ellipsis !important;
+  overflow: hidden !important;
+  transition: all 0.15s cubic-bezier(0.16, 1, 0.3, 1) !important;
+  user-select: none !important;
+}
+:deep(.compact-segmented .el-radio-button.is-active .el-radio-button__inner) {
+  background: #ffffff !important;
+  color: #0f172a !important;
+  font-weight: 600 !important;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08), 0 0 0 1px rgba(15, 23, 42, 0.04) !important;
+}
+:deep(.compact-segmented .el-radio-button:not(.is-active) .el-radio-button__inner:hover) {
+  color: #0f172a !important;
+  background: rgba(255, 255, 255, 0.5) !important;
 }
 
 .prop-empty {
-  flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
-  gap: 10px; padding: 20px; text-align: center;
-  color: rgba(38, 37, 30, 0.4); font-size: 12px; line-height: 1.7;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 24px 20px;
+  text-align: center;
+  color: #94a3b8;
+  font-size: 12px;
+  line-height: 1.6;
 }
-.prop-empty b { color: rgba(38, 37, 30, 0.7); }
+.prop-empty b {
+  color: #334155;
+}
 
-:deep(.el-slider) { --el-slider-height: 4px; }
-:deep(.el-slider__button) { width: 14px; height: 14px; }
-:deep(.el-color-picker) { --el-color-picker-size: 30px; }
+:deep(.el-slider) {
+  --el-slider-height: 4px;
+}
+:deep(.el-slider__button) {
+  width: 12px;
+  height: 12px;
+  border-color: #ea580c;
+}
+:deep(.el-slider__bar) {
+  background-color: #ea580c;
+}
+
+@media (max-width: 1360px) {
+  .result-right {
+    flex-direction: column;
+  }
+  .preview-zone {
+    border-right: none;
+    border-bottom: 1px solid rgba(38, 37, 30, 0.08);
+  }
+  .edit-zone {
+    width: auto;
+    border-top: 1px solid rgba(38, 37, 30, 0.08);
+  }
+  .prop-col {
+    border-right: none;
+  }
+}
 </style>

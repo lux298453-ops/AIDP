@@ -1,63 +1,64 @@
 // =====================================================
-//  AI 辅助设计平台 — 全局设计 Token (Cursor-inspired)
+//  AI 文档与设计平台 — 全局设计 Token (Modern Clean System)
 // =====================================================
 
-// ── Warm Primary ──────────────────────────────────────
-$color-primary: #26251e;          // Cursor Dark — primary text, dark surfaces
-$color-accent: #f54e00;           // Cursor Orange — brand accent, active links
-$color-error: #cf2d56;            // warm crimson — hover state, error
-$color-success: #1f8a65;          // muted teal — success
-$color-gold: #c08532;             // secondary accent
-$color-link-hover: #cf2d56;       // link/button hover shifts to warm crimson
+// ── Primary & Brand Colors ───────────────────────────
+$color-primary: #2563eb;          // Blue 600 — 清爽科技蓝，杜绝大面积死黑压抑感
+$color-primary-hover: #1d4ed8;    // Blue 700 — 主按钮悬浮态
+$color-accent: #f97316;           // Orange 500 — AI 强调色、聚焦、高光
+$color-accent-hover: #ea580c;     // Orange 600
+$color-error: #dc2626;            // Red 600 — 仅限错误与危险删除
+$color-success: #059669;          // Emerald 600 — 成功与通过
+$color-warning: #d97706;          // Amber 600 — 警告与注意
+$color-gold: #d97706;
 
 // ── Text ──────────────────────────────────────────────
-$text-primary: #26251e;           // warm near-black with yellow undertone
-$text-regular: rgba(38, 37, 30, 0.75);  // primary body text
-$text-secondary: rgba(38, 37, 30, 0.55); // secondary/muted
-$text-tertiary: rgba(38, 37, 30, 0.4);   // tertiary/placeholder
-$text-inverse: #f2f1ed;           // on dark backgrounds
+$text-primary: #0f172a;           // Slate 900 — 主要文本
+$text-regular: #334155;           // Slate 700 — 正文文本 (增强可读性)
+$text-secondary: #64748b;         // Slate 500 — 说明文案与次要元数据
+$text-tertiary: #94a3b8;          // Slate 400 — 占位符与失效文本
+$text-inverse: #ffffff;           // 深色背景反白文字
 
-// ── Backgrounds ───────────────────────────────────────
-$bg-page: #f2f1ed;                // Cursor Cream — page background
-$bg-surface-100: #f7f7f4;        // lightest surface
-$bg-surface-200: #f2f1ed;        // page background (alias)
-$bg-surface-300: #ebeae5;        // button default, subtle emphasis
-$bg-surface-400: #e6e5e0;        // card backgrounds, secondary surfaces
-$bg-surface-500: #e1e0db;        // active/pressed, deeper emphasis
-$bg-card: #ffffff;                // pure white card surface (sparingly)
-$bg-sidebar: #f2f1ed;            // sidebar/nav background
+// ── Backgrounds & Surfaces ────────────────────────────
+$bg-page: #f8fafc;                // Slate 50 — 全局画布浅灰背景 (柔和无疲劳)
+$bg-surface-100: #ffffff;        // 纯净卡片表面
+$bg-surface-200: #f8fafc;        // 浅灰分界
+$bg-surface-300: #f1f5f9;        // Slate 100 — 控件背景、标签底色
+$bg-surface-400: #e2e8f0;        // Slate 200 — 悬浮浅灰底
+$bg-surface-500: #cbd5e1;        // Slate 300
+$bg-card: #ffffff;                // 卡片纯白底
+$bg-sidebar: #ffffff;            // 导航与侧栏底色
 
 // ── Borders ───────────────────────────────────────────
-$border-color: rgba(38, 37, 30, 0.1);       // default warm border
-$border-color-medium: rgba(38, 37, 30, 0.2); // emphasized border
-$border-color-strong: rgba(38, 37, 30, 0.55); // strong rules
-$border-color-light: rgba(38, 37, 30, 0.06);  // subtle separator
+$border-color: #e2e8f0;           // Slate 200 — 标准 1px 细边框
+$border-color-medium: #cbd5e1;    // Slate 300 — 强调/Hover 边框
+$border-color-strong: #94a3b8;    // Slate 400 — 强分割线
+$border-color-light: #f1f5f9;     // Slate 100 — 微弱分割线
 
 // ── AI Timeline Colors ────────────────────────────────
-$color-thinking: #dfa88f;         // warm peach — thinking/planning
-$color-search: #9fc9a2;           // soft sage — search/grep
-$color-read: #9fbbe0;             // soft blue — file reading
-$color-edit: #c0a8dd;             // soft lavender — editing
+$color-thinking: #fdba74;         // 暖橙 — 规划中
+$color-search: #86efac;           // 清爽绿 — 检索
+$color-read: #93c5fd;             // 柔和蓝 — 查阅
+$color-edit: #c4b5fd;             // 薰衣草紫 — 编辑中
 
 // ── Radius ────────────────────────────────────────────
+$radius-xs: 4px;
 $radius-sm: 6px;
 $radius-base: 8px;
-$radius-lg: 10px;
-$radius-xl: 12px;
+$radius-lg: 12px;
+$radius-xl: 16px;
 $radius-pill: 9999px;
 
-// ── Shadows (warm, large-blur, atmospheric) ───────────
-$shadow-light: rgba(0, 0, 0, 0.02) 0px 0px 16px, rgba(0, 0, 0, 0.008) 0px 0px 8px;
-$shadow-card: rgba(38, 37, 30, 0.1) 0px 0px 0px 1px;
-$shadow-elevated: rgba(0, 0, 0, 0.14) 0px 28px 70px, rgba(0, 0, 0, 0.1) 0px 14px 32px, rgba(38, 37, 30, 0.1) 0px 0px 0px 1px;
-$shadow-hover: rgba(0, 0, 0, 0.1) 0px 4px 16px;
-$shadow-focus: rgba(0, 0, 0, 0.1) 0px 4px 12px;
+// ── Shadows (Vercel & Linear 级微质感分层投影体系) ─────
+$shadow-light: 0 1px 2px 0 rgba(0, 0, 0, 0.03);
+$shadow-card: inset 0 1px 0 0 rgba(255, 255, 255, 0.9), 0 0 0 1px rgba(15, 23, 42, 0.07), 0 1px 3px 0 rgba(15, 23, 42, 0.04);
+$shadow-hover: inset 0 1px 0 0 rgba(255, 255, 255, 1), 0 0 0 1px rgba(37, 99, 235, 0.22), 0 8px 24px -4px rgba(15, 23, 42, 0.08);
+$shadow-elevated: inset 0 1px 0 0 rgba(255, 255, 255, 1), 0 0 0 1px rgba(15, 23, 42, 0.09), 0 14px 32px -4px rgba(15, 23, 42, 0.12);
+$shadow-focus: 0 0 0 2px #ffffff, 0 0 0 4px rgba(37, 99, 235, 0.25);
 
 // ── Spacing ───────────────────────────────────────────
 $spacing-2: 2px;
-$spacing-3: 3px;
 $spacing-4: 4px;
-$spacing-5: 5px;
 $spacing-6: 6px;
 $spacing-xs: 8px;
 $spacing-sm: 12px;
@@ -66,14 +67,14 @@ $spacing-md: 20px;
 $spacing-lg: 24px;
 $spacing-xl: 32px;
 $spacing-2xl: 48px;
-$spacing-3xl: 64px;
 
 // ── Layout ────────────────────────────────────────────
-$config-panel-width: 420px;
-$max-content-width: 1200px;
+$config-panel-width: 380px;
+$max-content-width: 1320px;
 
 // ── Typography ────────────────────────────────────────
-$font-gothic: system-ui, -apple-system, 'Segoe UI', 'Helvetica Neue', Helvetica, Arial, sans-serif;
-$font-serif: 'Source Serif 4', 'Iowan Old Style', 'Palatino Linotype', Georgia, Cambria, 'Times New Roman', Times, serif;
-$font-mono: ui-monospace, SFMono-Regular, 'Cascadia Code', 'Fira Code', Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
-$font-ui: system-ui, -apple-system, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
+$font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+$font-gothic: $font-sans;
+$font-serif: Georgia, Cambria, 'Times New Roman', serif;
+$font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', monospace;
+$font-ui: $font-sans;

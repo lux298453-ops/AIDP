@@ -1,13 +1,19 @@
 package com.example.aidocumentplatform.controller;
 
 import com.example.aidocumentplatform.common.FileStorage;
+import com.example.aidocumentplatform.model.dto.request.PrototypeClarifyRequest;
+import com.example.aidocumentplatform.model.dto.request.PrototypeFinalizeRequest;
+import com.example.aidocumentplatform.model.dto.PrototypeAssetPlan;
 import com.example.aidocumentplatform.model.dto.request.PrototypeGenerateRequest;
 import com.example.aidocumentplatform.model.dto.response.ApiResponse;
+import com.example.aidocumentplatform.model.dto.response.PrototypeClarifyResponse;
 import com.example.aidocumentplatform.model.entity.PrototypeResult;
+import com.example.aidocumentplatform.model.enums.AssetMode;
 import com.example.aidocumentplatform.model.enums.Platform;
 import com.example.aidocumentplatform.model.enums.PrototypeType;
 import com.example.aidocumentplatform.repository.PrototypeResultRepository;
 import com.example.aidocumentplatform.security.SecurityUser;
+import com.example.aidocumentplatform.service.PrototypeClarifyService;
 import com.example.aidocumentplatform.service.PrototypeGenerateService;
 import com.example.aidocumentplatform.util.ImageUtils;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -39,15 +45,26 @@ import java.util.Map;
 public class PrototypeGenerateController {
 
     private final PrototypeGenerateService prototypeGenerateService;
+    private final PrototypeClarifyService prototypeClarifyService;
     private final PrototypeResultRepository prototypeResultRepository;
     private final FileStorage fileStorage;
     private final ObjectMapper objectMapper = new ObjectMapper();
+
+    @PostMapping("/clarify")
+    public ApiResponse<PrototypeClarifyResponse> clarify(@Valid @RequestBody PrototypeClarifyRequest request) {
+        return ApiResponse.success(prototypeClarifyService.clarify(request, getCurrentUserId()));
+    }
+
+    @PostMapping("/clarify/finalize")
+    public ApiResponse<PrototypeClarifyResponse> finalizeClarification(
+            @Valid @RequestBody PrototypeFinalizeRequest request) {
+        return ApiResponse.success(prototypeClarifyService.finalizePlan(request, getCurrentUserId()));
+    }
 
     /** JSON 提交（无参考图） */
     @PostMapping(value = "/generate", consumes = MediaType.APPLICATION_JSON_VALUE)
     public ApiResponse<Map<String, Long>> generate(@Valid @RequestBody PrototypeGenerateRequest request) {
         Long userId = getCurrentUserId();
-        resolveAutoMorphology(request);
         Long taskId = prototypeGenerateService.submit(request, userId);
         return ApiResponse.success(Map.of("taskId", taskId));
     }
@@ -61,7 +78,11 @@ public class PrototypeGenerateController {
             @RequestParam("description") String description,
             @RequestParam(value = "prototypeType", defaultValue = "SINGLE_PAGE") String prototypeType,
             @RequestParam(value = "platform", defaultValue = "APP") String platform,
-            @RequestParam(value = "pageMorphology", defaultValue = "FULL_PAGE") String pageMorphology,
+            @RequestParam(value = "assetMode", defaultValue = "AUTO") String assetMode,
+            @RequestParam(value = "clarificationAnswers", required = false) java.util.List<String> clarificationAnswers,
+            @RequestParam(value = "generationBrief", required = false) String generationBrief,
+            @RequestParam(value = "assetPlan", required = false) String assetPlan,
+            @RequestParam(value = "assetPlans", required = false) String assetPlans,
             @RequestParam(value = "prdDocumentId", required = false) Long prdDocumentId,
             @RequestParam(value = "referenceImage", required = false) MultipartFile referenceImage
     ) {
@@ -76,9 +97,26 @@ public class PrototypeGenerateController {
         request.setDescription(description.trim());
         request.setPrototypeType(parsePrototypeType(prototypeType));
         request.setPlatform(parsePlatform(platform));
-        request.setPageMorphology(parseMorphology(pageMorphology));
+        request.setAssetMode(parseAssetMode(assetMode));
+        request.setClarificationAnswers(clarificationAnswers);
+        request.setGenerationBrief(generationBrief);
+        if (assetPlan != null && !assetPlan.isBlank()) {
+            try {
+                request.setAssetPlan(objectMapper.readValue(assetPlan, PrototypeAssetPlan.class));
+            } catch (Exception e) {
+                throw new IllegalArgumentException("assetPlan 格式无效");
+            }
+        }
+        if (assetPlans != null && !assetPlans.isBlank()) {
+            try {
+                request.setAssetPlans(objectMapper.readValue(
+                        assetPlans,
+                        objectMapper.getTypeFactory().constructCollectionType(java.util.List.class, PrototypeAssetPlan.class)));
+            } catch (Exception e) {
+                throw new IllegalArgumentException("assetPlans 格式无效");
+            }
+        }
         request.setPrdDocumentId(prdDocumentId);
-        resolveAutoMorphology(request);
 
         if (referenceImage != null && !referenceImage.isEmpty()) {
             applyReferenceImage(request, referenceImage);
@@ -125,16 +163,8 @@ public class PrototypeGenerateController {
         return parseEnum(Platform.class, value, "platform");
     }
 
-    private com.example.aidocumentplatform.model.enums.PageMorphology parseMorphology(String value) {
-        return parseEnum(com.example.aidocumentplatform.model.enums.PageMorphology.class, value, "pageMorphology");
-    }
-
-    /** AUTO 形态：根据功能描述关键词判定为具体形态，让骨架约束始终生效 */
-    private void resolveAutoMorphology(PrototypeGenerateRequest request) {
-        if (request.getPageMorphology() == com.example.aidocumentplatform.model.enums.PageMorphology.AUTO) {
-            request.setPageMorphology(
-                    com.example.aidocumentplatform.model.enums.PageMorphology.autoFromDescription(request.getDescription()));
-        }
+    private AssetMode parseAssetMode(String value) {
+        return parseEnum(AssetMode.class, value, "assetMode");
     }
 
     private <E extends Enum<E>> E parseEnum(Class<E> enumClass, String value, String fieldName) {

@@ -1,8 +1,11 @@
 package com.example.aidocumentplatform.ai.prompt;
 
+import com.example.aidocumentplatform.model.enums.AssetMode;
 import com.example.aidocumentplatform.model.enums.Platform;
 import com.example.aidocumentplatform.model.enums.PrototypeType;
 import org.springframework.stereotype.Component;
+
+import java.util.List;
 
 /**
  * 原型生成的 Prompt 模板。
@@ -29,9 +32,9 @@ public class PrototypePromptTemplate {
                - 状态类必须单独检查：.active / .selected / .current / .disabled / .highlight 等状态若改变背景色，必须同时改变内部文字颜色，禁止只改背景不改文字。
                - 生成完成后必须执行“对比度自检”：遍历每个写了 background / background-color / background-image 的 CSS 规则，检查其直接或间接子元素的 color；若发现文字与背景亮度接近，立即把 color 替换为对比色，否则禁止输出。
             2. 必须输出完整可运行的 HTML 文档：以 <!DOCTYPE html> 开头，包含 <html><head><body>。
-            3. 组件样式已由平台注入：平台已为本次生成注入完整的 co-* 扁平组件库 CSS（主题变量、页面外壳、全部组件样式，按平台区分移动/桌面主题）。
-               你只需用【组件清单】中的 co-* class 组装 HTML，禁止输出 <style> 块，禁止重复定义或覆盖组件样式，禁止定义 :root 变量。
-               确需清单外补充样式时，只允许少量补充（最多 10 行），且必须兼容平台已注入的样式。
+            3. 标准业务页面优先使用平台注入的 co-* 扁平组件库 CSS，不重复定义组件样式。
+               但沉浸式展示页、角色主视觉、活动视觉、商品特写等非标准场景不能被强行改造成卡片/列表页；允许为画面构图、背景、主体素材位、光效和舞台区域编写必要的局部 CSS。
+               用户明确构图的优先级高于组件清单。禁止重写已有 co-* 组件，但可以新增语义明确的场景 class。
             4. 禁止只写 Tailwind/Bootstrap 类名而不引入对应 CSS。默认不要使用 Tailwind/Bootstrap。
             5. 禁止依赖外部 CSS 文件（cdn 链接也不要用，除非同时给出完整内联兜底样式）。
             6. JavaScript 必须内联在 <script> 中，不要引用外部 JS。
@@ -76,20 +79,22 @@ public class PrototypePromptTemplate {
      * @param hasReferenceImage 是否附带风格参考图（影响风格说明段）
      */
     public String buildUserPrompt(String description, Platform platform, PrototypeType type) {
-        return buildUserPrompt(description, platform, type, false, null, null);
+        return buildUserPrompt(description, platform, type, false, null, AssetMode.AUTO, null, null);
     }
 
     public String buildUserPrompt(String description, Platform platform, PrototypeType type,
                                   boolean hasReferenceImage, String referenceFileName) {
-        return buildUserPrompt(description, platform, type, hasReferenceImage, referenceFileName, null);
+        return buildUserPrompt(description, platform, type, hasReferenceImage, referenceFileName, AssetMode.AUTO, null, null);
     }
 
     public String buildUserPrompt(String description, Platform platform, PrototypeType type,
                                   boolean hasReferenceImage, String referenceFileName,
-                                  com.example.aidocumentplatform.model.enums.PageMorphology morphology) {
+                                  AssetMode assetMode,
+                                  List<String> clarificationAnswers,
+                                  String generationBrief) {
         return type == PrototypeType.MULTI_PAGE
-                ? buildMultiPagePrompt(description, platform, hasReferenceImage, referenceFileName, morphology)
-                : buildSinglePagePrompt(description, platform, hasReferenceImage, referenceFileName, morphology);
+                ? buildMultiPagePrompt(description, platform, hasReferenceImage, referenceFileName, assetMode, clarificationAnswers, generationBrief)
+                : buildSinglePagePrompt(description, platform, hasReferenceImage, referenceFileName, assetMode, clarificationAnswers, generationBrief);
     }
 
     private String buildReferenceStyleHint(boolean hasReferenceImage, String fileName) {
@@ -112,7 +117,7 @@ public class PrototypePromptTemplate {
         return """
                 【CSS 规则 — 与平台设计系统配合（最高优先级）】
                 1. 平台已注入完整组件库 CSS：清单中所有 co-* class（含 .co-* 子元素）都已具备完整样式，禁止为它们编写任何重复样式。
-                2. 默认禁止输出 <style> 块；只有清单外的特殊需求（自定义容器、特殊布局）才允许少量补充样式，且总行数不得超过 10 行，禁止重写组件库已有组件。
+                2. 标准业务组件直接使用 co-*；沉浸式主视觉、角色展示、商品特写、活动舞台、特殊背景与光效允许编写完成构图所需的局部 <style>。不要为了少写 CSS 而把特殊画面退化成普通卡片。
                 3. 排版硬性要求（无论是否写 CSS 都必须满足，平台质量兜底样式会二次校验）：
                    - 按钮/标签/胶囊类元素：内部文字必须水平垂直居中，水平内边距至少 15px；文字禁止贴边、禁止被圆角裁切、禁止溢出。
                    - 所有文字必须位于有 padding 的容器内，与容器边缘距离至少 12px（标签、徽章等小元素除外）。
@@ -426,10 +431,13 @@ public class PrototypePromptTemplate {
 
     private String buildSinglePagePrompt(String description, Platform platform,
                                          boolean hasReferenceImage, String referenceFileName,
-                                         com.example.aidocumentplatform.model.enums.PageMorphology morphology) {
+                                         AssetMode assetMode,
+                                         List<String> clarificationAnswers,
+                                         String generationBrief) {
         return """
                 请根据以下功能描述，生成一个完整的、可直接在浏览器中打开的 HTML 原型页面。
 
+                %s
                 %s
                 %s
                 %s
@@ -456,10 +464,11 @@ public class PrototypePromptTemplate {
                 """.formatted(
                 getStyleGuide(platform),
                 buildGenerationStrategy(platform, hasReferenceImage),
-                buildMorphologyInstruction(morphology),
+                buildInternalStructureInstruction(platform, description),
                 buildPlatformDesignSpec(platform),
                 PrototypeDesignSystem.componentListFor(platform),
                 buildCssRequirements(),
+                buildAssetAndClarificationInstruction(assetMode, clarificationAnswers, generationBrief),
                 buildReferenceStyleHint(hasReferenceImage, referenceFileName),
                 description);
     }
@@ -467,12 +476,15 @@ public class PrototypePromptTemplate {
     // ==================== 多页面 ====================
 
     private String buildMultiPagePrompt(String description, Platform platform,
-                                        boolean hasReferenceImage, String referenceFileName,
-                                        com.example.aidocumentplatform.model.enums.PageMorphology morphology) {
+                                         boolean hasReferenceImage, String referenceFileName,
+                                         AssetMode assetMode,
+                                         List<String> clarificationAnswers,
+                                         String generationBrief) {
         String style = getStyleGuide(platform);
         return """
-                请根据以下功能描述，生成一个多页面的交互原型（3~5 个页面）。
+                请根据以下功能描述，生成一个多页面原型。页面数量只按用户明确需求和最终生成简报决定，通常 2~5 页；不得机械补齐无关页面。
 
+                %s
                 %s
                 %s
                 %s
@@ -499,22 +511,65 @@ public class PrototypePromptTemplate {
                    例如：从登录页去首页 → <button data-proto-page="2">进入首页</button>
                    也可使用 href="#page-2" 或 href="#首页"
                 3. 第一个页面(order=1)作为首页或导航入口
-                4. 建议包含：登录/注册、首页/列表、详情、个人中心/设置
+                4. 页面集合必须来自用户需求。只有业务应用明确需要时才包含登录、首页、列表、详情或设置；壁纸主题、角色主题、视觉套装等展示需求应生成对应的锁屏、主屏、组件页等，不得改造成业务应用。
                 5. 所有页面视觉体系统一（配色、圆角、字号、按钮样式一致）
                 6. 包含逼真模拟数据
                 7. 每个页面是独立 HTML，不要把多个页面的 DOM 塞进同一个 html 字段
                 8. 保持真实业务系统质感：少图标、强结构、清晰列表/表单/导航。不要在每张卡片前都放图标。
-                9. 多页场景使用完整页面骨架（.co-page-shell），不使用弹窗/组件特写骨架
+                9. 多页仅表示存在多个独立页面，不等于后台或业务应用。每页结构仍由该页意图决定；沉浸式壁纸、主题预览和角色展示可以不使用 .co-page-shell、导航栏、卡片或业务组件。
+                10. 如果系统提供了核心视觉素材占位符，并且简报要求主体贯穿每页，则每个相关页面都必须各自放置一次该占位符；同一素材允许跨页面复用，由页面 CSS 调整位置、尺寸和层级。
 
                 【重要】
                 请只输出 JSON 数组，不要包含 ```json 标记，不要添加任何解释文字。
                 输出的第一个字符必须是 '['。
                 """.formatted(style, buildGenerationStrategy(platform, hasReferenceImage),
-                buildMorphologyInstruction(morphology),
+                buildInternalStructureInstruction(platform, description),
                 buildPlatformDesignSpec(platform),
                 PrototypeDesignSystem.componentListFor(platform),
                 buildCssRequirements(),
+                buildAssetAndClarificationInstruction(assetMode, clarificationAnswers, generationBrief),
                 buildReferenceStyleHint(hasReferenceImage, referenceFileName), description);
+    }
+
+    private String buildInternalStructureInstruction(Platform platform, String description) {
+        return """
+                【结构判断已由系统接管】
+                - 前端不会再给你“页面形态”选项，你必须只根据平台和需求内容，自行判断这是完整页面、局部模块、弹窗浮层、卡片组件还是多区块工作台。
+                - 如果用户描述的是“精灵展示弹窗、奖励弹窗、卡片特写、局部组件”，就只生成该核心区域，不要私自补侧边栏、顶部栏、底部导航或后台框架。
+                - 如果用户描述的是“登录、注册、首页、工作台、列表、详情、设置、审批、商城”等完整场景，再生成完整页面骨架。
+                - 如果需求已经明确写了元素位置、主视觉、按钮、标题、比例或主体对象，优先忠实执行这些要求，不要为了套模板而改成另一种页面。
+                - 当前平台为 %s，请在这个平台规范内做结构判断。
+                - 当前原始需求如下：%s
+                """.formatted(platform.name(), description);
+    }
+
+    private String buildAssetAndClarificationInstruction(
+            AssetMode assetMode, List<String> clarificationAnswers, String generationBrief) {
+        String modeText = switch (assetMode == null ? AssetMode.AUTO : assetMode) {
+            case NONE -> "禁止依赖外部图片素材，只使用纯布局、渐变、色块、占位图和内置样式完成页面。";
+            case UPLOAD_ONLY -> "优先使用用户上传的参考图所体现的视觉风格，不要再假设外部网络图片。";
+            case BUILT_IN -> "优先使用系统内置素材思路和占位资源，不要过度依赖网络图片。";
+            case NETWORK -> "允许为商品图、人物图、插画图预留真实素材位，但布局必须先成立，不能因为图片缺失导致页面混乱。";
+            case AUTO -> "素材使用由系统自动判断：先保证结构和排版成立，再决定是否需要真实图片位。";
+        };
+        StringBuilder builder = new StringBuilder();
+        builder.append("【需求理解与生成简报 — 高优先级】\n");
+        if (generationBrief != null && !generationBrief.isBlank()) {
+            builder.append(generationBrief.trim()).append("\n");
+        } else {
+            builder.append("以用户原始描述为最高事实来源，只补齐可用性细节，不增加未要求的业务模块。\n");
+        }
+        builder.append("- ").append(modeText).append("\n");
+        if (clarificationAnswers != null && !clarificationAnswers.isEmpty()) {
+            builder.append("- 以下是用户刚刚确认的信息，必须合并到上面的生成简报：\n");
+            for (String answer : clarificationAnswers) {
+                if (answer == null || answer.isBlank()) continue;
+                builder.append("  - ").append(answer.trim()).append("\n");
+            }
+        }
+        builder.append("- 忠实度规则：用户没提到的导航、卡片、属性数值、说明段落、统计数据、功能入口和装饰图标，一律不要自行添加。\n");
+        builder.append("- 构图规则：用户明确了主体位置、背景覆盖、光效方向、按钮数量或文字时，逐项照做，不得用常规页面模板替换。\n");
+        return builder.toString().trim();
     }
 
     /**
@@ -553,15 +608,14 @@ public class PrototypePromptTemplate {
         };
     }
 
-    // ==================== AI 辅助修改（局部编辑） ====================
-
     private static final String EDIT_SYSTEM_PROMPT = """
-            你是一位资深前端工程师，负责根据产品经理的自然语言指令，对现有 HTML 原型做「最小必要」的修改。
+            你是一位资深前端工程师，负责根据产品经理的自然语言指令修改现有 HTML 原型。修改必须以用户最新指令为准，而不是机械保留旧模板。
             规则：
-            1. 只改动指令涉及的部分，其余 HTML/CSS/JS 一律原样保留，不得重排或删除无关内容。
+            1. 小范围样式或文案需求使用最小必要修改；若用户要求改变构图、页面结构、内容密度、沉浸感、主体位置，允许重构相关区域乃至整个 body，并删除与新意图冲突的旧卡片、导航、说明和数据。
             2. 保持单文件结构，所有样式与脚本继续内联；若新增元素，必须使用现有 co-* 组件 class（样式已由平台注入），禁止重写组件样式；确需额外样式时才补充 <style>，且不得覆盖 co-* 组件。
             3. 输出必须是可直接运行的完整 HTML（含 <!DOCTYPE html> 与完整 <style>）。
             4. 不要输出 markdown 代码块，不要输出解释文字。
+            5. 若用户描述“背景铺满、主体居中、顶部打光、主体下方只有一个按钮”，必须逐项实现，并删除未要求的说明卡片、属性数值、导航和长文案；不能只换颜色或移动一个按钮就算完成。
             """;
 
     private static final String EDIT_PATCH_SYSTEM_PROMPT = """
@@ -623,6 +677,16 @@ public class PrototypePromptTemplate {
                 【修改范围】
                 %s
 
+                【执行判断】
+                - 若这是颜色、字号、文字、单个间距等局部调整，保留无关内容。
+                - 若这是“改成某种画面 / 重新布局 / 背景铺满 / 主体居中 / 只保留某些元素 / 删除多余模块”等结构性调整，必须重构受影响区域，旧结构与新要求冲突时直接删除旧结构。
+                - 完成前逐项核对修改需求中的每个名词、位置词、数量词和禁止词，不得只完成其中一部分。
+
+                【图片占位符】
+                HTML 中形如 __PROTO_IMG_1__ 的字符串是内嵌图片的占位符（原文是体积巨大的 Data URL，已被系统摘出）。
+                除非修改需求明确要求删除对应图片，否则必须把占位符原样保留在原来的位置（例如 src 属性中），
+                禁止改写、拆分、翻译占位符，禁止把它替换成其他 URL 或编造图片地址。
+
                 【输出格式】严格按下面两段输出，不要包含 markdown 代码块（不要 ``` ）：
                 @@SUMMARY@@
                 用一句中文说明你做了哪些改动
@@ -658,6 +722,7 @@ public class PrototypePromptTemplate {
                 3. 每行必须能被 JSON.parse 直接解析。
                 4. 能用 setStyle/setText/setAttr 完成时，不要 replaceHtml 大块替换。
                 5. 如果某条需求会影响多个元素，请分多条输出，让前端可以逐步看到变化。
+                6. HTML 中形如 __PROTO_IMG_1__ 的字符串是内嵌图片的占位符；patch 中需要引用图片时原样使用占位符，禁止改写或替换成其他 URL。
                 """.formatted(currentHtml, instruction, scope);
     }
 
@@ -686,16 +751,16 @@ public class PrototypePromptTemplate {
     private String buildPlatformDesignSpec(Platform platform) {
         return switch (platform) {
             case APP, MINI_PROGRAM -> """
-                    【平台设计规范 — APP/小程序 — 组件样式已由平台注入（co-* 扁平组件包）】
+                【平台设计规范 — APP/小程序 — 基础组件样式已由平台注入】
                     1. 主题：OPPO ColorOS（主色 #1BA784，背景 #F7F8FA）。所有 co-* 组件的颜色、圆角、阴影、间距已由平台注入，禁止为它们编写或覆盖任何 CSS，禁止定义 :root 变量。
-                    2. 画布：390px 居中（平台已注入），高度由内容自然决定；禁止 min-height:100vh；内容少则紧凑结束，不留底部空白。
-                    3. 结构：必须使用 .co-page-shell > .co-navbar（标题 .co-nav-title 居中）+ .co-page-content + 可选 .co-tabbar（底部导航，Tab 数量必须与需求完全一致且全部单行）。禁止生成 Web 后台侧边栏。
+                    2. 画布：390px 居中（平台已注入），高度由内容自然决定；禁止 min-height:100vh、height:844px 等固定设备高度；内容少则紧凑结束，不留底部空白。只有用户明确要求“锁屏截图/整屏壁纸/完整手机屏幕”时才允许固定设备高度，并且主视觉、操作或系统信息必须合理填满整屏，禁止留下无意义空带。
+                    3. 结构由需求意图决定：业务完整页可使用 .co-page-shell > 可选 .co-navbar + .co-page-content + 可选 .co-tabbar；沉浸式展示页、角色主视觉、活动视觉或单一领取场景可使用全屏舞台结构，不强制顶部栏、内容卡片或底部导航。禁止生成 Web 后台侧边栏。
                     4. 反桌面禁区（后台/CRUD/表格/报表描述一律翻译为移动端表达）：禁止 .co-sidebar、co-table 宽表格、分页器、面包屑、横向步骤条、横向标签页、双列表单、桌面大工具栏。
                        - 表格 → .co-list / .co-cell 列表或 .co-card 卡片流
                        - 分页 → 上拉加载 / Tab 切换
                        - 详情 → 单列 .co-card 分组
                        - 后台管理 → 列表 + 卡片详情 + 底部固定操作栏（.co-bottom-action）
-                    5. 表单单列；输入用 .co-form-item/.co-input；提交按钮用 .co-btn-primary 整行。
+                    5. 表单单列；输入用 .co-form-item/.co-input；提交按钮用 .co-btn-primary。展示型页面若用户只要求一个 CTA，就只保留一个 CTA，不补说明卡片、属性栏或额外入口。
                     6. 状态：.active/.selected/.current/.disabled 仅通过 class 表达（平台已注入状态样式），禁止手写状态 CSS。
                     """;
             case PAD -> """

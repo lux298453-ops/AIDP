@@ -19,8 +19,11 @@ spring:
 
   # ==================== JPA ====================
   jpa:
+    # 实体无关联映射，不依赖视图层懒加载；关闭 OSIV 避免请求期间长期占用数据库连接
+    open-in-view: false
     hibernate:
-      ddl-auto: update
+      # 生产部署建议设 JPA_DDL_AUTO=validate，配合迁移脚本管理表结构
+      ddl-auto: ${JPA_DDL_AUTO:update}
     show-sql: false
     properties:
       hibernate:

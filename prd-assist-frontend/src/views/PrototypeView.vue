@@ -1,58 +1,171 @@
 <script setup lang="ts">
-import { ref, computed, watch, onBeforeUnmount } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import ThinkingStatus from '@/components/common/ThinkingStatus.vue'
 import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import {
-  Clock, PictureFilled, Iphone, Monitor, Platform, UploadFilled, Delete, Loading,
+  Check,
+  Clock,
+  Delete,
+  Grid,
+  Iphone,
+  Loading,
+  Monitor,
+  PictureFilled,
+  Platform,
+  UploadFilled,
 } from '@element-plus/icons-vue'
-import { getTaskSseUrl, getTaskById } from '@/api/task'
+import { getTaskById, getTaskSseUrl } from '@/api/task'
 import client from '@/api/client'
 import PrototypeResultView from './PrototypeResultView.vue'
 
 const route = useRoute()
 
-// ==================== 页面模型 ====================
 interface ProtoPage {
   title: string
   order: number
   html: string
 }
 
-// ==================== 表单 ====================
+interface PrototypeClarifyOption {
+  value: string
+  label: string
+  description?: string
+}
+
+interface PrototypeClarifyQuestion {
+  id: string
+  title: string
+  prompt: string
+  options?: PrototypeClarifyOption[]
+  allowCustomInput?: boolean
+  customInputPlaceholder?: string
+}
+
+interface PrototypeClarifyResult {
+  needsClarification: boolean
+  intentSummary?: string
+  generationBrief?: string
+  assetPlan?: PrototypeAssetPlan
+  assetPlans?: PrototypeAssetPlan[]
+  questions?: PrototypeClarifyQuestion[]
+}
+
+interface PrototypeAssetPlan {
+  key?: string
+  targetPage?: string
+  required: boolean
+  source?: 'GENERATED' | 'REFERENCE' | 'NONE'
+  role?: string
+  prompt?: string
+  aspectRatio?: string
+  transparentBackground?: boolean
+}
+
+interface ClarificationDraft {
+  selectedOption: string
+  customText: string
+}
+
 const description = ref('')
-const platform = ref('APP')
+const platform = ref<'APP' | 'WEB' | 'PAD'>('APP')
 const generateMode = ref<'single' | 'multi'>('single')
 
 const platforms = [
   { key: 'APP', label: 'APP', icon: Iphone },
   { key: 'WEB', label: 'Web', icon: Monitor },
   { key: 'PAD', label: 'Pad', icon: Platform },
-]
+] as const
 
-// 页面形态：控制 AI 生成的骨架结构（弹窗/组件特写等不生成页面外壳）
-const pageMorphology = ref('FULL_PAGE')
-const morphologies = [
-  { key: 'FULL_PAGE', label: '完整页面', desc: '含导航栏/标签栏/页面外壳' },
-  { key: 'MODAL_POPUP', label: '弹窗浮层', desc: '仅弹窗组件，居中展示' },
-  { key: 'LIST_FEED', label: '列表信息流', desc: '列表/卡片流为主' },
-  { key: 'FORM_FLOW', label: '表单流程', desc: '表单输入为主' },
-  { key: 'COMPONENT_ONLY', label: '组件特写', desc: '只生成单个组件' },
-  { key: 'AUTO', label: '自由模式', desc: 'AI 根据描述自行判断' },
-]
-
-// ==================== 风格参考图 ====================
 const imageInput = ref<HTMLInputElement | null>(null)
 const referenceImage = ref<File | null>(null)
-const referencePreviewUrl = ref<string>('')
+const referencePreviewUrl = ref('')
 const imageDragOver = ref(false)
+
+const clarifying = ref(false)
+const clarificationQuestions = ref<PrototypeClarifyQuestion[]>([])
+const clarificationDrafts = ref<ClarificationDraft[]>([])
+const clarificationSummary = ref('')
+const generationBrief = ref('')
+const assetPlan = ref<PrototypeAssetPlan | null>(null)
+const assetPlans = ref<PrototypeAssetPlan[]>([])
+const clarificationResolved = ref(false)
+
+const loading = ref(false)
+const opening = ref(false)
+const progress = ref(0)
+const progressMsg = ref('')
+const liveMessages = ref<string[]>([])
+const liveContent = ref('')
+const showPreview = ref(false)
+
+const singleHtml = ref('')
+const pages = ref<ProtoPage[]>([])
+const currentPageIndex = ref(0)
+
+const isMultiPage = computed(() => pages.value.length > 0)
+const pageTitles = computed(() => pages.value.map((page) => page.title || ''))
+const resultId = ref<number | null>(null)
+const openingPrototypeId = ref<number | null>(null)
+let taskId: number | null = null
+
+const currentHtml = computed<string>({
+  get() {
+    return isMultiPage.value
+      ? (pages.value[currentPageIndex.value]?.html || '')
+      : singleHtml.value
+  },
+  set(value) {
+    if (isMultiPage.value) {
+      const page = pages.value[currentPageIndex.value]
+      if (page) page.html = value
+      return
+    }
+    singleHtml.value = value
+  },
+})
+
+const canGenerate = computed(() => description.value.trim().length > 0)
+const waitingClarification = computed(
+  () => clarificationQuestions.value.length > 0 && !clarificationResolved.value,
+)
+const generateButtonText = computed(() => {
+  if (loading.value) return '正在生成...'
+  if (clarifying.value) return '正在理解需求...'
+  if (waitingClarification.value) return '确认这些选项后继续'
+  return '一键生成'
+})
 
 const ACCEPTED_IMAGE_TYPES = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif']
 const ACCEPTED_EXTS = ['.jpg', '.jpeg', '.png', '.webp', '.gif']
-const MAX_IMAGE_SIZE = 8 * 1024 * 1024 // 8MB
+const MAX_IMAGE_SIZE = 8 * 1024 * 1024
+
+function resetClarificationState() {
+  clarificationQuestions.value = []
+  clarificationDrafts.value = []
+  clarificationSummary.value = ''
+  generationBrief.value = ''
+  assetPlan.value = null
+  assetPlans.value = []
+  clarificationResolved.value = false
+}
+
+watch(
+  () => [
+    description.value,
+    platform.value,
+    generateMode.value,
+    referenceImage.value?.name || '',
+    referenceImage.value?.size || 0,
+  ],
+  () => {
+    resetClarificationState()
+  },
+)
 
 function isAcceptedImage(file: File): boolean {
   const name = file.name.toLowerCase()
-  const extOk = ACCEPTED_EXTS.some(e => name.endsWith(e))
+  const extOk = ACCEPTED_EXTS.some((ext) => name.endsWith(ext))
   const typeOk = !file.type || ACCEPTED_IMAGE_TYPES.includes(file.type.toLowerCase())
   return extOk && typeOk
 }
@@ -69,24 +182,23 @@ function setReferenceImage(file: File) {
   clearReferenceImage()
   referenceImage.value = file
   referencePreviewUrl.value = URL.createObjectURL(file)
-  ElMessage.success(`已选择参考图: ${file.name}`)
+  ElMessage.success(`已选择参考图：${file.name}`)
 }
 
 function triggerImageUpload() {
   imageInput.value?.click()
 }
 
-function onImageFileSelected(e: Event) {
-  const input = e.target as HTMLInputElement
+function onImageFileSelected(event: Event) {
+  const input = event.target as HTMLInputElement
   if (input.files && input.files.length > 0) {
     setReferenceImage(input.files[0])
   }
-  // 允许再次选择同一文件
   input.value = ''
 }
 
-function clearReferenceImage(e?: Event) {
-  e?.stopPropagation()
+function clearReferenceImage(event?: Event) {
+  event?.stopPropagation()
   if (referencePreviewUrl.value) {
     URL.revokeObjectURL(referencePreviewUrl.value)
     referencePreviewUrl.value = ''
@@ -95,157 +207,59 @@ function clearReferenceImage(e?: Event) {
   if (imageInput.value) imageInput.value.value = ''
 }
 
-function onImageDragOver(e: DragEvent) {
-  e.preventDefault()
+function onImageDragOver(event: DragEvent) {
+  event.preventDefault()
   imageDragOver.value = true
 }
-function onImageDragLeave(e: DragEvent) {
-  e.preventDefault()
+
+function onImageDragLeave(event: DragEvent) {
+  event.preventDefault()
   imageDragOver.value = false
 }
-function onImageDrop(e: DragEvent) {
-  e.preventDefault()
+
+function onImageDrop(event: DragEvent) {
+  event.preventDefault()
   imageDragOver.value = false
-  const f = e.dataTransfer?.files?.[0]
-  if (f) setReferenceImage(f)
+  const file = event.dataTransfer?.files?.[0]
+  if (file) setReferenceImage(file)
 }
+
+let activeEventSource: EventSource | null = null
+let activePollTimer: ReturnType<typeof setInterval> | null = null
 
 onBeforeUnmount(() => {
-  if (referencePreviewUrl.value) URL.revokeObjectURL(referencePreviewUrl.value)
+  if (referencePreviewUrl.value) {
+    URL.revokeObjectURL(referencePreviewUrl.value)
+  }
+  activeEventSource?.close()
+  activeEventSource = null
+  if (activePollTimer) {
+    clearInterval(activePollTimer)
+    activePollTimer = null
+  }
 })
 
-// ==================== 状态 ====================
-const loading = ref(false)
-/** 从文档列表打开历史原型时的加载态（与 AI 生成 loading 分离，避免遮罩文案错误） */
-const opening = ref(false)
-const progress = ref(0)
-const progressMsg = ref('')
-const liveMessages = ref<string[]>([])
-const liveContent = ref('')
-const showPreview = ref(false)
-
-// 单页面
-const singleHtml = ref('')
-// 多页面
-const pages = ref<ProtoPage[]>([])
-const currentPageIndex = ref(0)
-
-const isMultiPage = computed(() => pages.value.length > 0)
-const pageTitles = computed(() => pages.value.map(p => p.title || ''))
-
-/**
- * 与右侧组件双向绑定的「当前页 HTML」。
- */
-const currentHtml = computed<string>({
-  get() {
-    return isMultiPage.value
-      ? (pages.value[currentPageIndex.value]?.html || '')
-      : singleHtml.value
-  },
-  set(v) {
-    if (isMultiPage.value) {
-      const p = pages.value[currentPageIndex.value]
-      if (p) p.html = v
-    } else {
-      singleHtml.value = v
-    }
-  },
-})
-
-let taskId: number | null = null
-const resultId = ref<number | null>(null)
-const openingPrototypeId = ref<number | null>(null)
-
-const canGenerate = computed(() => description.value.trim().length > 0)
-
-// ==================== 自动保存 ====================
 let saveTimer: ReturnType<typeof setTimeout> | null = null
-watch([singleHtml, pages], () => {
-  if (!resultId.value) return
-  if (saveTimer) clearTimeout(saveTimer)
-  saveTimer = setTimeout(persist, 1200)
-}, { deep: true })
+watch(
+  [singleHtml, pages],
+  () => {
+    if (!resultId.value) return
+    if (saveTimer) clearTimeout(saveTimer)
+    saveTimer = setTimeout(persist, 1200)
+  },
+  { deep: true },
+)
 
 async function persist() {
   if (!resultId.value) return
   const content = isMultiPage.value
-    ? JSON.stringify(pages.value.map(p => ({ title: p.title, order: p.order, html: p.html })))
+    ? JSON.stringify(pages.value.map((page) => ({ title: page.title, order: page.order, html: page.html })))
     : singleHtml.value
   try {
     await client.put(`/prototype/${resultId.value}`, { content })
   } catch {
-    // 保存失败不打断编辑
+    // ignore autosave errors
   }
-}
-
-// ==================== 提交 ====================
-async function handleGenerate() {
-  if (!description.value.trim()) { ElMessage.warning('请输入功能描述'); return }
-  loading.value = true
-  singleHtml.value = ''
-  pages.value = []
-  currentPageIndex.value = 0
-  resultId.value = null
-  progress.value = 0
-  liveContent.value = ''
-  progressMsg.value = '正在提交原型生成任务...'
-  liveMessages.value = ['正在提交原型生成任务...']
-
-  try {
-    const prototypeType = generateMode.value === 'single' ? 'SINGLE_PAGE' : 'MULTI_PAGE'
-
-    let res
-    if (referenceImage.value) {
-      // 带参考图：multipart
-      const fd = new FormData()
-      fd.append('description', description.value)
-      fd.append('prototypeType', prototypeType)
-      fd.append('platform', platform.value)
-      fd.append('pageMorphology', pageMorphology.value)
-      fd.append('referenceImage', referenceImage.value)
-      res = await client.post('/prototype/generate', fd, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-        timeout: 60000,
-      })
-    } else {
-      // 无图：JSON
-      res = await client.post('/prototype/generate', {
-        description: description.value,
-        prototypeType,
-        platform: platform.value,
-        pageMorphology: pageMorphology.value,
-      })
-    }
-    taskId = res.data.data.taskId
-    startSse()
-  } catch {
-    loading.value = false
-  }
-}
-
-function startSse() {
-  if (!taskId) return
-  appendLiveMessage('任务已创建，正在连接 AI 原型生成服务...')
-  const es = new EventSource(getTaskSseUrl(taskId))
-  es.addEventListener('content', (e) => {
-    try {
-      const d = JSON.parse((e as MessageEvent).data)
-      if (d.snapshot) liveContent.value = d.delta || ''
-      else liveContent.value += d.delta || ''
-    } catch { /* ignore */ }
-  })
-  es.addEventListener('progress', (e) => {
-    const d = JSON.parse((e as MessageEvent).data)
-    progress.value = d.progress
-    progressMsg.value = d.message
-    appendLiveMessage(d.message)
-    if (d.progress <= 0 && d.message && d.message.includes('失败')) {
-      es.close(); loading.value = false; ElMessage.error(d.message)
-      return
-    }
-    if (d.progress >= 100) { es.close(); loading.value = false; appendLiveMessage('生成完成，正在加载原型预览...'); ElMessage.success('原型生成完成'); fetchResult() }
-  })
-  es.onerror = () => { es.close(); loading.value = false }
 }
 
 function appendLiveMessage(message?: string) {
@@ -255,24 +269,268 @@ function appendLiveMessage(message?: string) {
   liveMessages.value = [...liveMessages.value.slice(-5), text]
 }
 
-async function fetchResult() {
-  if (!taskId) return
-  const t = setInterval(async () => {
-    const r = await getTaskById(taskId!)
-    if (r.data.data.status === 'SUCCESS' && r.data.data.resultRefId) {
-      clearInterval(t)
-      resultId.value = r.data.data.resultRefId!
-      const protoRes = await client.get(`/prototype/${resultId.value}`)
-      parseContent(protoRes.data.data.content || '', protoRes.data.data.prototypeType)
-      showPreview.value = true
-    }
-    if (r.data.data.status === 'FAILED') { ElMessage.error(r.data.data.errorMessage || '失败'); clearInterval(t) }
-  }, 2000)
+function resetGenerationState() {
+  singleHtml.value = ''
+  pages.value = []
+  currentPageIndex.value = 0
+  resultId.value = null
+  progress.value = 0
+  liveContent.value = ''
+  progressMsg.value = '正在提交原型生成任务...'
+  liveMessages.value = ['正在提交原型生成任务...']
+  showPreview.value = false
 }
 
-/** 解析内容：JSON 数组 → 多页面，纯 HTML → 单页面 */
+function createEmptyClarificationDraft(): ClarificationDraft {
+  return {
+    selectedOption: '',
+    customText: '',
+  }
+}
+
+function pickClarificationOption(questionIndex: number, optionValue: string) {
+  const draft = clarificationDrafts.value[questionIndex]
+  if (!draft) return
+  draft.selectedOption = optionValue
+  if (draft.customText.trim() === optionValue) {
+    draft.customText = ''
+  }
+}
+
+function useCustomClarification(questionIndex: number) {
+  const draft = clarificationDrafts.value[questionIndex]
+  if (!draft) return
+  draft.selectedOption = ''
+}
+
+function resolveClarificationAnswer(questionIndex: number): string {
+  const draft = clarificationDrafts.value[questionIndex]
+  if (!draft) return ''
+  const custom = draft.customText.trim()
+  if (custom) return custom
+  return draft.selectedOption.trim()
+}
+
+async function requestClarification(): Promise<PrototypeClarifyResult | null> {
+  clarifying.value = true
+  try {
+    const response = await client.post('/prototype/clarify', {
+      description: description.value.trim(),
+      platform: platform.value,
+      prototypeType: generateMode.value === 'single' ? 'SINGLE_PAGE' : 'MULTI_PAGE',
+      hasReferenceImage: !!referenceImage.value,
+    }, {
+      timeout: 180000,
+      silentError: true,
+    } as any)
+    return response.data?.data as PrototypeClarifyResult
+  } catch (error: any) {
+    ElMessage.error(error?.code === 'ECONNABORTED'
+      ? '需求分析超时，中转站响应较慢，请重试'
+      : error?.response?.data?.message || '需求理解失败，请稍后重试')
+    return null
+  } finally {
+    clarifying.value = false
+  }
+}
+
+async function finalizeClarification(answers: string[]): Promise<PrototypeClarifyResult | null> {
+  clarifying.value = true
+  try {
+    const response = await client.post('/prototype/clarify/finalize', {
+      description: description.value.trim(),
+      platform: platform.value,
+      prototypeType: generateMode.value === 'single' ? 'SINGLE_PAGE' : 'MULTI_PAGE',
+      hasReferenceImage: !!referenceImage.value,
+      generationBrief: generationBrief.value.trim() || undefined,
+      assetPlan: assetPlan.value || undefined,
+      assetPlans: assetPlans.value.length ? assetPlans.value : undefined,
+      clarificationAnswers: answers,
+    }, {
+      timeout: 180000,
+      silentError: true,
+    } as any)
+    return response.data?.data as PrototypeClarifyResult
+  } catch (error: any) {
+    ElMessage.error(error?.code === 'ECONNABORTED'
+      ? '最终生成规划超时，中转站响应较慢，请重试'
+      : error?.response?.data?.message || '最终生成规划失败，请稍后重试')
+    return null
+  } finally {
+    clarifying.value = false
+  }
+}
+
+function buildClarificationAnswers(): string[] {
+  return clarificationQuestions.value.map((question, index) => {
+    const answer = resolveClarificationAnswer(index).trim()
+    return `${question.prompt} -> ${answer}`
+  })
+}
+
+async function submitGenerate(answers: string[] = []) {
+  loading.value = true
+  resetGenerationState()
+
+  try {
+    const prototypeType = generateMode.value === 'single' ? 'SINGLE_PAGE' : 'MULTI_PAGE'
+
+    let response
+    if (referenceImage.value) {
+      const formData = new FormData()
+      formData.append('description', description.value.trim())
+      formData.append('prototypeType', prototypeType)
+      formData.append('platform', platform.value)
+      if (generationBrief.value.trim()) formData.append('generationBrief', generationBrief.value.trim())
+      if (assetPlan.value) formData.append('assetPlan', JSON.stringify(assetPlan.value))
+      if (assetPlans.value.length) formData.append('assetPlans', JSON.stringify(assetPlans.value))
+      answers.forEach((answer) => formData.append('clarificationAnswers', answer))
+      formData.append('referenceImage', referenceImage.value)
+      response = await client.post('/prototype/generate', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+        timeout: 60000,
+      })
+    } else {
+      response = await client.post('/prototype/generate', {
+        description: description.value.trim(),
+        prototypeType,
+        platform: platform.value,
+        clarificationAnswers: answers,
+        generationBrief: generationBrief.value.trim() || undefined,
+        assetPlan: assetPlan.value || undefined,
+        assetPlans: assetPlans.value.length ? assetPlans.value : undefined,
+      })
+    }
+
+    taskId = response.data.data.taskId
+    startSse()
+  } catch {
+    loading.value = false
+    ElMessage.error('生成任务提交失败')
+  }
+}
+
+async function handleGenerate() {
+  if (!description.value.trim()) {
+    ElMessage.warning('请先输入功能描述')
+    return
+  }
+
+  if (waitingClarification.value) {
+    const rawAnswers = clarificationQuestions.value.map((_, index) => resolveClarificationAnswer(index))
+    const missing = rawAnswers.findIndex((answer) => !answer.trim())
+    if (missing >= 0) {
+      ElMessage.warning(`请先完成第 ${missing + 1} 个问题`)
+      return
+    }
+    const answers = buildClarificationAnswers()
+    const finalPlan = await finalizeClarification(answers)
+    if (!finalPlan) return
+    clarificationSummary.value = finalPlan.intentSummary || clarificationSummary.value
+    generationBrief.value = finalPlan.generationBrief || generationBrief.value
+    assetPlan.value = finalPlan.assetPlan || null
+    assetPlans.value = finalPlan.assetPlans || []
+    clarificationResolved.value = true
+    await submitGenerate(answers)
+    return
+  }
+
+  const clarifyResult = await requestClarification()
+  if (!clarifyResult) return
+
+  clarificationSummary.value = clarifyResult.intentSummary || ''
+  generationBrief.value = clarifyResult.generationBrief || ''
+  assetPlan.value = clarifyResult.assetPlan || null
+  assetPlans.value = clarifyResult.assetPlans || []
+  clarificationQuestions.value = clarifyResult.questions || []
+  clarificationDrafts.value = clarificationQuestions.value.map(() => createEmptyClarificationDraft())
+
+  if (clarifyResult.needsClarification && clarificationQuestions.value.length > 0) {
+    clarificationResolved.value = false
+    ElMessage.info('我补抓了几个关键点，你选一下就能继续生成')
+    return
+  }
+
+  clarificationResolved.value = true
+  await submitGenerate([])
+}
+
+function startSse() {
+  if (!taskId) return
+  appendLiveMessage('任务已创建，正在连接原型生成服务...')
+  activeEventSource?.close()
+  const eventSource = new EventSource(getTaskSseUrl(taskId))
+  activeEventSource = eventSource
+  eventSource.addEventListener('content', (event) => {
+    try {
+      const data = JSON.parse((event as MessageEvent).data)
+      if (data.snapshot) liveContent.value = data.delta || ''
+      else liveContent.value += data.delta || ''
+    } catch {
+      // ignore
+    }
+  })
+  eventSource.addEventListener('progress', (event) => {
+    const data = JSON.parse((event as MessageEvent).data)
+    progress.value = data.progress
+    progressMsg.value = data.message
+    appendLiveMessage(data.message)
+    if (data.progress <= 0 && data.message && data.message.includes('失败')) {
+      eventSource.close()
+      loading.value = false
+      ElMessage.error(data.message)
+      return
+    }
+    if (data.progress >= 100) {
+      eventSource.close()
+      loading.value = false
+      appendLiveMessage('生成完成，正在加载预览...')
+      ElMessage.success('原型生成完成')
+      fetchResult()
+    }
+  })
+  eventSource.onerror = () => {
+    eventSource.close()
+    loading.value = false
+  }
+}
+
+async function fetchResult() {
+  if (!taskId) return
+  if (activePollTimer) clearInterval(activePollTimer)
+  let failures = 0
+  const timer = setInterval(async () => {
+    try {
+      const response = await getTaskById(taskId as number)
+      failures = 0
+      const task = response.data.data
+      if (task.status === 'SUCCESS' && task.resultRefId) {
+        clearInterval(timer)
+        activePollTimer = null
+        resultId.value = task.resultRefId as number
+        const protoResponse = await client.get(`/prototype/${resultId.value}`)
+        parseContent(protoResponse.data.data.content || '', protoResponse.data.data.prototypeType)
+        showPreview.value = true
+      }
+      if (task.status === 'FAILED') {
+        ElMessage.error(task.errorMessage || '生成失败')
+        clearInterval(timer)
+        activePollTimer = null
+      }
+    } catch {
+      // 连续失败达到上限后终止轮询，避免无限请求与未捕获异常
+      failures += 1
+      if (failures >= 5) {
+        clearInterval(timer)
+        activePollTimer = null
+        ElMessage.warning('结果查询失败，请稍后在「我的文档」中查看生成结果')
+      }
+    }
+  }, 2000)
+  activePollTimer = timer
+}
+
 function parseContent(content: string, protoType: string) {
-  // 每次解析前清空，避免上一次多页状态污染单页（或反之）
   singleHtml.value = ''
   pages.value = []
   currentPageIndex.value = 0
@@ -282,54 +540,62 @@ function parseContent(content: string, protoType: string) {
     return
   }
 
-  let decoded: any = content
-  for (let i = 0; i < 3; i++) {
+  let decoded: unknown = content
+  for (let i = 0; i < 3; i += 1) {
     if (typeof decoded !== 'string') break
     try {
       const parsed = JSON.parse(decoded)
-      if (typeof parsed === 'string') { decoded = parsed; continue }
+      if (typeof parsed === 'string') {
+        decoded = parsed
+        continue
+      }
       decoded = parsed
       break
-    } catch { break }
+    } catch {
+      break
+    }
   }
 
   if (typeof decoded === 'string') {
     let html = decoded
     html = html.replace(/\\n/g, '\n').replace(/\\t/g, '\t').replace(/\\"/g, '"')
     if (!html.trim().startsWith('<') && html.trim().startsWith('[')) {
-      try { const arr = JSON.parse(html); if (Array.isArray(arr)) decoded = arr } catch { /* keep */ }
+      try {
+        const arr = JSON.parse(html)
+        if (Array.isArray(arr)) decoded = arr
+      } catch {
+        // ignore
+      }
     }
   }
 
   if (typeof decoded === 'object' && decoded !== null) {
     if (Array.isArray(decoded) && decoded.length > 0) {
-      pages.value = decoded.map((p: any, i: number) => ({
-        title: p.title || `页面 ${p.order || i + 1}`,
-        order: p.order || i + 1,
-        html: p.html || '',
+      pages.value = decoded.map((page: any, index: number) => ({
+        title: page.title || `页面 ${page.order || index + 1}`,
+        order: page.order || index + 1,
+        html: page.html || '',
       }))
       pages.value.sort((a, b) => a.order - b.order)
       generateMode.value = 'multi'
       return
     }
-    if (decoded.pages && Array.isArray(decoded.pages)) {
-      pages.value = decoded.pages.map((p: any, i: number) => ({
-        title: p.title || `页面 ${p.order || i + 1}`,
-        order: p.order || i + 1,
-        html: p.html || '',
+    if ((decoded as any).pages && Array.isArray((decoded as any).pages)) {
+      pages.value = (decoded as any).pages.map((page: any, index: number) => ({
+        title: page.title || `页面 ${page.order || index + 1}`,
+        order: page.order || index + 1,
+        html: page.html || '',
       }))
       pages.value.sort((a, b) => a.order - b.order)
       generateMode.value = 'multi'
       return
     }
-    if (decoded.html) {
-      singleHtml.value = decoded.html
+    if ((decoded as any).html) {
+      singleHtml.value = (decoded as any).html
       generateMode.value = 'single'
       return
     }
-    singleHtml.value = '<pre style="padding:16px;white-space:pre-wrap">'
-      + JSON.stringify(decoded, null, 2).replace(/</g, '&lt;')
-      + '</pre>'
+    singleHtml.value = `<pre style="padding:16px;white-space:pre-wrap">${JSON.stringify(decoded, null, 2).replace(/</g, '&lt;')}</pre>`
     generateMode.value = 'single'
     return
   }
@@ -338,16 +604,18 @@ function parseContent(content: string, protoType: string) {
     try {
       const arr = JSON.parse(content)
       if (Array.isArray(arr) && arr.length > 0) {
-        pages.value = arr.map((p: any, i: number) => ({
-          title: p.title || `页面 ${p.order || i + 1}`,
-          order: p.order || i + 1,
-          html: p.html || '',
+        pages.value = arr.map((page: any, index: number) => ({
+          title: page.title || `页面 ${page.order || index + 1}`,
+          order: page.order || index + 1,
+          html: page.html || '',
         }))
         pages.value.sort((a, b) => a.order - b.order)
         generateMode.value = 'multi'
         return
       }
-    } catch { /* fall through */ }
+    } catch {
+      // ignore
+    }
   }
 
   singleHtml.value = typeof decoded === 'string' ? decoded : String(content)
@@ -360,43 +628,43 @@ function selectPage(index: number) {
 }
 
 function formatSize(bytes: number) {
-  if (bytes < 1024) return bytes + ' B'
-  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB'
-  return (bytes / 1024 / 1024).toFixed(1) + ' MB'
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`
 }
 
-/** 从「我的文档」/ 路由参数进入时，加载对应原型预览 */
 async function loadPrototypeById(id: number) {
   if (!id || Number.isNaN(id) || id <= 0) return
   if (openingPrototypeId.value === id || resultId.value === id) return
+
   openingPrototypeId.value = id
   opening.value = true
   progressMsg.value = '正在加载原型预览...'
   liveMessages.value = ['正在打开已保存的原型...']
   showPreview.value = false
+
   try {
-    const protoRes = await client.get(`/prototype/${id}`)
-    const data = protoRes.data?.data
+    const response = await client.get(`/prototype/${id}`)
+    const data = response.data?.data
     if (!data) throw new Error('原型数据为空')
 
     resultId.value = Number(data.id) || id
-    if (data.platform) platform.value = String(data.platform)
-    const pType = String(data.prototypeType || 'SINGLE_PAGE').toUpperCase()
-    generateMode.value = pType === 'MULTI_PAGE' ? 'multi' : 'single'
+    if (data.platform && ['APP', 'WEB', 'PAD'].includes(String(data.platform))) {
+      platform.value = String(data.platform) as 'APP' | 'WEB' | 'PAD'
+    }
+    const protoType = String(data.prototypeType || 'SINGLE_PAGE').toUpperCase()
+    generateMode.value = protoType === 'MULTI_PAGE' ? 'multi' : 'single'
     if (!description.value) {
       description.value = `原型 #${resultId.value}（${platform.value}）`
     }
-
-    parseContent(data.content || '', pType)
-
-    // 确保预览条件成立
+    parseContent(data.content || '', protoType)
     if (!singleHtml.value && pages.value.length === 0) {
       singleHtml.value = '<p style="padding:24px;color:#999">该原型内容为空</p>'
     }
     showPreview.value = true
-  } catch (e: any) {
+  } catch (error: any) {
     showPreview.value = false
-    ElMessage.error(e?.message || '加载原型失败')
+    ElMessage.error(error?.message || '加载原型失败')
   } finally {
     opening.value = false
     openingPrototypeId.value = null
@@ -411,7 +679,6 @@ function resolveRoutePrototypeId(): number | null {
   return null
 }
 
-// 进入页面或路由 id 变化时加载（immediate 覆盖首次进入）
 watch(
   () => [route.params.id, route.query.id] as const,
   () => {
@@ -425,43 +692,43 @@ watch(
 <template>
   <div class="page-container">
     <div class="workspace">
-      <!-- ====== 左侧面板 ====== -->
       <div class="config-panel">
         <div class="panel-header">
-          <h2 class="module-title">原型图生成</h2>
-          <el-icon size="18" color="rgba(38,37,30,0.4)"><Clock /></el-icon>
+          <div>
+            <h2 class="module-title">原型图生成</h2>
+            <p class="module-subtitle">高质量交互界面与视觉流生成</p>
+          </div>
+          <div class="panel-badge" title="交互原型设计引擎">
+            <el-icon :size="15"><Grid /></el-icon>
+          </div>
         </div>
 
         <div class="form-group">
           <label class="form-label">生成模式</label>
           <div class="mode-btns">
-            <div class="mode-btn" :class="{ active: generateMode === 'single' }" @click="generateMode = 'single'">单页面</div>
-            <div class="mode-btn" :class="{ active: generateMode === 'multi' }" @click="generateMode = 'multi'">多页面</div>
+            <div class="mode-btn" :class="{ active: generateMode === 'single' }" @click="generateMode = 'single'">
+              单页面
+            </div>
+            <div class="mode-btn" :class="{ active: generateMode === 'multi' }" @click="generateMode = 'multi'">
+              多页面
+            </div>
           </div>
         </div>
 
         <div class="form-group">
           <label class="form-label">终端类型</label>
           <div class="platform-cards">
-            <div v-for="p in platforms" :key="p.key" class="platform-card" :class="{ active: platform === p.key }" @click="platform = p.key">
-              <el-icon size="24"><component :is="p.icon" /></el-icon>
-              <span>{{ p.label }}</span>
-            </div>
-          </div>
-        </div>
-
-        <div class="form-group">
-          <label class="form-label">页面形态</label>
-          <div class="morphology-grid">
             <div
-              v-for="m in morphologies"
-              :key="m.key"
-              class="morphology-card"
-              :class="{ active: pageMorphology === m.key }"
-              @click="pageMorphology = m.key"
+              v-for="item in platforms"
+              :key="item.key"
+              class="platform-card"
+              :class="{ active: platform === item.key }"
+              @click="platform = item.key"
             >
-              <span class="morphology-label">{{ m.label }}</span>
-              <span class="morphology-desc">{{ m.desc }}</span>
+              <el-icon size="24">
+                <component :is="item.icon" />
+              </el-icon>
+              <span>{{ item.label }}</span>
             </div>
           </div>
         </div>
@@ -471,14 +738,67 @@ watch(
           <el-input
             v-model="description"
             type="textarea"
-            :rows="8"
-            placeholder="描述你想要生成的页面功能..."
+            :rows="9"
+            placeholder="描述你想生成的页面、核心区域、主要交互和视觉重点。我会先理解需求，如果关键信息不够，再只追问 1 到 3 个问题。"
             maxlength="50000"
             show-word-limit
           />
         </div>
 
-        <!-- ====== 风格参考图（可选） ====== -->
+        <div v-if="clarificationSummary" class="clarify-summary">
+          <p class="clarify-summary__title">当前理解</p>
+          <p class="clarify-summary__text">{{ clarificationSummary }}</p>
+        </div>
+
+        <div v-if="clarificationQuestions.length > 0" class="clarify-panel">
+          <div class="clarify-panel__head">
+            <p class="clarify-title">还差几个关键点</p>
+            <span class="clarify-badge">先点选项，不满意再自己写</span>
+          </div>
+
+          <div class="clarify-card-list">
+            <div v-for="(question, index) in clarificationQuestions" :key="question.id || index" class="clarify-card">
+              <div class="clarify-card__meta">
+                <span class="clarify-card__index">{{ question.title || `问题 ${index + 1}` }}</span>
+                <span class="clarify-card__tip">抓大放小，快速补齐就行</span>
+              </div>
+
+              <p class="clarify-question">{{ question.prompt }}</p>
+
+              <div v-if="question.options?.length" class="clarify-options">
+                <button
+                  v-for="option in question.options"
+                  :key="option.value"
+                  type="button"
+                  class="clarify-option"
+                  :class="{ active: clarificationDrafts[index]?.selectedOption === option.value && !clarificationDrafts[index]?.customText.trim() }"
+                  @click="pickClarificationOption(index, option.value)"
+                >
+                  <span class="clarify-option__top">
+                    <span class="clarify-option__label">{{ option.label }}</span>
+                    <el-icon v-if="clarificationDrafts[index]?.selectedOption === option.value && !clarificationDrafts[index]?.customText.trim()" size="14">
+                      <Check />
+                    </el-icon>
+                  </span>
+                  <span v-if="option.description" class="clarify-option__desc">{{ option.description }}</span>
+                </button>
+              </div>
+
+              <div v-if="question.allowCustomInput" class="clarify-custom">
+                <button type="button" class="clarify-custom__toggle" @click="useCustomClarification(index)">
+                  上面都不合适，我自己补充
+                </button>
+                <el-input
+                  v-model="clarificationDrafts[index].customText"
+                  type="textarea"
+                  :rows="2"
+                  :placeholder="question.customInputPlaceholder || '自己补充一句也可以'"
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+
         <div class="form-group">
           <label class="form-label">
             风格参考图
@@ -490,9 +810,8 @@ watch(
             accept="image/jpeg,image/jpg,image/png,image/webp,image/gif,.jpg,.jpeg,.png,.webp,.gif"
             style="display:none"
             @change="onImageFileSelected"
-          />
+          >
 
-          <!-- 已上传：缩略图 + 文件名 + 删除 -->
           <div v-if="referenceImage" class="upload-zone upload-zone--done">
             <div class="ref-preview-wrap">
               <img
@@ -500,25 +819,20 @@ watch(
                 :src="referencePreviewUrl"
                 class="ref-thumb"
                 alt="风格参考图预览"
-              />
+              >
               <div class="ref-meta">
                 <p class="upload-text">{{ referenceImage.name }}</p>
-                <p class="upload-hint">{{ formatSize(referenceImage.size) }} · AI 将据此对齐视觉风格</p>
+                <p class="upload-hint">{{ formatSize(referenceImage.size) }}，生成时会优先参考这张图的视觉风格</p>
               </div>
             </div>
-            <el-button
-              class="btn-remove-file"
-              size="small"
-              text
-              type="danger"
-              @click="clearReferenceImage"
-            >
-              <el-icon style="margin-right:4px"><Delete /></el-icon>
+            <el-button class="btn-remove-file" size="small" text type="danger" @click="clearReferenceImage">
+              <el-icon style="margin-right:4px">
+                <Delete />
+              </el-icon>
               删除
             </el-button>
           </div>
 
-          <!-- 未上传：虚线框 + 拖拽 -->
           <div
             v-else
             class="upload-zone"
@@ -528,31 +842,29 @@ watch(
             @dragleave="onImageDragLeave"
             @drop="onImageDrop"
           >
-            <el-icon size="40" color="rgba(38,37,30,0.2)"><UploadFilled /></el-icon>
-            <p class="upload-text">点击上传参考图片</p>
-            <p class="upload-hint">上传风格参考图，AI 将据此生成原型风格</p>
-            <p class="upload-hint" style="margin-top:6px">支持 jpg / png / webp · 可拖拽到此处 · 最大 8MB</p>
+            <el-icon size="40" color="rgba(38,37,30,0.2)">
+              <UploadFilled />
+            </el-icon>
+            <p class="upload-text">点击上传参考图</p>
+            <p class="upload-hint">上传风格参考图后，AI 会优先对齐整体视觉气质</p>
+            <p class="upload-hint upload-hint--minor">支持 jpg / png / webp，可拖拽到这里，最大 8MB</p>
           </div>
         </div>
 
-        <el-button class="btn-generate" :loading="loading" :disabled="!canGenerate" @click="handleGenerate">一键生成</el-button>
+        <el-button
+          class="btn-generate"
+          :loading="loading || clarifying"
+          :disabled="!canGenerate"
+          @click="handleGenerate"
+        >
+          {{ generateButtonText }}
+        </el-button>
       </div>
 
-      <!-- ====== 右侧：预览 + 可视化编辑 ====== -->
       <div class="preview-panel">
         <template v-if="showPreview && resultId && (singleHtml || pages.length > 0)">
-          <div v-if="isMultiPage" class="page-tabs">
-            <div
-              v-for="(page, idx) in pages" :key="idx"
-              class="page-tab" :class="{ active: idx === currentPageIndex }"
-              @click="selectPage(idx)"
-            >
-              <span class="tab-index">{{ idx + 1 }}</span>{{ page.title }}
-            </div>
-          </div>
-
           <PrototypeResultView
-            :key="isMultiPage ? 'page-' + currentPageIndex : 'single'"
+            :key="isMultiPage ? `page-${currentPageIndex}` : 'single'"
             v-model="currentHtml"
             :prototype-id="resultId"
             :platform="platform"
@@ -567,22 +879,27 @@ watch(
 
         <template v-else>
           <div class="preview-placeholder">
-            <el-icon size="60" color="rgba(38,37,30,0.15)"><PictureFilled /></el-icon>
-            <p class="placeholder-title">交互原型即将呈现</p>
-            <p class="placeholder-desc">在左侧描述功能需求并选择生成模式，AI 将生成可交互的 HTML 原型</p>
+            <el-icon size="60" color="rgba(38,37,30,0.15)">
+              <PictureFilled />
+            </el-icon>
+            <p class="placeholder-title">交互原型会显示在这里</p>
+            <p class="placeholder-desc">
+              左侧先输入需求，我会先理解场景。只有在信息明显不够时，才会给你几个可选项，帮你快速补齐。
+            </p>
           </div>
         </template>
 
-        <div v-if="loading || opening" class="preview-placeholder loading-mask generating-state">
-          <el-icon class="loading-icon" size="54" color="#26251e"><Loading /></el-icon>
-          <p class="generating-title">{{ opening ? '正在打开...' : '正在生成...' }}</p>
-          <p class="generating-desc">{{ progressMsg || (opening ? '正在加载已保存的原型' : 'AI 正在生成原型，请稍候') }}</p>
-          <div class="live-output">
-            <div v-for="(msg, index) in liveMessages" :key="index" class="live-line">
-              {{ msg }}
-            </div>
-          </div>
-          <pre v-if="liveContent" class="stream-preview">{{ liveContent }}</pre>
+        <div v-if="loading || opening || clarifying" class="preview-placeholder loading-mask generating-state">
+          <ThinkingStatus
+            v-if="loading || clarifying"
+            :steps="clarifying ? ['正在理解需求，判断信息是否已经足够…'] : liveMessages"
+          />
+          <template v-else>
+            <el-icon class="loading-icon" size="54" color="#26251e">
+              <Loading />
+            </el-icon>
+            <p class="generating-desc">{{ progressMsg || '正在加载已保存的原型' }}</p>
+          </template>
           <el-skeleton animated style="width:80%;max-width:500px">
             <template #template>
               <div style="display:flex;flex-direction:column;gap:16px;align-items:center">
@@ -599,161 +916,545 @@ watch(
 </template>
 
 <style scoped>
-.page-container { padding: 24px 48px; height: 100%; box-sizing: border-box; }
-.workspace { display: flex; height: 100%; border-radius: 10px; overflow: hidden; box-shadow: rgba(38, 37, 30, 0.1) 0px 0px 0px 1px; }
-.config-panel { width: 420px; flex-shrink: 0; padding: 28px 24px; background: #f2f1ed; border-right: 1px solid rgba(38, 37, 30, 0.1); overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
-.panel-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
-.module-title { font-size: 22px; font-weight: 400; color: #26251e; margin: 0; letter-spacing: -0.11px; }
-.form-group { margin-bottom: 18px; }
-.form-label { display: block; font-size: 14px; font-weight: 500; color: #26251e; margin-bottom: 8px; }
-.required { color: #cf2d56; }
-.stream-preview { width: min(760px, 92%); max-height: 280px; overflow: auto; white-space: pre-wrap; text-align: left; padding: 14px 16px; border-radius: 8px; background: rgba(255,255,255,0.72); border: 1px solid rgba(38,37,30,0.1); color: #26251e; font-size: 13px; line-height: 1.7; }
+.page-container {
+  padding: 24px 32px;
+  height: 100%;
+  box-sizing: border-box;
+}
+
+.workspace {
+  height: 100%;
+  display: flex;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.08), 0 2px 4px rgba(15, 23, 42, 0.03);
+  background: #ffffff;
+}
+
+.config-panel {
+  width: 380px;
+  flex-shrink: 0;
+  padding: 22px 20px;
+  background: #ffffff;
+  border-right: 1px solid #f1f5f9;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.panel-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.module-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #0f172a;
+  margin: 0 0 2px;
+  letter-spacing: -0.02em;
+}
+
+.module-subtitle {
+  font-size: 12px;
+  color: #94a3b8;
+  margin: 0;
+}
+
+.panel-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 7px;
+  background: #f8fafc;
+  color: #ea580c;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.02);
+  transition: all 0.15s ease;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.form-label {
+  display: flex;
+  align-items: center;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #334155;
+}
+
+.required {
+  color: #dc2626;
+  margin-left: 2px;
+}
+
 .optional-tag {
   margin-left: 6px;
   font-size: 11px;
   font-weight: 500;
-  color: rgba(38, 37, 30, 0.45);
-  background: rgba(38, 37, 30, 0.06);
-  padding: 1px 8px;
+  color: #94a3b8;
+  background: #f1f5f9;
+  padding: 1px 6px;
   border-radius: 999px;
 }
 
-.mode-btns { display: flex; gap: 4px; }
-.mode-btn { flex: 1; text-align: center; padding: 10px 0; font-size: 13px; cursor: pointer; background: #e6e5e0; color: rgba(38, 37, 30, 0.55); transition: all .15s; user-select: none; border-radius: 8px; font-weight: 500; }
-.mode-btn.active { background: #26251e; color: #f2f1ed; }
-.mode-btn:hover:not(.active) { color: #cf2d56; }
+.mode-btns {
+  display: flex;
+  background: #f1f5f9;
+  padding: 3px;
+  border: 1px solid rgba(226, 232, 240, 0.8);
+  border-radius: 8px;
+  gap: 2px;
+}
 
-.platform-cards { display: flex; gap: 10px; }
-.platform-card { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 18px 8px; border: 1.5px solid rgba(38, 37, 30, 0.1); border-radius: 8px; cursor: pointer; background: #f7f7f4; color: rgba(38, 37, 30, 0.55); font-size: 13px; transition: all .15s; }
-.platform-card:hover { border-color: #f54e00; color: #f54e00; }
-.platform-card.active { border-color: #26251e; background: rgba(38, 37, 30, 0.05); color: #26251e; }
+.mode-btn {
+  flex: 1;
+  text-align: center;
+  padding: 6px 0;
+  font-size: 12.5px;
+  cursor: pointer;
+  background: transparent;
+  color: #64748b;
+  transition: all 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+  user-select: none;
+  border-radius: 6px;
+  font-weight: 500;
+  border: none;
+}
 
-.morphology-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
-.morphology-card {
+.mode-btn.active {
+  background: #ffffff;
+  color: #0f172a;
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08), 0 0 0 1px rgba(15, 23, 42, 0.04);
+}
+
+.mode-btn:hover:not(.active) {
+  color: #0f172a;
+  background: rgba(255, 255, 255, 0.5);
+}
+
+.platform-cards {
+  display: flex;
+  gap: 8px;
+}
+
+.platform-card {
+  flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 3px;
-  padding: 10px 10px;
-  border: 1.5px solid rgba(38, 37, 30, 0.1);
+  align-items: center;
+  gap: 6px;
+  padding: 14px 6px;
+  border: 1px solid #e2e8f0;
   border-radius: 8px;
   cursor: pointer;
-  background: #f7f7f4;
-  color: rgba(38, 37, 30, 0.55);
-  transition: all .15s;
-  user-select: none;
+  background: #ffffff;
+  color: #64748b;
+  font-size: 12.5px;
+  transition: all 0.15s ease;
 }
-.morphology-card:hover { border-color: #f54e00; color: #f54e00; }
-.morphology-card.active { border-color: #26251e; background: rgba(38, 37, 30, 0.05); color: #26251e; }
-.morphology-label { font-size: 13px; font-weight: 500; line-height: 1.3; }
-.morphology-desc { font-size: 11px; line-height: 1.4; opacity: 0.75; }
 
-/* 上传区 —— 与 PRD 生成页一致 */
+.platform-card:hover {
+  border-color: #cbd5e1;
+  background: #f8fafc;
+  color: #0f172a;
+}
+
+.platform-card.active {
+  border-color: #0f172a;
+  background: #f8fafc;
+  color: #0f172a;
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.clarify-summary {
+  padding: 12px;
+  border-radius: 10px;
+  background: #fff7ed;
+  border: 1px solid #ffedd5;
+}
+
+.clarify-summary__title {
+  margin: 0 0 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #ea580c;
+}
+
+.clarify-summary__text {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #7c2d12;
+}
+
+.clarify-panel {
+  padding: 14px;
+  border-radius: 12px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+}
+
+.clarify-panel__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.clarify-title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.clarify-badge {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #f1f5f9;
+  color: #64748b;
+  font-size: 11px;
+}
+
+.clarify-card-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.clarify-card {
+  padding: 12px;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+  background: #ffffff;
+}
+
+.clarify-card__meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+.clarify-card__index {
+  font-size: 12px;
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.clarify-card__tip {
+  font-size: 11px;
+  color: #94a3b8;
+}
+
+.clarify-question {
+  margin: 0 0 8px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #475569;
+}
+
+.clarify-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.clarify-option {
+  width: 100%;
+  border: 1px solid #e2e8f0;
+  background: #ffffff;
+  border-radius: 6px;
+  padding: 8px 10px;
+  text-align: left;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  color: #334155;
+}
+
+.clarify-option:hover {
+  border-color: #cbd5e1;
+  background: #f8fafc;
+}
+
+.clarify-option.active {
+  border-color: #f97316;
+  background: #fff7ed;
+  color: #c2410c;
+}
+
+.clarify-option.active .clarify-option__desc {
+  color: #ea580c;
+}
+
+.clarify-option__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.clarify-option__label {
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.3;
+}
+
+.clarify-option__desc {
+  display: block;
+  margin-top: 4px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: #94a3b8;
+}
+
+.clarify-custom {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.clarify-custom__toggle {
+  align-self: flex-start;
+  border: none;
+  background: transparent;
+  padding: 0;
+  font-size: 12px;
+  color: #ea580c;
+  cursor: pointer;
+  font-weight: 500;
+}
+
+.clarify-custom__toggle:hover {
+  opacity: 0.85;
+}
+
 .upload-zone {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 28px 16px;
-  border: 2px dashed rgba(38, 37, 30, 0.2);
+  padding: 20px 14px;
+  border: 1.5px dashed #cbd5e1;
   border-radius: 10px;
-  background: #f7f7f4;
+  background: #f8fafc;
   cursor: pointer;
-  transition: all .15s;
-  min-height: 120px;
+  transition: all 0.15s ease;
   user-select: none;
 }
-.upload-zone:hover { border-color: #f54e00; background: rgba(245, 78, 0, 0.03); }
-.upload-zone--drag { border-color: #f54e00; background: rgba(245, 78, 0, 0.06); }
-.upload-zone--done {
-  min-height: 100px;
-  border-style: solid;
-  border-color: rgba(31, 138, 101, 0.35);
-  background: rgba(31, 138, 101, 0.04);
-  cursor: default;
-  padding: 16px;
+
+.upload-zone:hover {
+  border-color: #f97316;
+  background: #fff7ed;
 }
-.upload-zone--done:hover { border-color: rgba(31, 138, 101, 0.5); background: rgba(31, 138, 101, 0.06); }
-.upload-text { font-size: 14px; color: rgba(38, 37, 30, 0.75); margin: 12px 0 4px; word-break: break-all; text-align: center; padding: 0 8px; }
-.upload-hint { font-size: 12px; color: rgba(38, 37, 30, 0.4); margin: 0; text-align: center; line-height: 1.5; }
-.btn-remove-file { margin-top: 10px; }
+
+.upload-zone--drag {
+  border-color: #f97316;
+  background: #fff7ed;
+}
+
+.upload-zone--done {
+  border-style: solid;
+  border-color: #a7f3d0;
+  background: #f0fdf4;
+  cursor: default;
+  padding: 12px;
+}
+
+.upload-text {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: #0f172a;
+  margin: 6px 0 2px;
+  text-align: center;
+  word-break: break-all;
+}
+
+.upload-hint {
+  font-size: 11px;
+  color: #94a3b8;
+  margin: 0;
+  text-align: center;
+  line-height: 1.4;
+}
+
+.upload-hint--minor {
+  margin-top: 4px;
+}
+
+.btn-remove-file {
+  margin-top: 6px;
+}
 
 .ref-preview-wrap {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 10px;
   width: 100%;
 }
+
 .ref-thumb {
-  width: 72px;
-  height: 72px;
+  width: 52px;
+  height: 52px;
   object-fit: cover;
-  border-radius: 8px;
-  border: 1px solid rgba(38, 37, 30, 0.1);
-  background: #fff;
+  border-radius: 6px;
+  border: 1px solid #e2e8f0;
+  background: #ffffff;
   flex-shrink: 0;
 }
+
 .ref-meta {
   flex: 1;
   min-width: 0;
   text-align: left;
 }
+
 .ref-meta .upload-text {
-  margin: 0 0 4px;
+  margin: 0 0 2px;
   text-align: left;
   padding: 0;
   font-weight: 500;
-  color: #26251e;
+  color: #0f172a;
 }
+
 .ref-meta .upload-hint {
   text-align: left;
 }
 
-.btn-generate { width: 100%; height: 46px; font-size: 15px; font-weight: 400; border-radius: 8px; background: #e6e5e0 !important; border-color: transparent !important; color: rgba(38, 37, 30, 0.4) !important; margin-top: 8px; }
-.btn-generate:not(:disabled) { background: #26251e !important; border-color: #26251e !important; color: #f2f1ed !important; }
-.btn-generate:not(:disabled):hover { opacity: 0.85; }
-
-:deep(.el-textarea .el-textarea__inner) { border-radius: 8px; font-size: 14px; }
-
-/* ====== 右侧预览区 ====== */
-.preview-panel { flex: 1; min-width: 0; background: #f7f7f4; display: flex; flex-direction: column; position: relative; }
-.result-view { flex: 1; min-height: 0; }
-
-.preview-placeholder { display: flex; flex-direction: column; align-items: center; justify-content: center; flex: 1; }
-.preview-placeholder.loading-mask { position: absolute; inset: 0; background: #f7f7f4; z-index: 5; }
-.placeholder-title { font-size: 16px; color: rgba(38, 37, 30, 0.55); margin: 20px 0 8px; font-weight: 400; }
-.placeholder-desc { font-size: 13px; color: rgba(38, 37, 30, 0.4); margin: 0; max-width: 320px; text-align: center; line-height: 1.7; }
-.loading-icon { animation: spin 1s linear infinite; }
-.generating-state .el-skeleton,
-.generating-state > p:not(.generating-title):not(.generating-desc) { display: none; }
-.generating-title { font-size: 17px; color: #26251e; margin: 18px 0 8px; font-weight: 500; }
-.generating-desc { font-size: 13px; color: rgba(38, 37, 30, 0.58); margin: 0; text-align: center; line-height: 1.7; }
-.live-output {
-  width: min(520px, 82%);
-  margin-top: 20px;
-  padding: 14px 16px;
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.72);
-  border: 1px solid rgba(38, 37, 30, 0.08);
+.btn-generate {
+  width: 100%;
+  height: 38px;
+  font-size: 13.5px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  border-radius: 7px;
+  background: linear-gradient(180deg, #f97316 0%, #ea580c 100%) !important;
+  border: 1px solid #c2410c !important;
+  color: #ffffff !important;
+  cursor: pointer;
+  box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.25), 0 1px 2px 0 rgba(15, 23, 42, 0.08);
+  transition: all 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+  margin-top: auto;
+  user-select: none;
 }
-.live-line { font-size: 13px; line-height: 1.7; color: rgba(38, 37, 30, 0.66); }
-.live-line + .live-line { margin-top: 6px; }
-@keyframes spin { to { transform: rotate(360deg); } }
 
-.page-tabs {
-  display: flex; gap: 6px; padding: 8px 12px; overflow-x: auto;
-  background: #fff; border-bottom: 1px solid rgba(38, 37, 30, 0.08); flex-shrink: 0;
+.btn-generate:hover:not(:disabled) {
+  background: linear-gradient(180deg, #ea580c 0%, #c2410c 100%) !important;
+  box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.2), 0 2px 5px 0 rgba(234, 88, 12, 0.25);
 }
-.page-tab {
-  display: flex; align-items: center; gap: 6px; white-space: nowrap;
-  padding: 5px 12px; border-radius: 7px; font-size: 12px; cursor: pointer;
-  color: rgba(38, 37, 30, 0.6); background: #f2f1ed; transition: all .15s; user-select: none;
+
+.btn-generate:active:not(:disabled) {
+  transform: translateY(1px);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.2);
 }
-.page-tab:hover { color: #f54e00; }
-.page-tab.active { background: #26251e; color: #f2f1ed; }
-.tab-index {
-  display: inline-flex; align-items: center; justify-content: center;
-  width: 16px; height: 16px; border-radius: 50%; font-size: 11px;
-  background: rgba(255, 255, 255, 0.18);
+
+.btn-generate:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+  background: #94a3b8 !important;
+  border-color: #94a3b8 !important;
 }
-.page-tab:not(.active) .tab-index { background: rgba(38, 37, 30, 0.1); }
+
+.preview-panel {
+  flex: 1;
+  min-width: 0;
+  background: #f8fafc;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+.result-view {
+  flex: 1;
+  min-height: 0;
+}
+
+.preview-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  padding: 40px 24px;
+  text-align: center;
+}
+
+.placeholder-title {
+  font-size: 17px;
+  font-weight: 600;
+  color: #0f172a;
+  margin: 16px 0 6px;
+}
+
+.placeholder-desc {
+  font-size: 13.5px;
+  color: #64748b;
+  margin: 0;
+  max-width: 420px;
+  line-height: 1.6;
+}
+
+.preview-placeholder.loading-mask {
+  position: absolute;
+  inset: 0;
+  background: #f8fafc;
+  z-index: 10;
+}
+
+.loading-icon {
+  animation: spin 1s linear infinite;
+  color: #0f172a;
+}
+
+.generating-desc {
+  font-size: 13px;
+  color: #64748b;
+  margin: 12px 0 0;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (max-width: 1024px) {
+  .page-container {
+    padding: 16px;
+    height: auto;
+    min-height: 100%;
+  }
+
+  .workspace {
+    flex-direction: column;
+    height: auto;
+  }
+
+  .config-panel {
+    width: 100%;
+    border-right: none;
+    border-bottom: 1px solid #e2e8f0;
+  }
+
+  .clarify-options {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
 </style>

@@ -68,9 +68,13 @@ public class JwtAuthFilter extends OncePerRequestFilter {
         filterChain.doFilter(request, response);
     }
 
+    /** 仅这些 SSE 端点允许 query 传 token（EventSource 无法自定义 Header） */
+    private static final java.util.regex.Pattern SSE_PATH_PATTERN =
+            java.util.regex.Pattern.compile("^/api/task(?:s)?/\\d+/(?:progress|stream)$");
+
     /**
      * 从 HTTP 请求中提取 JWT Token。
-     * 优先级：1) Authorization: Bearer <token>  2) ?token=<token>（SSE 兼容）
+     * 优先级：1) Authorization: Bearer <token>  2) ?token=<token>（仅限 SSE 端点）
      *
      * @return token 字符串，没有则返回 null
      */
@@ -80,11 +84,16 @@ public class JwtAuthFilter extends OncePerRequestFilter {
         if (StringUtils.hasText(bearerToken) && bearerToken.startsWith("Bearer ")) {
             return bearerToken.substring(7);
         }
-        // 方式二：Query 参数（SSE / EventSource 不支持自定义 Header）
+        // 方式二：Query 参数。只对 SSE 端点开放，避免 token 进入访问日志 / Referer
         String tokenParam = request.getParameter("token");
-        if (StringUtils.hasText(tokenParam)) {
+        if (StringUtils.hasText(tokenParam) && isSseEndpoint(request)) {
             return tokenParam;
         }
         return null;
+    }
+
+    private boolean isSseEndpoint(HttpServletRequest request) {
+        String uri = request.getRequestURI();
+        return uri != null && SSE_PATH_PATTERN.matcher(uri).matches();
     }
 }

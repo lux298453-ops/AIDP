@@ -5,7 +5,9 @@ import com.example.aidocumentplatform.model.dto.request.PrdGenerateRequest;
 import com.example.aidocumentplatform.model.dto.request.PrdReviewFixRequest;
 import com.example.aidocumentplatform.model.dto.request.PrdReviewRequest;
 import com.example.aidocumentplatform.model.dto.request.PrototypeGenerateRequest;
+import com.example.aidocumentplatform.model.dto.PrototypeAssetPlan;
 import com.example.aidocumentplatform.model.entity.AsyncTask;
+import com.example.aidocumentplatform.model.enums.AssetMode;
 import com.example.aidocumentplatform.model.enums.DetailLevel;
 import com.example.aidocumentplatform.model.enums.Platform;
 import com.example.aidocumentplatform.model.enums.PrototypeType;
@@ -75,6 +77,19 @@ public class TaskRegenerateService {
                 req.setDescription(str(params, "description", ""));
                 req.setPlatform(parseEnumOrDefault(Platform.class, str(params, "platform", "APP"), Platform.APP, "platform"));
                 req.setPrototypeType(parseEnumOrDefault(PrototypeType.class, str(params, "prototypeType", "SINGLE_PAGE"), PrototypeType.SINGLE_PAGE, "prototypeType"));
+                req.setAssetMode(parseEnumOrDefault(AssetMode.class, str(params, "assetMode", "AUTO"), AssetMode.AUTO, "assetMode"));
+                req.setClarificationAnswers(list(params, "clarificationAnswers"));
+                req.setGenerationBrief(str(params, "generationBrief", null));
+                Object assetPlan = params.get("assetPlan");
+                if (assetPlan != null) {
+                    req.setAssetPlan(objectMapper.convertValue(assetPlan, PrototypeAssetPlan.class));
+                }
+                Object assetPlans = params.get("assetPlans");
+                if (assetPlans != null) {
+                    req.setAssetPlans(objectMapper.convertValue(
+                            assetPlans,
+                            objectMapper.getTypeFactory().constructCollectionType(List.class, PrototypeAssetPlan.class)));
+                }
                 yield prototypeGenerateService.submit(req, userId);
             }
             case PRD_REVIEW -> {

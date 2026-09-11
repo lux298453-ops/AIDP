@@ -47,7 +47,7 @@ async function render() {
     const mermaid = (await import('mermaid')).default
     mermaid.initialize({
       startOnLoad: false,
-      securityLevel: 'loose',
+      securityLevel: 'strict',
       suppressErrorRendering: true,
       theme: 'base',
       themeVariables: {

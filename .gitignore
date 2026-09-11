@@ -20,6 +20,8 @@ Thumbs.db
 
 # Env
 *.log
+*.log.*
+logs/
 .env
 .env.local
 prd-assist-backend/src/main/resources/application-local.yml

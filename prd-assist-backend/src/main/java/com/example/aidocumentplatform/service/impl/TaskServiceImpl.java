@@ -32,7 +32,8 @@ public class TaskServiceImpl implements TaskService {
     @Value("${app.sse.emitter-timeout-ms:1800000}")
     private long sseEmitterTimeoutMs;
 
-    private final Map<Long, SseEmitter> sseRegistry = new ConcurrentHashMap<>();
+    // 同一任务允许多个 SSE 订阅（多标签页/刷新重连），新连接不再顶掉旧连接
+    private final Map<Long, List<SseEmitter>> sseRegistry = new ConcurrentHashMap<>();
     private final Map<Long, ProgressSnapshot> progressSnapshots = new ConcurrentHashMap<>();
     private final Map<Long, StringBuilder> contentBuffers = new ConcurrentHashMap<>();
     private final Map<Long, List<BufferedSseEvent>> customEventBuffers = new ConcurrentHashMap<>();
@@ -78,32 +79,34 @@ public class TaskServiceImpl implements TaskService {
             return emitter;
         }
 
-        sseRegistry.put(taskId, emitter);
-        emitter.onCompletion(() -> sseRegistry.remove(taskId));
+        sseRegistry.computeIfAbsent(taskId, id -> new java.util.concurrent.CopyOnWriteArrayList<>())
+                .add(emitter);
+        emitter.onCompletion(() -> removeEmitter(taskId, emitter));
         emitter.onTimeout(() -> {
-            sseRegistry.remove(taskId);
+            removeEmitter(taskId, emitter);
             log.info("SSE timeout, taskId={}", taskId);
         });
         emitter.onError(e -> {
-            sseRegistry.remove(taskId);
+            removeEmitter(taskId, emitter);
             log.warn("SSE connection error, taskId={}, cause={}", taskId, e.toString());
         });
 
+        // 历史进度/内容/事件只回放给新连接，避免旧连接收到重复事件
         replayProgressSnapshot(emitter, taskId, snapshot);
 
         StringBuilder buffered = contentBuffers.get(taskId);
         if (buffered != null && !buffered.isEmpty()) {
-            sendContentEvent(taskId, buffered.toString(), true);
+            sendContentEventTo(emitter, taskId, buffered.toString(), true);
         }
-        replayCustomEvents(taskId);
+        replayCustomEvents(emitter, taskId);
 
         return emitter;
     }
 
     public void pushProgress(Long taskId, int progress, String message) {
         progressSnapshots.put(taskId, new ProgressSnapshot(progress, message));
-        SseEmitter emitter = sseRegistry.get(taskId);
-        if (emitter == null) {
+        List<SseEmitter> targets = emitters(taskId);
+        if (targets.isEmpty()) {
             log.debug("SSE emitter missing, taskId={}, progress={}", taskId, progress);
             if (progress >= 100 || progress <= 0) {
                 cleanupTaskBuffers(taskId, false);
@@ -111,18 +114,35 @@ public class TaskServiceImpl implements TaskService {
             return;
         }
 
-        if (!sendProgressEvent(emitter, taskId, progress, message)) {
-            sseRegistry.remove(taskId);
-            return;
+        for (SseEmitter emitter : targets) {
+            if (!sendProgressEvent(emitter, taskId, progress, message)) {
+                removeEmitter(taskId, emitter);
+            }
         }
 
         if (progress >= 100 || progress <= 0) {
-            try {
-                emitter.complete();
-            } catch (Exception ignored) {
+            for (SseEmitter emitter : emitters(taskId)) {
+                try {
+                    emitter.complete();
+                } catch (Exception ignored) {
+                }
             }
             sseRegistry.remove(taskId);
             cleanupTaskBuffers(taskId, true);
+        }
+    }
+
+    private List<SseEmitter> emitters(Long taskId) {
+        List<SseEmitter> list = sseRegistry.get(taskId);
+        return list == null ? List.of() : list;
+    }
+
+    private void removeEmitter(Long taskId, SseEmitter emitter) {
+        List<SseEmitter> list = sseRegistry.get(taskId);
+        if (list == null) return;
+        list.remove(emitter);
+        if (list.isEmpty()) {
+            sseRegistry.remove(taskId, list);
         }
     }
 
@@ -137,18 +157,27 @@ public class TaskServiceImpl implements TaskService {
     }
 
     private void sendContentEvent(Long taskId, String delta, boolean snapshot) {
-        SseEmitter emitter = sseRegistry.get(taskId);
-        if (emitter == null) {
+        List<SseEmitter> targets = emitters(taskId);
+        if (targets.isEmpty()) {
             log.debug("SSE emitter missing, taskId={}, contentLen={}", taskId, delta.length());
             return;
         }
+        for (SseEmitter emitter : targets) {
+            if (!sendContentEventTo(emitter, taskId, delta, snapshot)) {
+                removeEmitter(taskId, emitter);
+            }
+        }
+    }
+
+    private boolean sendContentEventTo(SseEmitter emitter, Long taskId, String delta, boolean snapshot) {
         try {
             emitter.send(SseEmitter.event()
                     .name("content")
                     .data(Map.of("taskId", taskId, "delta", delta, "snapshot", snapshot)));
+            return true;
         } catch (Exception e) {
-            sseRegistry.remove(taskId);
             log.warn("SSE content push failed, taskId={}, cause={}", taskId, e.toString());
+            return false;
         }
     }
 
@@ -161,31 +190,26 @@ public class TaskServiceImpl implements TaskService {
     }
 
     private void sendCustomEvent(Long taskId, String eventName, Object data) {
-        SseEmitter emitter = sseRegistry.get(taskId);
-        if (emitter == null) {
+        List<SseEmitter> targets = emitters(taskId);
+        if (targets.isEmpty()) {
             log.debug("SSE emitter missing, taskId={}, event={}", taskId, eventName);
             return;
         }
-        sendCustomEvent(emitter, taskId, eventName, data);
-    }
-
-    private void sendCustomEvent(SseEmitter emitter, Long taskId, String eventName, Object data) {
-        try {
-            emitter.send(SseEmitter.event().name(eventName).data(data));
-        } catch (Exception e) {
-            sseRegistry.remove(taskId);
-            log.warn("SSE custom event push failed, taskId={}, event={}, cause={}",
-                    taskId, eventName, e.toString());
+        for (SseEmitter emitter : targets) {
+            if (!sendCustomEvent(emitter, taskId, eventName, data)) {
+                removeEmitter(taskId, emitter);
+            }
         }
     }
 
-    private void replayCustomEvents(Long taskId) {
-        List<BufferedSseEvent> customEvents = customEventBuffers.get(taskId);
-        if (customEvents == null || customEvents.isEmpty()) return;
-        synchronized (customEvents) {
-            for (BufferedSseEvent event : customEvents) {
-                sendCustomEvent(taskId, event.name(), event.data());
-            }
+    private boolean sendCustomEvent(SseEmitter emitter, Long taskId, String eventName, Object data) {
+        try {
+            emitter.send(SseEmitter.event().name(eventName).data(data));
+            return true;
+        } catch (Exception e) {
+            log.warn("SSE custom event push failed, taskId={}, event={}, cause={}",
+                    taskId, eventName, e.toString());
+            return false;
         }
     }
 

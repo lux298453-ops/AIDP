@@ -18,6 +18,8 @@ import java.util.concurrent.ThreadPoolExecutor;
 @EnableAsync
 public class AsyncConfig implements AsyncConfigurer {
 
+    private Executor asyncTaskExecutor;
+
     @Bean(name = "asyncTaskExecutor")
     public Executor asyncTaskExecutor(
             @Value("${app.async.core-pool-size:8}") int corePoolSize,
@@ -35,12 +37,14 @@ public class AsyncConfig implements AsyncConfigurer {
         executor.setAllowCoreThreadTimeOut(allowCoreThreadTimeout);
         executor.setRejectedExecutionHandler(new ThreadPoolExecutor.CallerRunsPolicy());
         executor.initialize();
+        this.asyncTaskExecutor = executor;
         return executor;
     }
 
     @Override
     public Executor getAsyncExecutor() {
-        return null;
+        // 未显式指定线程池的 @Async 也统一走 asyncTaskExecutor，避免落入不可控的默认执行器
+        return asyncTaskExecutor;
     }
 
     @Override
