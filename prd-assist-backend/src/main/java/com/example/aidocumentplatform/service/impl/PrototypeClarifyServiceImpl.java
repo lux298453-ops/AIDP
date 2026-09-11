@@ -418,18 +418,25 @@ public class PrototypeClarifyServiceImpl implements PrototypeClarifyService {
 
         boolean fullBackground = containsAny(requirement,
                 "壁纸铺满", "背景铺满", "完整壁纸", "壁纸主视觉", "全屏背景");
+        boolean isToyOrLottery = containsAny(requirement,
+                "扭蛋", "盲盒", "潮玩", "抽卡", "抽奖", "手办", "模型", "宝箱", "转盘", "大转盘");
         String subject = description == null ? "核心视觉主体" : description.trim();
-        String prompt = fullBackground
-                ? "生成适合手机主题使用的 9:16 竖版完整视觉背景。忠实表现以下需求中的主体、画风与氛围：" + subject
-                : "生成可复用于原型页面的独立核心视觉主体，主体完整、轮廓清晰。忠实表现以下需求：" + subject;
+        String prompt;
+        if (fullBackground) {
+            prompt = "生成适合手机主题使用的 9:16 竖版完整视觉背景。忠实表现以下需求中的主体、画风与氛围：" + subject;
+        } else if (isToyOrLottery) {
+            prompt = "生成精致生动的高精度 3D 渲染核心视觉主体（如 3D 潮玩扭蛋机或盲盒手办），透明球形仓与金属旋钮细节，Q萌潮玩风格，摄影棚柔和光影，纯色背景无杂物，主体完整无裁切，无多余文字标签。需求：" + subject;
+        } else {
+            prompt = "生成可复用于原型页面的独立核心视觉主体，主体完整、轮廓清晰。忠实表现以下需求：" + subject;
+        }
         log.info("需求明确依赖视觉素材但 AI 返回 NONE，已自动补全素材计划: fullBackground={}", fullBackground);
         return PrototypeAssetPlan.builder()
                 .key("primary")
                 .required(true)
                 .source(hasReferenceImage && requirement.contains("参考图作为") ? "REFERENCE" : "GENERATED")
-                .role(fullBackground ? "手机主题的完整壁纸主视觉" : "可跨页面复用的核心视觉主体")
+                .role(fullBackground ? "手机主题的完整壁纸主视觉" : (isToyOrLottery ? "潮玩/扭蛋机核心 3D 视觉主体" : "可跨页面复用的核心视觉主体"))
                 .prompt(prompt)
-                .aspectRatio(fullBackground ? "9:16" : "3:4")
+                .aspectRatio(fullBackground ? "9:16" : "1:1")
                 .transparentBackground(!fullBackground)
                 .build();
     }
@@ -439,13 +446,16 @@ public class PrototypeClarifyServiceImpl implements PrototypeClarifyService {
                 "壁纸", "主题套装", "角色主视觉", "人物主视觉", "精灵主视觉", "商品主视觉",
                 "角色展示", "人物展示", "精灵展示", "商品图", "商品图片", "插画主视觉",
                 "照片墙", "海报", "头像素材", "每页都出现小猫", "每个页面都出现小猫",
-                "每页都有小猫", "每个页面都有小猫", "每页都出现角色", "每个页面都出现角色");
+                "每页都有小猫", "每个页面都有小猫", "每页都出现角色", "每个页面都出现角色",
+                "扭蛋", "扭蛋机", "盲盒", "潮玩", "抽奖", "抽卡", "大转盘", "转盘", "轮盘",
+                "宝箱", "开箱", "卡牌", "手办", "模型", "立绘", "吉祥物", "游戏主视觉", "游戏", "活动主视觉");
     }
 
     private boolean isAutoFallbackPlan(PrototypeAssetPlan plan) {
         return plan == null || !plan.isRequired()
                 || "可跨页面复用的核心视觉主体".equals(plan.getRole())
-                || "手机主题的完整壁纸主视觉".equals(plan.getRole());
+                || "手机主题的完整壁纸主视觉".equals(plan.getRole())
+                || "潮玩/扭蛋机核心 3D 视觉主体".equals(plan.getRole());
     }
 
     private boolean containsAny(String value, String... needles) {

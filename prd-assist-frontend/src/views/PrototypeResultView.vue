@@ -374,9 +374,9 @@ let patchAppliedWaiters: Array<() => void> = []
 let streamIdleTimer: ReturnType<typeof setTimeout> | null = null
 
 const devices = [
-  { key: 'mobile', label: '手机', icon: Iphone, width: 390 },
-  { key: 'tablet', label: '平板', icon: Platform, width: 820 },
-  { key: 'desktop', label: '桌面', icon: Monitor, width: 0 },
+  { key: 'mobile', label: '手机', icon: Iphone, width: 390, maxHeight: 844 },
+  { key: 'tablet', label: '平板', icon: Platform, width: 820, maxHeight: 1180 },
+  { key: 'desktop', label: '桌面', icon: Monitor, width: 0, maxHeight: 0 },
 ] as const
 
 const FONT_WEIGHTS = [
@@ -441,7 +441,7 @@ const frameStyle = computed(() => {
   if (!d || !d.width) return { width: '100%', height: '100%' }
   return {
     width: `${d.width}px`,
-    height: '100%',
+    height: d.maxHeight ? `min(${d.maxHeight}px, 100%)` : '100%',
   }
 })
 const aiLoadingText = computed(() => (
@@ -1577,7 +1577,7 @@ onBeforeUnmount(() => {
   padding: 16px;
 }
 .preview-canvas.framed {
-  align-items: stretch;
+  align-items: center;
   background: #f1f5f9;
   padding: 16px 20px;
 }
