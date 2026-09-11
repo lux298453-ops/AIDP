@@ -159,8 +159,7 @@ public class PrototypePromptTemplate {
                 - 间距：使用 8/12/14/20/26/30px 节奏；桌面主内容 padding 26px 30px，移动端 padding 16px。
                 - 圆角：控件 8px，卡片/面板 10~12px（rounded-lg / rounded-xl），品牌标识 9px；不要到处使用超大胶囊圆角。
                 - 阴影：面板使用 0 1px 3px rgba(15,23,42,.08) 到 0 4px 12px rgba(15,23,42,.05) 的轻阴影；卡片 hover 时阴影微升；控件使用 0 1px 2px rgba(15,23,42,.05)。
-                - 图标：每页最多 4 个功能性图标；禁止 emoji 和装饰性图标堆叠。
-                - 高度规则：桌面端页面可占满视口；移动端页面禁止强制 min-height:100vh，高度由内容自然决定，内容少则紧凑结束。
+                - 高度规则：桌面端与移动端页面均自然适应视口；移动端建议使用 min-height: 100% 铺满视口，保证完整的页面感。
                 """.formatted(platform.name(), styleSource);
     }
 
@@ -188,7 +187,7 @@ public class PrototypePromptTemplate {
 
                 A. 全局布局与防塌/防重叠
                    A1. 桌面页面默认使用 100vw / min-height:100vh，不要生成窄小孤立画布。
-                   A2. 移动端页面高度由内容自然决定，禁止用 min-height:100vh 强制撑满屏幕；内容少时底部直接结束，不留大片空白。
+                   A2. 移动端页面建议使用 min-height: 100% 自然延展铺满视口，保持页面背景统一，操作按钮与核心内容结构清晰。
                    A3. 后台/工作台布局标准骨架：
                        .app-shell { display:flex; min-height:100vh; }
                        .sidebar { width:248px; flex-shrink:0; }
@@ -401,7 +400,7 @@ public class PrototypePromptTemplate {
                          background: #fff; border-top: 1px solid #e5e7eb;
                        }
                        ```
-                       规则：移动端禁止 sidebar / side-nav / nav-sidebar 作为底部导航 class；内容区禁止 min-height:100vh；无 TabBar 时底部不留空白。
+                       规则：移动端禁止 sidebar / side-nav / nav-sidebar 作为底部导航 class；保持移动端清晰版面。
 
                 E. 登录/注册页内容规则
                    E1. 登录页必须保持轻量：品牌/系统名、1 句说明、账号输入、密码输入、记住/忘记密码、主按钮、1 个次要入口即可。
@@ -454,7 +453,7 @@ public class PrototypePromptTemplate {
                 3. 包含逼真的模拟数据
                 4. 实现核心交互（按钮点击、Tab 切换、列表滚动、简单表单反馈等）
                 5. 不要生成图标墙、装饰性 icon 列表或大量小徽章；更像真实产品原型，而不是素材拼贴页。
-                6. 【移动端紧凑原则】App/小程序页面高度由内容自然决定，禁止 min-height:100vh；禁止为了填满屏幕而故意拉大 padding/margin/行高/卡片间距；内容少则紧凑结束，不留底部空白。
+                6. 【移动端版面原则】App/小程序页面默认宽度 390px 居中展示，页面背景与主容器建议自然延展铺满视口（min-height: 100%），保持标准移动端页面的完整版面感，包含顶部、主体与操作区，禁止生成孤立的小碎片。
 
                 【输出格式】
                 - 只输出 HTML 代码
@@ -731,9 +730,9 @@ public class PrototypePromptTemplate {
     private String getStyleGuide(Platform platform) {
         return switch (platform) {
             case APP -> """
-                    【终端约束】App 端设计，按 OPPO ColorOS 手机 App 原型生成，默认画布 390px 居中，高度由内容自然决定。
+                    【终端约束】App 端设计，按手机 App 原型生成，默认画布 390px 居中，页面背景与主容器自然延展铺满视口。
                     使用 OPPO ColorOS 设计语言（O-Flow）：灵动活力、无边界设计、大圆角、轻阴影、高饱和度色彩。
-                    使用移动端顶部栏、内容流、底部 Tab/底部操作栏，禁止生成 Web 后台侧边栏；禁止用 min-height:100vh 强制撑高页面。""";
+                    使用移动端顶部栏、内容流、底部 Tab/底部操作栏，禁止生成 Web 后台侧边栏。""";
             case WEB -> """
                     【终端约束】桌面端设计，宽度自适应 100%，内容最大宽度按页面类型决定。
                     不要默认强制生成侧边栏；是否使用顶部栏、侧边栏、右侧面板、居中表单或内容阅读区，必须由功能描述和页面类型判断决定。""";
@@ -753,7 +752,7 @@ public class PrototypePromptTemplate {
             case APP, MINI_PROGRAM -> """
                 【平台设计规范 — APP/小程序 — 基础组件样式已由平台注入】
                     1. 主题：OPPO ColorOS（主色 #1BA784，背景 #F7F8FA）。所有 co-* 组件的颜色、圆角、阴影、间距已由平台注入，禁止为它们编写或覆盖任何 CSS，禁止定义 :root 变量。
-                    2. 画布：390px 居中（平台已注入），高度由内容自然决定；禁止 min-height:100vh、height:844px 等固定设备高度；内容少则紧凑结束，不留底部空白。只有用户明确要求“锁屏截图/整屏壁纸/完整手机屏幕”时才允许固定设备高度，并且主视觉、操作或系统信息必须合理填满整屏，禁止留下无意义空带。
+                    2. 画布：390px 居中（平台已注入），页面背景与主容器建议自然延展铺满视口（min-height: 100%），具备完整清晰的移动端版面感，包含顶部、主体与必要操作区，禁止生成孤立的小碎片卡片。
                     3. 结构由需求意图决定：业务完整页可使用 .co-page-shell > 可选 .co-navbar + .co-page-content + 可选 .co-tabbar；沉浸式展示页、角色主视觉、活动视觉或单一领取场景可使用全屏舞台结构，不强制顶部栏、内容卡片或底部导航。禁止生成 Web 后台侧边栏。
                     4. 反桌面禁区（后台/CRUD/表格/报表描述一律翻译为移动端表达）：禁止 .co-sidebar、co-table 宽表格、分页器、面包屑、横向步骤条、横向标签页、双列表单、桌面大工具栏。
                        - 表格 → .co-list / .co-cell 列表或 .co-card 卡片流

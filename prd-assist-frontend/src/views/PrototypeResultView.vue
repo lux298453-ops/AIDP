@@ -68,6 +68,7 @@ interface PrototypePatch {
 /* ==================== 注入 iframe 的编辑运行时 ==================== */
 // 高亮样式（悬停虚线、选中实线光圈）
 const RUNTIME_STYLE = `<style data-proto-runtime>
+html, body { min-height: 100%; }
 [data-proto-hover]{ outline:1px dashed #f54e00 !important; outline-offset:-1px; cursor:pointer !important; }
 [data-proto-selected]{ outline:2px solid #f54e00 !important; outline-offset:-2px; box-shadow:0 0 0 3px rgba(245,78,0,.2) !important; }
 <\/style>`
@@ -78,25 +79,6 @@ const RUNTIME_SCRIPT = `<script data-proto-runtime>
   "use strict";
   var selected=null, counter=0, mode="select";
   function post(t,p){ parent.postMessage({source:"proto",type:t,payload:p}, "*"); }
-  var heightFrame=0;
-  function reportHeight(){
-    if(heightFrame) cancelAnimationFrame(heightFrame);
-    heightFrame=requestAnimationFrame(function(){
-      heightFrame=0;
-      var de=document.documentElement, body=document.body;
-      if(!de||!body) return;
-      var height=0, children=body.children;
-      for(var i=0;i<children.length;i++){
-        var el=children[i];
-        if(el.hasAttribute&&el.hasAttribute("data-proto-runtime")) continue;
-        var rect=el.getBoundingClientRect();
-        height=Math.max(height,rect.bottom+window.scrollY,el.offsetTop+el.scrollHeight);
-      }
-      var bodyStyle=getComputedStyle(body);
-      height+=parseFloat(bodyStyle.paddingBottom)||0;
-      post("contentHeight",Math.ceil(height));
-    });
-  }
   function pid(el){ if(!el.getAttribute("data-proto-id")){ el.setAttribute("data-proto-id","p"+(++counter)); } return el.getAttribute("data-proto-id"); }
   function byId(id){ return document.querySelector('[data-proto-id="'+id+'"]'); }
   function toHex(c){ if(!c) return "#000000"; if(c.charAt(0)==="#") return c; var m=c.match(/rgba?\\(([^)]+)\\)/); if(!m) return "#000000"; var a=m[1].split(",").map(function(x){return parseFloat(x)}); if(a.length>=4&&a[3]===0) return "transparent"; function h(n){ n=Math.max(0,Math.min(255,Math.round(n))); var s=n.toString(16); return s.length<2?"0"+s:s; } return "#"+h(a[0])+h(a[1])+h(a[2]); }
@@ -238,13 +220,7 @@ const RUNTIME_SCRIPT = `<script data-proto-runtime>
     else if(d.type==="move"){ move(d.id,d.targetId,d.position); post("tree",tree()); post("html",clean()); }
     else if(d.type==="patch"){ applyPatch(d.patch); }
     else if(d.type==="requestHtml"){ post("html",clean()); }
-    else if(d.type==="requestTree"){ post("tree",tree()); }
-    else if(d.type==="requestHeight"){ reportHeight(); } });
-  if(window.ResizeObserver){ new ResizeObserver(reportHeight).observe(document.documentElement); }
-  if(window.MutationObserver){ new MutationObserver(reportHeight).observe(document.documentElement,{subtree:true,childList:true,attributes:true,characterData:true}); }
-  window.addEventListener("load",reportHeight);
-  document.addEventListener("load",reportHeight,true);
-  reportHeight();
+    else if(d.type==="requestTree"){ post("tree",tree()); } });
   post("ready", true);
 })();
 <\/script>`
@@ -398,11 +374,10 @@ let patchAppliedWaiters: Array<() => void> = []
 let streamIdleTimer: ReturnType<typeof setTimeout> | null = null
 
 const devices = [
-  { key: 'mobile', label: '手机', icon: Iphone, width: 390, initialHeight: 844 },
-  { key: 'tablet', label: '平板', icon: Platform, width: 820, initialHeight: 1180 },
-  { key: 'desktop', label: '桌面', icon: Monitor, width: 0, initialHeight: 0 },
+  { key: 'mobile', label: '手机', icon: Iphone, width: 390 },
+  { key: 'tablet', label: '平板', icon: Platform, width: 820 },
+  { key: 'desktop', label: '桌面', icon: Monitor, width: 0 },
 ] as const
-const frameHeight = ref(0)
 
 const FONT_WEIGHTS = [
   { label: '常规', value: '400' },
@@ -466,7 +441,7 @@ const frameStyle = computed(() => {
   if (!d || !d.width) return { width: '100%', height: '100%' }
   return {
     width: `${d.width}px`,
-    height: `${Math.max(120, frameHeight.value || d.initialHeight)}px`,
+    height: '100%',
   }
 })
 const aiLoadingText = computed(() => (
@@ -559,13 +534,7 @@ function onMessage(e: MessageEvent) {
     frameReady.value = true
     post({ type: 'mode', value: editMode.value })
     post({ type: 'requestTree' })
-    post({ type: 'requestHeight' })
     flushQueuedPatches()
-  } else if (d.type === 'contentHeight') {
-    const measured = Number(d.payload)
-    if (device.value !== 'desktop' && Number.isFinite(measured)) {
-      frameHeight.value = Math.max(120, Math.min(12000, Math.ceil(measured)))
-    }
   } else if (d.type === 'select') {
     applySelect(d.payload)
   } else if (d.type === 'tree') {
@@ -706,8 +675,6 @@ function pushHref() {
 /* ==================== 工具栏动作 ==================== */
 function setDevice(k: 'mobile' | 'tablet' | 'desktop') {
   device.value = k
-  frameHeight.value = devices.find(item => item.key === k)?.initialHeight || 0
-  window.setTimeout(() => post({ type: 'requestHeight' }), 50)
 }
 
 function setMode(m: 'select' | 'interact') {
@@ -1009,7 +976,6 @@ function onTreeDrop(dragNode: any, dropNode: any, type: 'before' | 'after' | 'in
 /* ==================== iframe 生命周期 ==================== */
 function onFrameLoad() {
   frameReady.value = false
-  frameHeight.value = devices.find(item => item.key === device.value)?.initialHeight || 0
   selected.value = null
   treeData.value = []
   window.setTimeout(() => {
@@ -1017,7 +983,6 @@ function onFrameLoad() {
     frameReady.value = true
     post({ type: 'mode', value: editMode.value })
     post({ type: 'requestTree' })
-    post({ type: 'requestHeight' })
     flushQueuedPatches()
   }, 80)
 }
@@ -1607,21 +1572,25 @@ onBeforeUnmount(() => {
 .preview-canvas {
   flex: 1; min-height: 0; position: relative;
   display: flex; justify-content: center; align-items: stretch;
-  background: linear-gradient(180deg, #f7f7f4 0%, #efede7 100%);
+  background: #f8fafc;
   overflow: auto;
-  padding: 18px;
+  padding: 16px;
 }
-.preview-canvas.framed { align-items: flex-start; background: linear-gradient(180deg, #f1efe8 0%, #e8e5dd 100%); }
+.preview-canvas.framed {
+  align-items: stretch;
+  background: #f1f5f9;
+  padding: 16px 20px;
+}
 .frame-holder {
   height: 100%; background: #fff; transition: width .25s ease;
   max-width: 100%;
 }
 .preview-canvas.framed .frame-holder {
   min-height: 0;
-  border-radius: 14px; overflow: hidden;
-  box-shadow: 0 10px 40px rgba(38, 37, 30, .15);
-  border: 1px solid rgba(38, 37, 30, 0.08);
-  align-self: flex-start;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 4px 20px rgba(15, 23, 42, 0.08), 0 0 0 1px rgba(15, 23, 42, 0.06);
+  border: none;
 }
 .preview-frame { width: 100%; height: 100%; border: none; display: block; background: #fff; }
 
